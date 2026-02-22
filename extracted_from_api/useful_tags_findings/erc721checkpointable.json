@@ -1,0 +1,14 @@
+{
+  "tag": "ERC721Checkpointable",
+  "count": 0,
+  "metadata": {
+    "totalResults": 0,
+    "totalPages": 0
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 19,
+    "reset": 1771761120
+  },
+  "findings": []
+}

@@ -1,0 +1,1067 @@
+{
+  "tag": "transferFrom vs safeTransferFrom",
+  "count": 14,
+  "metadata": {
+    "totalResults": 14,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 2,
+    "reset": 1771761120
+  },
+  "findings": [
+    {
+      "id": "45077",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "16",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "2082",
+      "title": "[M-03] ERC20 tokens without return value will DoS reward claiming",
+      "content": "## Severity\n\n**Impact:** Medium\n\n**Likelihood:** Medium\n\n## Description\n\nSeveral functions throughout the application use the `transfer` function to transfer ERC20 tokens. However, some tokens do not return a `bool` on transfer, and since the ERC20 interface expects the `bool` return value, calling `transfer` on tokens that do not return a `bool` would revert. The following functions suffer from this issue:\n\n- `withdrawERC20` in `HoneyLocker`\n- `unstake` in `BeradromeAdapter`\n- `unstake` in `BGTStationAdapter`\n- `unstake` in `InfraredAdapter`\n- `unstake` in `KodiakAdapter`\n\nThe following functions also call `transfer` on ERC20, but the call is wrapped in a try-catch block. However, such a call would still revert:\n\n- `claim` in `BeradromeAdapter`\n- `claim` in `InfraredAdapter`\n- `claim` in `KodiakAdapter`\n\nThe impact is rated as medium since the issue can be resolved through a contract upgrade, though users would face a temporary freeze of their assets until the fix is deployed. The likelihood is high given that numerous widely-used tokens in the ecosystem don't strictly follow the ERC20 standard regarding return values.\n\n## Recommendations\n\nConsider using the `SafeTransfer` library for transferring ERC20 tokens. This can still make some transfers revert the whole transaction, therefore consider adding a function to pull tokens out separately.\n\nAlternatively, consider implementing the safe transfer functionality in the adapters on your own and making it not revert on failure, so the transfer can be retried later.",
+      "summary": "\nThe application has a bug where some tokens do not return a `bool` value when using the `transfer` function, which is causing errors in several functions. This is due to the ERC20 interface expecting a `bool` return value, causing the functions to revert. The affected functions are `withdrawERC20` in `HoneyLocker`, `unstake` in `BeradromeAdapter`, `unstake` in `BGTStationAdapter`, `unstake` in `InfraredAdapter`, and `unstake` in `KodiakAdapter`. Even functions that have a `try-catch` block are still experiencing issues. This can be resolved by upgrading the contract, but users may experience a temporary freeze of their assets until the fix is implemented. It is likely that this bug will occur due to the widespread use of tokens that do not strictly follow the ERC20 standard. To fix this, the `SafeTransfer` library can be used, or the adapters can be modified to handle the safe transfer functionality and not revert on failure.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/pashov/audits/blob/master/team/md/Interpol-security-review_2024-12-24.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "m-03-erc20-tokens-without-return-value-will-dos-reward-claiming-pashov-audit-group-none-interpol_2024-12-24-markdown",
+      "firm_name": "Pashov Audit Group",
+      "firm_logo_square": "Pashov_square.png",
+      "protocol_name": "Interpol_2024-12-24",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Pashov Audit Group",
+        "logo_square": "Pashov_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Interpol_2024-12-24",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "transferFrom vs safeTransferFrom"
+          }
+        }
+      ]
+    },
+    {
+      "id": "26172",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "11",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "1082",
+      "title": "Use safe transfer for ERC20 tokens",
+      "content": "**Severity:** Medium\n\n**Description:** The protocol intends to support all ERC20 tokens but the implementation uses the original transfer functions.\nSome tokens (like USDT) do not implement the EIP20 standard correctly and their transfer/transferFrom function return void instead of a success boolean. Calling these functions with the correct EIP20 function signatures will revert.\n\n```solidity\nTransferUtils.sol\n34:     function _transferERC20(address token, address to, uint256 amount) internal {\n35:         IERC20 erc20 = IERC20(token);\n36:         require(erc20 != IERC20(address(0)), \"Token Address is not an ERC20\");\n37:         uint256 initialBalance = erc20.balanceOf(to);\n38:         require(erc20.transfer(to, amount), \"ERC20 Transfer failed\");//@audit-issue will revert for USDT\n39:         uint256 balance = erc20.balanceOf(to);\n40:         require(balance >= (initialBalance + amount), \"ERC20 Balance check failed\");\n41:     }\n```\n\n**Impact:** Tokens that do not correctly implement the EIP20 like USDT, will be unusable in the protocol as they revert the transaction because of the missing return value.\n\n**Recommended Mitigation:** We recommend using OpenZeppelin's SafeERC20 versions with the safeTransfer and safeTransferFrom functions that handle the return value check as well as non-standard-compliant tokens.\n\n**Protocol:** Fixed in commit [564f711](https://github.com/SwapExchangeio/Contracts/commit/564f711c6f915f5a7696739266a1f8059ee9a172)\n\n**Cyfrin:** Verified.",
+      "summary": "\nThis bug report is about the protocol of a certain system not supporting all ERC20 tokens. The protocol uses the original transfer functions, and some tokens (like USDT) do not implement the EIP20 standard correctly, making their transfer/transferFrom functions return void instead of a success boolean. This causes the transaction to revert, making the tokens unusable in the protocol.\n\nThe impact of this bug is that tokens that do not correctly implement the EIP20, like USDT, will be unusable in the protocol as they revert the transaction because of the missing return value.\n\nThe recommended mitigation for this bug is to use OpenZeppelin's SafeERC20 versions with the safeTransfer and safeTransferFrom functions that handle the return value check as well as non-standard-compliant tokens. The protocol has been fixed in the commit 564f711c6f915f5a7696739266a1f8059ee9a172, and has been verified by Cyfrin.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/solodit/solodit_content/blob/main/reports/Cyfrin/2023-09-19-cyfrin-swapexchange.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "use-safe-transfer-for-erc20-tokens-cyfrin-none-cyfrin-swapexchange-markdown",
+      "firm_name": "Cyfrin",
+      "firm_logo_square": "Cyfrin_square.jpg",
+      "protocol_name": "Swapexchange",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Cyfrin",
+        "logo_square": "Cyfrin_square.jpg"
+      },
+      "protocols_protocol": {
+        "name": "Swapexchange",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Weird ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "transferFrom vs safeTransferFrom"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "SafeTransfer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6278",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 58,
+      "protocol_id": "54",
+      "title": "H-1: Use safeTransfer/safeTransferFrom consistently instead of transfer/transferFrom",
+      "content": "Source: https://github.com/sherlock-audit/2023-01-cooler-judging/issues/335 \n\n## Found by \ntsvetanovv, 0x52, polthedev, wagmi, enckrish, ak1, IllIllI, yongkiws, ctrlc03, zaskoh, Trumpero, TrungOre, Breeje, imare, jonatascm, cccz, Metadev, Nyx, neumo, Atarpara, serial-coder, yixxas, Tricko, 8olidity, Qeew, ahmedovv, libratus, usmannk, MohanVarma, psy4n0n, 0x4non, kiki\\_dev, peanuts, 0xhacksmithh, eyexploit, 0xSmartContract, supernova, Zarf, thekmj, ltyu, ck, sach1r0, hansfriese, John, HollaDieWaldfee, HonorLt, rvierdiiev, zaevlad, 0xAgro, Avci, gjaldon, Madalad, ch0bu, bin2chen, Bahurum, seyni, 0xadrii, Deivitto\n\n## Summary\nUse safeTransfer/safeTransferFrom consistently instead of transfer/transferFrom\n## Vulnerability Detail\nSome tokens do not revert on failure, but instead return false (e.g. [ZRX](https://etherscan.io/address/0xe41d2489571d322189246dafa5ebde1f4699f498#code)).\nhttps://github.com/d-xo/weird-erc20/#no-revert-on-failure\ntranfser/transferfrom is directly used to send tokens in many places in the contract and the return value is not checked.\nIf the token send fails, it will cause a lot of serious problems.\nFor example, in the clear function, if debt token is ZRX, the lender can clear request without providing any debt token.\n```solidity\n    function clear (uint256 reqID) external returns (uint256 loanID) {\n        Request storage req = requests[reqID];\n\n        factory.newEvent(reqID, CoolerFactory.Events.Clear);\n\n        if (!req.active) \n            revert Deactivated();\n        else req.active = false;\n\n        uint256 interest = interestFor(req.amount, req.interest, req.duration);\n        uint256 collat = collateralFor(req.amount, req.loanToCollateral);\n        uint256 expiration = block.timestamp + req.duration;\n\n        loanID = loans.length;\n        loans.push(\n            Loan(req, req.amount + interest, collat, expiration, true, msg.sender)\n        );\n        debt.transferFrom(msg.sender, owner, req.amount);\n    }\n```\n## Impact\nIf the token send fails, it will cause a lot of serious problems.\nFor example, in the clear function, if debt token is ZRX, the lender can clear request without providing any debt token.\n## Code Snippet\nhttps://github.com/sherlock-audit/2023-01-cooler/blob/main/src/Cooler.sol#L85-L86\nhttps://github.com/sherlock-audit/2023-01-cooler/blob/main/src/Cooler.sol#L122-L123\nhttps://github.com/sherlock-audit/2023-01-cooler/blob/main/src/Cooler.sol#L146-L147\nhttps://github.com/sherlock-audit/2023-01-cooler/blob/main/src/Cooler.sol#L179-L180\nhttps://github.com/sherlock-audit/2023-01-cooler/blob/main/src/Cooler.sol#L205-L206\nhttps://github.com/sherlock-audit/2023-01-cooler/blob/main/src/Cooler.sol#L102-L103\n## Tool used\n\nManual Review\n\n## Recommendation\nConsider using safeTransfer/safeTransferFrom consistently.\n\n## Discussion\n\n**hrishibhat**\n\nSponsor comment:\n> Good spot. Niche case.",
+      "summary": "\nThis bug report was found by tsvetanovv, 0x52, polthedev, wagmi, enckrish, ak1, IllIllI, yongkiws, ctrlc03, zaskoh, Trumpero, TrungOre, Breeje, imare, jonatascm, cccz, Metadev, Nyx, neumo, Atarpara, serial-coder, yixxas, Tricko, 8olidity, Qeew, ahmedovv, libratus, usmannk, MohanVarma, psy4n0n, 0x4non, kiki\\_dev, peanuts, 0xhacksmithh, eyexploit, 0xSmartContract, supernova, Zarf, thekmj, ltyu, ck, sach1r0, hansfriese, John, HollaDieWaldfee, HonorLt, rvierdiiev, zaevlad, 0xAgro, Avci, gjaldon, Madalad, ch0bu, bin2chen, Bahurum, seyni, 0xadrii, and Deivitto.\n\nThe issue is that transfer/transferFrom is being used instead of safeTransfer/safeTransferFrom in the Cooler contract. This could lead to serious problems because some tokens do not revert on failure, but instead return false. For example, if the debt token is ZRX, the lender can clear the request without providing any debt token. The impact of this is that the lender could exploit this vulnerability and clear the request without providing any debt token.\n\nThe recommendation is to use safeTransfer/safeTransferFrom consistently instead of transfer/transferFrom. The tool used to find this bug was manual review. The sponsor commented that it was a good spot and a niche case.",
+      "report_date": {},
+      "contest_prize_txt": "10000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/36",
+      "sponsor_name": "cooler",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-01-cooler-judging/issues/335",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "36",
+      "slug": "h-1-use-safetransfersafetransferfrom-consistently-instead-of-transfertransferfrom-sherlock-cooler-cooler-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Cooler",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Cooler",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "transferFrom vs safeTransferFrom"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "SafeTransfer"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6209",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "253",
+      "title": "[M-04] Incorrect usage of safeTransferFrom traps fees in Papr Controller",
+      "content": "\nBecause the Papr Controller never gives approval for ERC20 transfers, calls to `safeTransferFrom` on the Papr token will revert with insufficient approval. This will trap proceeds from auctions in the contract and prevent the owner/ DAO from collecting fees, motivating the rating of high severity. The root cause of this issue is misusing `safeTransferFrom` to transfer tokens directly out of the contract instead of using `transfer` directly. The contract will hold the token balance and thus does not need approval to transfer tokens, nor can it approve token transfers in the current implementation.\n\n### Proof of Concept\n\nComment out [this token approval](https://github.com/with-backed/papr/blob/9528f2711ff0c1522076b9f93fba13f88d5bd5e6/test/paprController/OwnerFunctions.ft.sol#L67) as the controller contract does not implement functionality to call approve. It doesn't make sense to \"prank\" a contract account in this context because it deviates from the runtime behavior of the deployed contract. That is, it's impossible for the Papr Controller to approve token transfers. Run `forge test -m testSendPaprFromAuctionFeesWorksIfOwner` and observe that it fails because of insufficient approvals. Replace [the call to `safeTransferFrom`](https://github.com/with-backed/papr/blob/9528f2711ff0c1522076b9f93fba13f88d5bd5e6/src/PaprController.sol#L383) with a call to `transfer(to, amount)` and rerun the test. It will now pass and correctly achieve the intended behavior.\n\n### Tools Used\n\nFoundry\n\n### Recommended Mitigation Steps\n\nCall `transfer(to, amount)` instead of `safeTrasferFrom` [here](https://github.com/with-backed/papr/blob/9528f2711ff0c1522076b9f93fba13f88d5bd5e6/src/PaprController.sol#L383). Note, it's unnecessary to use `safeTransfer` as the Papr token doesn't behave irregularly.\n\n**[Jeiwan (warden) commented](https://github.com/code-423n4/2022-12-backed-findings/issues/110#issuecomment-1369792773):**\n > Good finding! In the current implementation `PaprController` doesn't accumulate fees, so it may not cause a loss of funds.\n\n**[wilsoncusack (Backed) confirmed](https://github.com/code-423n4/2022-12-backed-findings/issues/110)**\n\n**[trust1995 (judge) commented](https://github.com/code-423n4/2022-12-backed-findings/issues/110#issuecomment-1370856400):**\n > @wilsoncusack, will you agree that in the current iteration of the code, we can consider this a M level find as no funds are at risk?\n\n**[wilsoncusack (Backed) commented](https://github.com/code-423n4/2022-12-backed-findings/issues/110#issuecomment-1370860635):**\n > @trust1995 it's a tough call. No funds are at risk because we burn fees. So these functions are not needed or used right now. But if we did not burn fees then all papr fees would be stuck. In the whitepaper we mention the idea of an insurance fund. Tempted to say high? \n\n**[trust1995 (judge) commented](https://github.com/code-423n4/2022-12-backed-findings/issues/110#issuecomment-1373759952):**\n > I have reviewed this finding along with several other judges, and believe it is ultimately of Med severity. Thank you for your input.\n\n***\n\n",
+      "summary": "\nThis bug report is about the Papr Controller contract, a smart contract for an Ethereum-based token. The issue is that calls to `safeTransferFrom` on the Papr token will revert with insufficient approval, trapping proceeds from auctions in the contract and preventing the owner/ DAO from collecting fees. This was found by commenting out a token approval and running a test to observe that it failed due to insufficient approvals. The root cause of this issue is misusing `safeTransferFrom` to transfer tokens directly out of the contract instead of using `transfer` directly. The recommended mitigation step is to call `transfer(to, amount)` instead of `safeTrasferFrom` in the controller contract.",
+      "report_date": {},
+      "contest_prize_txt": "$60,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-12-papr-contest",
+      "sponsor_name": "Backed Protocol",
+      "sponsor_link": "https://twitter.com/backed_xyz",
+      "quality_score": 5,
+      "general_score": 3,
+      "source_link": "https://code4rena.com/reports/2022-12-backed",
+      "github_link": "https://github.com/code-423n4/2022-12-backed-findings/issues/110",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "196",
+      "slug": "m-04-incorrect-usage-of-safetransferfrom-traps-fees-in-papr-controller-code4rena-backed-protocol-papr-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Backed Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Backed Protocol",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "transferFrom vs safeTransferFrom"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3634",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 15,
+      "protocol_id": "99",
+      "title": "M-2: Unsafe ERC20 methods",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-telcoin-judging/issues/82 \n\n## Found by \n0x4non, 0xAgro, yixxas, 0xheynacho, Bnke0x0, WATCHPUG, aphak5010, rotcivegaf, Mukund, hickuphh3, pashov, hyh, Deivitto, rvierdiiev, eierina\n\n## Summary\n\nUsing unsafe ERC20 methods can revert the transaction for certain tokens.\n\n## Vulnerability Detail\n\nThere are many [Weird ERC20 Tokens](https://www.hacknote.co/17c261f7d8fWbdml/doc/182a568ab5cUOpDM) that won't work correctly using the standard `IERC20` interface.\n\nFor example, `IERC20(token).transferFrom()` and `IERC20(token).transfer()` will fail for some tokens as they may not conform to the standard IERC20 interface. And if `_aggregator` does not always consume all the allowance given at L72, the transaction will also revert on the next call, because there are certain tokens that do not allow approval of a non-zero number when the current allowance is not zero (eg, USDT).\n\n## Impact\n\nThe contract will malfunction for certain tokens.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2022-11-telcoin/blob/main/contracts/fee-buyback/FeeBuyback.sol#L94-L97\n\nhttps://github.com/sherlock-audit/2022-11-telcoin/blob/main/contracts/fee-buyback/FeeBuyback.sol#L47-L82\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nConsider using `SafeERC20` for `transferFrom`, `transfer` and `approve`.\n\n## Discussion\n\n**amshirif**\n\nhttps://github.com/telcoin/telcoin-staking/pull/6",
+      "summary": "\nThis bug report is about unsafe ERC20 methods which can cause the transaction to revert for certain tokens. The issue was found by a group of people, including 0x4non, 0xAgro, yixxas, 0xheynacho, Bnke0x0, WATCHPUG, aphak5010, rotcivegaf, Mukund, hickuphh3, pashov, hyh, Deivitto, rvierdiiev, and eierina. The issue is related to certain tokens that do not conform to the standard IERC20 interface, such as when using `IERC20(token).transferFrom()` and `IERC20(token).transfer()`. This can cause the transaction to revert if the _aggregator does not always consume all the allowance given at Line 72, or when the current allowance is not zero (e.g. USDT). \n\nThe impact of this issue is that the contract will malfunction for certain tokens. The code snippets related to this issue can be found at Lines 47-82 and 94-97 in the FeeBuyback.sol file. The issue was discovered through manual review. The recommendation is to consider using SafeERC20 for transferFrom, transfer, and approve. A discussion on the issue can be found in the telcoin-staking pull request #6.",
+      "report_date": {},
+      "contest_prize_txt": "10000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/25",
+      "sponsor_name": "Telcoin",
+      "sponsor_link": "",
+      "quality_score": 2,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-telcoin-judging/issues/82",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "25",
+      "slug": "m-2-unsafe-erc20-methods-sherlock-telcoin-telcoin-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Telcoin",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Telcoin",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Weird ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "transferFrom vs safeTransferFrom"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3595",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 6,
+      "protocol_id": "103",
+      "title": "M-3: Using `ERC721.transferFrom()` instead of `safeTransferFrom()` may cause the user's NFT to be frozen in a contract that does not support ERC721",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-frankendao-judging/issues/55 \n\n## Found by \nsaian, rvierdiiev, WATCHPUG, Tomo, Bnke0x0, Nyx\n\n## Summary\n\nThere are certain smart contracts that do not support ERC721, using `transferFrom()` may result in the NFT being sent to such contracts.\n\n## Vulnerability Detail\n\nIn `unstake()`, `_to` is param from user's input.\n\nHowever, if `_to` is a contract address that does not support ERC721, the NFT can be frozen in that contract.\n\nAs per the documentation of EIP-721:\n\n> A wallet/broker/auction application MUST implement the wallet interface if it will accept safe transfers.\n\nRef: https://eips.ethereum.org/EIPS/eip-721\n\n## Impact\n\nThe NFT may get stuck in the contract that does support ERC721.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2022-11-frankendao/blob/main/src/Staking.sol#L463-L489\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nConsider using `safeTransferFrom()` instead of `transferFrom()`.\n\n## Discussion\n\n**zobront**\n\nFixed: https://github.com/Solidity-Guild/FrankenDAO/pull/10",
+      "summary": "\nThis bug report is about a vulnerability found in the smart contract code of the \"FrankenDAO\" project. The vulnerability is related to the use of `ERC721.transferFrom()` instead of `safeTransferFrom()` when sending a Non-Fungible Token (NFT). The issue was discovered by a group of people including saian, rvierdiiev, WATCHPUG, Tomo, Bnke0x0, Nyx. \n\nUsing `transferFrom()` may result in the NFT being sent to a contract that does not support ERC721, thus freezing the NFT in the contract. This is because, according to the EIP-721 documentation, a wallet, broker or auction application must implement the wallet interface if it will accept safe transfers.\n\nThe impact of this vulnerability is that the NFT may get stuck in the contract that does not support ERC721. The code snippet related to this issue can be found at the given link. The vulnerability was discovered through manual review and the recommended solution is to consider using `safeTransferFrom()` instead of `transferFrom()`. The issue was fixed by zobront and the fix can be found at the given link.",
+      "report_date": {},
+      "contest_prize_txt": "16000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/18",
+      "sponsor_name": "3D FrankenPunks",
+      "sponsor_link": "",
+      "quality_score": 3,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-frankendao-judging/issues/55",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "18",
+      "slug": "m-3-using-erc721transferfrom-instead-of-safetransferfrom-may-cause-the-users-nft-to-be-frozen-in-a-contract-that-does-not-support-erc721-sherlock-3d-frankenpunks-frankendao-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "FrankenDAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "FrankenDAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Payments"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "transferFrom vs safeTransferFrom"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "NFT"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC721"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5730",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "126",
+      "title": "[M-01] Unhandled return values of transfer and transferFrom",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2022-10-inverse/blob/main/src/Market.sol#L205\nhttps://github.com/code-423n4/2022-10-inverse/blob/main/src/Market.sol#L280\nhttps://github.com/code-423n4/2022-10-inverse/blob/main/src/Market.sol#L399\nhttps://github.com/code-423n4/2022-10-inverse/blob/main/src/Market.sol#L537\nhttps://github.com/code-423n4/2022-10-inverse/blob/main/src/Market.sol#L570\nhttps://github.com/code-423n4/2022-10-inverse/blob/main/src/Market.sol#L602\n\n\n## Vulnerability details\n\n## Impact\nERC20 implementations are not always consistent. Some implementations of transfer and transferFrom could return ‘false’ on failure instead of reverting. It is safer to wrap such calls into require() statements to these failures.\n\n\n## Proof of Concept\nProvide direct links to all referenced code in GitHub. Add screenshots, logs, or any other relevant proof that illustrates the concept.\nhttps://github.com/code-423n4/2022-10-inverse/blob/main/src/Market.sol#L205\nhttps://github.com/code-423n4/2022-10-inverse/blob/main/src/Market.sol#L280\nhttps://github.com/code-423n4/2022-10-inverse/blob/main/src/Market.sol#L399\nhttps://github.com/code-423n4/2022-10-inverse/blob/main/src/Market.sol#L537\nhttps://github.com/code-423n4/2022-10-inverse/blob/main/src/Market.sol#L570\nhttps://github.com/code-423n4/2022-10-inverse/blob/main/src/Market.sol#L602\n## Tools Used\nRead the codes\n\n## Recommended Mitigation Steps\nCheck the return value and revert on 0/false or use OpenZeppelin’s SafeERC20 wrapper functions",
+      "summary": "\nThis bug report is about an issue with the ERC20 implementation in the code located at the given GitHub links. The issue is that some implementations of the transfer and transferFrom functions may return ‘false’ on failure instead of reverting. This can lead to unexpected behavior and should be avoided. To investigate the issue, the codes should be read. To prevent this issue, the return value should be checked and the transaction should be reverted on 0/false. Alternatively, OpenZeppelin’s SafeERC20 wrapper functions can be used.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-10-inverse-finance-contest",
+      "sponsor_name": "Inverse Finance",
+      "sponsor_link": "https://twitter.com/InverseFinance",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-10-inverse",
+      "github_link": "https://github.com/code-423n4/2022-10-inverse-findings/issues/10",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "175",
+      "slug": "m-01-unhandled-return-values-of-transfer-and-transferfrom-code4rena-inverse-finance-inverse-finance-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Inverse Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Inverse Finance",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "transferFrom vs safeTransferFrom"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5595",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 21,
+      "protocol_id": "131",
+      "title": "[M-02] `_payoutToken[s]()` is not compatible with tokens with missing return value",
+      "content": "\n[PA1D.sol#L317](https://github.com/code-423n4/2022-10-holograph/blob/f8c2eae866280a1acfdc8a8352401ed031be1373/src/enforcer/PA1D.sol#L317)<br>\n[PA1D.sol#L340](https://github.com/code-423n4/2022-10-holograph/blob/f8c2eae866280a1acfdc8a8352401ed031be1373/src/enforcer/PA1D.sol#L340)<br>\n\nPayout is blocked and tokens are stuck in contract.\n\n### Proof of Concept\n\n`PA1D._payoutToken()` and `PA1D._payoutTokens()` call `ERC20.transfer()` in a require-statement to send tokens to a list of payout recipients.<br>\nSome tokens do not return a bool (e.g. USDT, BNB, OMG) on ERC20 methods. But since the require-statement expects a `bool`, for such a token a `void` return will also cause a revert, despite an otherwise successful transfer. That is, the token payout will always revert for such tokens.\n\n### Recommended Mitigation Steps\n\nUse [OpenZeppelin's SafeERC20](https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/utils/SafeERC20.sol), which handles the return value check as well as non-standard-compliant tokens.\n\n**[alexanderattar (Holograph) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/456#issuecomment-1306632476):**\n > Low priority, but can be updated to ensure compatibility with all ERC20 tokens.\n\n**[alexanderattar (Holograph) linked a PR](https://github.com/code-423n4/2022-10-holograph-findings/issues/456#issuecomment-1306632476):**\n > [Feature/holo 612 royalty smart contract improvements](https://github.com/holographxyz/holograph-protocol/pull/93)\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about the vulnerability in the code of the project 2022-10-holograph, which is hosted on GitHub. It has been determined that the code for the `PA1D._payoutToken()` and `PA1D._payoutTokens()` functions is causing a problem when attempting to transfer tokens to a list of payouts recipients. This is because some tokens do not return a boolean value, which causes the require-statement to revert despite a successful transfer. This means that the token payout is blocked and the tokens are stuck in the contract.\n\nThe bug was discovered through code inspection and the recommended mitigation step is to use OpenZeppelin's SafeERC20, which handles the return value check as well as non-standard-compliant tokens. This will ensure that the token payout is successful and the tokens are not stuck in the contract.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-10-holograph-contest",
+      "sponsor_name": "Holograph",
+      "sponsor_link": "https://twitter.com/holographxyz",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-10-holograph",
+      "github_link": "https://github.com/code-423n4/2022-10-holograph-findings/issues/456",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "170",
+      "slug": "m-02-_payouttokens-is-not-compatible-with-tokens-with-missing-return-value-code4rena-holograph-holograph-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Holograph",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Holograph",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Marketplace"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "transferFrom vs safeTransferFrom"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Weird ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "SafeTransfer"
+          }
+        }
+      ]
+    },
+    {
+      "id": "8739",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 54,
+      "protocol_id": "179",
+      "title": "[M-02] Use `safeTransferFrom` Instead of `transferFrom` for ERC721",
+      "content": "\n[GolomTrader.sol#L236](https://github.com/code-423n4/2022-07-golom/blob/7bbb55fca61e6bae29e57133c1e45806cbb17aa4/contracts/core/GolomTrader.sol#L236)<br>\n\nUse of `transferFrom` method for ERC721 transfer is discouraged and recommended to use safeTransferFrom whenever possible by OpenZeppelin.<br>\nThis is because `transferFrom()` cannot check whether the receiving address know how to handle ERC721 tokens.\n\nIn the function shown at below PoC, ERC721 token is sent to `msg.sender` with the `transferFrom` method.<br>\nIf this `msg.sender` is a contract and is not aware of incoming ERC721 tokens, the sent token could be locked up in the contract forever.\n\nReference: <https://docs.openzeppelin.com/contracts/3.x/api/token/erc721>\n\n### Proof of Concept\n```\nGolomTrader.sol:236:            ERC721(o.collection).transferFrom(o.signer, receiver, o.tokenId);\n```\n\n### Recommended Mitigation Steps\n\nI recommend to call the `safeTransferFrom()` method instead of `transferFrom()` for NFT transfers.\n\n**[0xsaruman (Golom) confirmed, but disagreed with severity](https://github.com/code-423n4/2022-07-golom-findings/issues/342)**\n\n**[0xsaruman (Golom) resolved and commented](https://github.com/code-423n4/2022-07-golom-findings/issues/342#issuecomment-1236301290):**\n > Resolved https://github.com/golom-protocol/contracts/commit/366c0455547041003c28f21b9afba48dc33dc5c7#diff-63895480b947c0761eff64ee21deb26847f597ebee3c024fb5aa3124ff78f6ccR238\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about an issue with the use of the transferFrom method for ERC721 token transfers. The use of this method is discouraged and it is recommended to use the safeTransferFrom method instead. This is because the transferFrom method cannot check if the receiving address knows how to handle ERC721 tokens. If the receiving address is a contract which is not aware of incoming ERC721 tokens, the sent token could be locked up in the contract forever.\n\nThe bug report includes a proof of concept which shows the use of the transferFrom method in the function. The bug was discovered using manual analysis.\n\nThe recommended mitigation step is to call the safeTransferFrom() method instead of transferFrom() for NFT transfers. This will ensure that the receiving address is aware of the incoming ERC721 tokens, and that the tokens are not locked up in the contract forever.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-07-golom-contest",
+      "sponsor_name": "Golom",
+      "sponsor_link": "https://twitter.com/golom_io",
+      "quality_score": 4,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2022-07-golom",
+      "github_link": "https://github.com/code-423n4/2022-07-golom-findings/issues/342",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "148",
+      "slug": "m-02-use-safetransferfrom-instead-of-transferfrom-for-erc721-code4rena-golom-golom-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Golom",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Golom",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Marketplace"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Options Vault"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "transferFrom vs safeTransferFrom"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "SafeTransfer"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2961",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 35,
+      "protocol_id": "189",
+      "title": "[M-03] Use a safe transfer helper library for ERC20 transfers",
+      "content": "_Submitted by horsefacts, also found by 0x1f8b, 0x29A, 0x52, 0xf15ers, AlleyCat, apostle0x01, berndartmueller, cccz, Ch&#95;301, Chom, cloudjunky, codexploder, cryptphi, delfin454000, durianSausage, fatherOfBlocks, Franfran, hake, hansfriese, hyh, IllIllI, jonatascm, Kaiziron, Limbooo, m&#95;Rassska, Meera, oyc&#95;109, peritoflores, rajatbeladiya, rbserver, Ruhum, Sm4rty, svskaushik, and zzzitron_\n\n`JBERC20PaymentTerminal#_transferFrom` calls `IERC20#transfer` and `transferFrom` directly. There are two issues with using this interface directly:\n\n1.  `JBERC20PaymentTerminal#_transferFrom` function does not check the return value of these calls. Tokens that return `false` rather than revert to indicate failed transfers may silently fail rather than reverting as expected.\n\n2.  Since the IERC20 interface requires a boolean return value, attempting to transfer ERC20s with [missing return values](https://github.com/d-xo/weird-erc20#missing-return-values) will revert. This means Juicebox payment terminals cannot support a number of popular ERC20s, including USDT and BNB.\n\n[`JBERC20PaymentTerminal#_transferFrom`](https://github.com/jbx-protocol/juice-contracts-v2-code4rena/blob/828bf2f3e719873daa08081cfa0d0a6deaa5ace5/contracts/JBERC20PaymentTerminal.sol#L81-L89):\n\n```solidity\n  function _transferFrom(\n    address _from,\n    address payable _to,\n    uint256 _amount\n  ) internal override {\n    _from == address(this)\n      ? IERC20(token).transfer(_to, _amount)\n      : IERC20(token).transferFrom(_from, _to, _amount);\n  }\n```\n\n### Impact\n\nJuicebox payment terminals may issue project tokens to users even though their incoming token transfer failed. Juicebox payment terminals cannot support USDT, BNB, and other popular (but nonstandard) ERC20s.\n\n### Recommended Mitigation Steps\n\nUse a safe transfer library like OpenZeppelin [SafeERC20](https://docs.openzeppelin.com/contracts/4.x/api/token/erc20#SafeERC20) to ensure consistent handling of ERC20 return values and abstract over [inconsistent ERC20](https://github.com/d-xo/weird-erc20) implementations.\n\nAdditionally, since payment terminals are meant to support a variety of ERC20s, consider writing simulation tests that make token transfers using payment terminals for the most popular and most unusual ERC20s.\n\n(Note also that the out of scope `JBETHERC20ProjectPayer` and `JBETHERC20SplitsPayer` contracts also call `IERC20#transfer` and `transferFrom` without a helper!)\n\nSee the following Forge test, which simulates an attempted USDT transfer. (Run this in fork mode using the `--fork-url` flag).\n\n```solidity\n// SPDX-License-Identifier: MIT\npragma solidity 0.8.6;\n\nimport './helpers/TestBaseWorkflow.sol';\nimport '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';\n\naddress constant USDT_ADDRESS = address(0xdAC17F958D2ee523a2206206994597C13D831ec7);\n\ncontract TestWeirdERC20 is TestBaseWorkflow {\n  using SafeERC20 for IERC20Metadata;\n\n  JBController controller;\n  JBProjectMetadata _projectMetadata;\n  JBFundingCycleData _data;\n  JBFundingCycleMetadata _metadata;\n  JBGroupedSplits[] _groupedSplits;\n  JBFundAccessConstraints[] _fundAccessConstraints;\n  IJBPaymentTerminal[] _terminals;\n  JBTokenStore _tokenStore;\n  JBERC20PaymentTerminal _tetherTerminal;\n\n  IERC20Metadata usdt = IERC20Metadata(USDT_ADDRESS);\n  address _projectOwner;\n\n  uint256 WEIGHT = 1000 * 10**18;\n\n  function setUp() public override {\n    super.setUp();\n\n    _projectOwner = multisig();\n\n    _tokenStore = jbTokenStore();\n\n    controller = jbController();\n\n    _projectMetadata = JBProjectMetadata({content: 'myIPFSHash', domain: 1});\n\n    _data = JBFundingCycleData({\n      duration: 14,\n      weight: WEIGHT,\n      discountRate: 450000000,\n      ballot: IJBFundingCycleBallot(address(0))\n    });\n\n    _metadata = JBFundingCycleMetadata({\n      global: JBGlobalFundingCycleMetadata({allowSetTerminals: false, allowSetController: false}),\n      reservedRate: 5000, //50%\n      redemptionRate: 5000, //50%\n      ballotRedemptionRate: 0,\n      pausePay: false,\n      pauseDistributions: false,\n      pauseRedeem: false,\n      pauseBurn: false,\n      allowMinting: false,\n      allowChangeToken: false,\n      allowTerminalMigration: false,\n      allowControllerMigration: false,\n      holdFees: false,\n      useTotalOverflowForRedemptions: false,\n      useDataSourceForPay: false,\n      useDataSourceForRedeem: false,\n      dataSource: address(0)\n    });\n\n    _tetherTerminal = new JBERC20PaymentTerminal(\n      usdt,\n      jbLibraries().ETH(), // currency\n      jbLibraries().ETH(), // base weight currency\n      1, // JBSplitsGroupe\n      jbOperatorStore(),\n      jbProjects(),\n      jbDirectory(),\n      jbSplitsStore(),\n      jbPrices(),\n      jbPaymentTerminalStore(),\n      multisig()\n    );\n    evm.label(address(_tetherTerminal), 'TetherTerminal');\n\n    _terminals.push(_tetherTerminal);\n  }\n\n  function testTetherPaymentsRevert() public {\n    JBERC20PaymentTerminal terminal = _tetherTerminal;\n\n    _fundAccessConstraints.push(\n      JBFundAccessConstraints({\n        terminal: terminal,\n        token: address(USDT_ADDRESS),\n        distributionLimit: 10 * 10**18,\n        overflowAllowance: 5 * 10**18,\n        distributionLimitCurrency: jbLibraries().ETH(),\n        overflowAllowanceCurrency: jbLibraries().ETH()\n      })\n    );\n\n    uint256 projectId = controller.launchProjectFor(\n      _projectOwner,\n      _projectMetadata,\n      _data,\n      _metadata,\n      block.timestamp,\n      _groupedSplits,\n      _fundAccessConstraints,\n      _terminals,\n      ''\n    );\n\n    address caller = msg.sender;\n    evm.label(caller, 'caller');\n    deal(address(usdt), caller, 20 * 10**18);\n\n    evm.prank(caller);\n    usdt.safeApprove(address(terminal), 20 * 10**18);\n    evm.prank(caller);\n    terminal.pay(\n      projectId,\n      20 * 10**18,\n      address(usdt),\n      msg.sender,\n      0,\n      false,\n      'Forge test',\n      new bytes(0)\n    );\n  }\n}\n```\n**[mejango (Juicebox) confirmed](https://github.com/code-423n4/2022-07-juicebox-findings/issues/281)**\n\n**mejango (Juicebox) resolved:**\n> PR with fix: [PR #1](https://github.com/jbx-protocol/juice-contracts-v3/pull/1)\n\n**berndartmueller (warden) reviewed mitigation:**\n> OpenZeppelins&#39; `SafeERC20` library is now used to ensure consistent handling of ERC20 token transfers.\n\n\n***\n\n",
+      "summary": "\nA bug report has been filed regarding the code in the Juicebox payment terminal contract. The code calls `IERC20#transfer` and `transferFrom` directly, which can cause two issues. Firstly, the function does not check the return value of the calls, meaning tokens that return `false` rather than reverting may silently fail rather than reverting as expected. Secondly, since the IERC20 interface requires a boolean return value, attempting to transfer ERC20s with missing return values will revert, meaning Juicebox payment terminals cannot support a number of popular ERC20s, including USDT and BNB.\n\nThis bug can have a significant impact as Juicebox payment terminals may issue project tokens to users even though their incoming token transfer failed, and they cannot support USDT, BNB, and other popular ERC20s.\n\nThe recommendation is to use a safe transfer library like OpenZeppelin [SafeERC20](https://docs.openzeppelin.com/contracts/4.x/api/token/erc20#SafeERC20) to ensure consistent handling of ERC20 return values and abstract over [inconsistent ERC20](https://github.com/d-xo/weird-erc20) implementations. Additionally, since payment terminals are meant to support a variety of ERC20s, consider writing simulation tests that make token transfers using payment terminals for the most popular and most unusual ERC20s.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-07-juicebox-v2-contest",
+      "sponsor_name": "Juicebox",
+      "sponsor_link": "https://twitter.com/juiceboxETH",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2022-07-juicebox",
+      "github_link": "https://github.com/code-423n4/2022-07-juicebox-findings/issues/242",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "143",
+      "slug": "m-03-use-a-safe-transfer-helper-library-for-erc20-transfers-code4rena-juicebox-juicebox-v2-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Juicebox",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Juicebox",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "transferFrom vs safeTransferFrom"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2500",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 50,
+      "protocol_id": "216",
+      "title": "[M-03] Use safeTransfer()/safeTransferFrom() instead of transfer()/transferFrom()",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/RubiconRouter.sol#L251\n\n\n## Vulnerability details\n\n## Impact\n\nIt is a good idea to add a `require()` statement that checks the return value of ERC20 token transfers or to use something like OpenZeppelin’s `safeTransfer()`/`safeTransferFrom()` unless one is sure the given token reverts in case of a failure. Failure to do so will cause silent failures of transfers and affect token accounting in contract.\n\nHowever, using `require()` to check transfer return values could lead to issues with non-compliant ERC20 tokens which do not return a boolean value. Therefore, it's highly advised to use OpenZeppelin’s `safeTransfer()`/`safeTransferFrom()`.\n\n## Proof of Concept\n\n**RubiconRouter.sol**\n\n[L251](https://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/RubiconRouter.sol#L251): `ERC20(route[route.length - 1]).transfer(to, currentAmount);`\\\n[L303](https://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/RubiconRouter.sol#L303): `ERC20(buy_gem).transfer(msg.sender, fill);`\\\n[L320](https://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/RubiconRouter.sol#L320): `ERC20(buy_gem).transfer(msg.sender, fill);`\\\n[L348](https://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/RubiconRouter.sol#L348): `ERC20(buy_gem).transfer(msg.sender, buy_amt);`\\\n[L377](https://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/RubiconRouter.sol#L377): `ERC20(pay_gem).transfer(msg.sender, max_fill_amount - fill);`\\\n[L406](https://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/RubiconRouter.sol#L406): `ERC20(buy_gem).transfer(msg.sender, _after - _before);`\\\n[L471](https://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/RubiconRouter.sol#L471): `ERC20(targetPool).transfer(msg.sender, newShares);`\n\n**peripheral_contracts/BathBuddy.sol**\n\n[L114](https://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/peripheral_contracts/BathBuddy.sol#L114): `token.transfer(recipient, amountWithdrawn);`\n\n**rubiconPools/BathPair.sol**\n\n[L601](https://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/rubiconPools/BathPair.sol#L601): `IERC20(asset).transfer(msg.sender, booty);`\\\n[L615](https://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/rubiconPools/BathPair.sol#L615): `IERC20(quote).transfer(msg.sender, booty);`\n\n**rubiconPools/BathToken.sol**\n\n[L353](https://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/rubiconPools/BathToken.sol#L353): `IERC20(filledAssetToRebalance).transfer(`\\\n[L357](https://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/rubiconPools/BathToken.sol#L357): `IERC20(filledAssetToRebalance).transfer(msg.sender, stratReward); `\\\n[L602](https://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/rubiconPools/BathToken.sol#L602): `underlyingToken.transfer(feeTo, _fee);`\\\n[L605](https://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/rubiconPools/BathToken.sol#L605): `underlyingToken.transfer(receiver, amountWithdrawn);`\n\n## Tools Used\n\nManual review\n\n## Recommended mitigation steps\n\nConsider using `safeTransfer()`/`safeTransferFrom()` instead of `transfer()`/`transferFrom()`.",
+      "summary": "\nThis bug report is about the code of the Rubicon project which is a decentralized liquidity protocol. It is found that the code has issues with non-compliant ERC20 tokens which do not return a boolean value. This can lead to silent failures of transfers and affect token accounting in the contract. The code has been manually reviewed and it is recommended to use OpenZeppelin's safeTransfer()/safeTransferFrom() instead of transfer()/transferFrom() to prevent these issues. This will ensure that the tokens are transferred safely and avoid any accounting issues in the contract.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-05-rubicon-contest",
+      "sponsor_name": "Rubicon",
+      "sponsor_link": "https://twitter.com/rubicondefi",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2022-05-rubicon",
+      "github_link": "https://github.com/code-423n4/2022-05-rubicon-findings/issues/316",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "129",
+      "slug": "m-03-use-safetransfersafetransferfrom-instead-of-transfertransferfrom-code4rena-rubicon-rubicon-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Rubicon",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Rubicon",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "transferFrom vs safeTransferFrom"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "SafeTransfer"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2298",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 22,
+      "protocol_id": "224",
+      "title": "[M-09] Use safeTransferFrom instead of transferFrom for ERC721 transfers",
+      "content": "_Submitted by hickuphh3, also found by antonttc, berndartmueller, catchup, cccz, dipp, FSchmoede, GimelSec, hake, jah, jayjonah8, joestakey, kebabsec, Kenshin, Kumpa, MiloTruck, minhquanym, peritoflores, rfa, shenwilly, WatchPug, and ynnad_\n\n<https://github.com/code-423n4/2022-05-cally/blob/1849f9ee12434038aa80753266ce6a2f2b082c59/contracts/src/Cally.sol#L199>\n\n<https://github.com/code-423n4/2022-05-cally/blob/1849f9ee12434038aa80753266ce6a2f2b082c59/contracts/src/Cally.sol#L295>\n\n<https://github.com/code-423n4/2022-05-cally/blob/1849f9ee12434038aa80753266ce6a2f2b082c59/contracts/src/Cally.sol#L344>\n\n### Details & Impact\n\nThe `transferFrom()` method is used instead of `safeTransferFrom()`, presumably to save gas. I however argue that this isn’t recommended because:\n\n*   [OpenZeppelin’s documentation](https://docs.openzeppelin.com/contracts/4.x/api/token/erc721#IERC721-transferFrom-address-address-uint256-) discourages the use of `transferFrom()`, use `safeTransferFrom()` whenever possible\n*   Given that any NFT can be used for the call option, there are a few NFTs (here’s an [example](https://github.com/sz-piotr/eth-card-game/blob/master/src/ethereum/contracts/ERC721Market.sol#L20-L31)) that have logic in the `onERC721Received()` function, which is only triggered in the `safeTransferFrom()` function and not in `transferFrom()`\n\n### Recommended Mitigation Steps\n\nCall the `safeTransferFrom()` method instead of `transferFrom()` for NFT transfers. Note that the `CallyNft` contract should inherit the `ERC721TokenReceiver` contract as a consequence.\n\n```solidity\nabstract contract CallyNft is ERC721(\"Cally\", \"CALL\"), ERC721TokenReceiver {...}\n```\n\n**[outdoteth (Cally) confirmed and resolved](https://github.com/code-423n4/2022-05-cally-findings/issues/38#issuecomment-1128776476):**\n > the fix for this issue is here; https://github.com/outdoteth/cally/pull/4\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about the use of `transferFrom()` instead of `safeTransferFrom()` in the Cally.sol contract. The `transferFrom()` method is used to save gas, however this is not recommended because OpenZeppelin’s documentation discourages its use and some NFTs have logic in the `onERC721Received()` function which is only triggered in the `safeTransferFrom()` function and not in `transferFrom()`. To mitigate this issue, it is recommended to call the `safeTransferFrom()` method instead of `transferFrom()` for NFT transfers. The `CallyNft` contract should also inherit the `ERC721TokenReceiver` contract.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-05-cally-contest",
+      "sponsor_name": "Cally",
+      "sponsor_link": "https://twitter.com/callyfinance",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2022-05-cally",
+      "github_link": "https://github.com/code-423n4/2022-05-cally-findings/issues/38",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "122",
+      "slug": "m-09-use-safetransferfrom-instead-of-transferfrom-for-erc721-transfers-code4rena-cally-cally-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Cally",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Cally",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Options Vault"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "transferFrom vs safeTransferFrom"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC721"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2246",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 15,
+      "protocol_id": "227",
+      "title": "[M-03] safeTransferFrom is recommended instead of transfer (1)",
+      "content": "_Submitted by MaratCerby, also found by berndartmueller, broccolirob, CertoraInc, cryptphi, danb, gzeon, horsefacts, hyh, joestakey, leastwood, throttle, VAD37, wuwe1, and z3s_\n\nERC20 standard allows transferF function of some contracts to return bool or return nothing.<br>\nSome tokens such as USDT return nothing.<br>\nThis could lead to funds stuck in the contract without possibility to retrieve them.<br>\nUsing safeTransferFrom of SafeERC20.sol is recommended instead.<br>\n\n### Proof of Concept\n\n<https://github.com/OpenZeppelin/openzeppelin-contracts/blob/4a9cc8b4918ef3736229a5cc5a310bdc17bf759f/contracts/token/ERC20/utils/SafeERC20.sol>\n\n**[illuzen (FactoryDAO) commented](https://github.com/code-423n4/2022-05-factorydao-findings/issues/22#issuecomment-1121974704):**\n > We support ERC20 contracts, not SafeERC20. Contracts that do not conform to the standard are not supported.\n\n**[illuzen (FactoryDAO) confirmed and resolved](https://github.com/code-423n4/2022-05-factorydao-findings/issues/22#issuecomment-1145530282):**\n > https://github.com/code-423n4/2022-05-factorydao/pull/2\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the ERC20 standard, which allows transferF functions of some contracts to return either bool or nothing. This could lead to funds stuck in the contract without the possibility to retrieve them. A proof of concept is provided in the report.\n\nThe recommended mitigation step is to use the safeTransferFrom of SafeERC20.sol instead. This is a contract from the OpenZeppelin library which provides a secure way to transfer tokens. This library is available on Github and can be used to replace the vulnerable transferF function.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 DAI",
+      "contest_link": "https://code4rena.com/contests/2022-05-factorydao-contest",
+      "sponsor_name": "FactoryDAO",
+      "sponsor_link": "https://twitter.com/FactDAO/",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2022-05-factorydao",
+      "github_link": "https://github.com/code-423n4/2022-05-factorydao-findings/issues/22",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "119",
+      "slug": "m-03-safetransferfrom-is-recommended-instead-of-transfer-1-code4rena-factorydao-factorydao-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "FactoryDAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "FactoryDAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "transferFrom vs safeTransferFrom"
+          }
+        }
+      ]
+    },
+    {
+      "id": "25482",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 0,
+      "protocol_id": "471",
+      "title": "[M-07] Using `transferFrom` on ERC721 tokens",
+      "content": "_Submitted by shw_\n\nIn the function `awardExternalERC721` of contract `PrizePool`, when awarding external ERC721 tokens to the winners, the `transferFrom` keyword is used instead of `safeTransferFrom`. If any winner is a contract and is not aware of incoming ERC721 tokens, the sent tokens could be locked.\n\nRecommend consider changing `transferFrom` to `safeTransferFrom` at line 602. However, it could introduce a DoS attack vector if any winner maliciously rejects the received ERC721 tokens to make the others unable to get their awards. Possible mitigations are to use a `try/catch` statement to handle error cases separately or provide a function for the pool owner to remove malicious winners manually if this happens.\n\n**[asselstine (PoolTogether) confirmed and disagreed with severity](https://github.com/code-423n4/2021-06-pooltogether-findings/issues/115#issuecomment-868021913):**\n > This issue poses no risk to the Prize Pool, so it's more of a `1 (Low Risk` IMO.\n>\n> This is just about triggering a callback on the ERC721 recipient.  We omitted it originally because we didn't want a revert on the callback to DoS the prize pool.\n>\n> However, to respect the interface it makes sense to implement it fully.  That being said, if it does throw we must ignore it to prevent DoS attacks.\n\n**[dmvt (judge) commented](https://github.com/code-423n4/2021-06-pooltogether-findings/issues/115#issuecomment-907507608):**\n > I agree with the medium risk rating provided by the warden.\n\n",
+      "summary": "\nA bug has been identified in the function `awardExternalERC721` of contract `PrizePool`. Currently, the `transferFrom` keyword is used instead of `safeTransferFrom` when awarding external ERC721 tokens to the winners. This could cause problems if a winner is a contract and is not aware of incoming ERC721 tokens, as the sent tokens could be locked. It is recommended to change `transferFrom` to `safeTransferFrom` at line 602. However, this could introduce a DoS attack vector if any winner maliciously rejects the received ERC721 tokens to make the others unable to get their awards. Possible solutions to this are to use a `try/catch` statement to handle error cases separately or provide a function for the pool owner to remove malicious winners manually if this happens. The severity of this bug was initially debated by shw, asselstine (PoolTogether) and dmvt (judge). Asselstine and dmvt agreed that it poses a low risk to the Prize Pool, and should be implemented to respect the interface.",
+      "report_date": {},
+      "contest_prize_txt": "$60,000 USDC",
+      "contest_link": "https://code4rena.com/reports/2021-06-pooltogether",
+      "sponsor_name": "PoolTogether",
+      "sponsor_link": "",
+      "quality_score": 1,
+      "general_score": 1,
+      "source_link": "https://code4rena.com/reports/2021-06-pooltogether",
+      "github_link": "https://github.com/code-423n4/2021-06-pooltogether-findings/issues/115",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "14",
+      "slug": "m-07-using-transferfrom-on-erc721-tokens-code4rena-pooltogether-pooltogether-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "PoolTogether",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "PoolTogether",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "transferFrom vs safeTransferFrom"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "SafeTransfer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC721"
+          }
+        }
+      ]
+    }
+  ]
+}

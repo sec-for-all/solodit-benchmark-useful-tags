@@ -1,0 +1,165 @@
+{
+  "tag": "EOA",
+  "count": 2,
+  "metadata": {
+    "totalResults": 2,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 5,
+    "reset": 1771761060
+  },
+  "findings": [
+    {
+      "id": "7134",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "HIGH",
+      "finders_count": 5,
+      "protocol_id": "72",
+      "title": "Preservation of msg.sender in ZkSync could break certain trust assumption",
+      "content": "## High Risk Vulnerability on ZkSync\n\n## Severity\n**High Risk**\n\n## Context\nAny contract deployed on ZkSync that relies on `msg.sender`.\n\n## Description\nFor ZkSync chain, the `msg.sender` is preserved for L1 -> L2 calls. One of the rules when pursuing a cross-chain strategy is to never assume that address control between L1 and L2 is always guaranteed. For EOAs (i.e., non-contract accounts), it is generally true that any account that can be accessed on Ethereum will also be accessible on other EVM-based chains. \n\nHowever, this is not always true for contract-based accounts as the same account/wallet address might be owned by different persons on different chains. This might happen if there is a poorly implemented smart contract wallet factory on multiple EVM-based chains that deterministically deploys a wallet based on some user-defined inputs.\n\nFor instance, if a smart contract wallet factory deployed on both EVM-based chains uses deterministic `CREATE2`, which allows users to define its salt when deploying the wallet, Bob might use `ABC` as salt in Ethereum and Alice might use `ABC` as salt in ZkSync. Both of them will end up getting the same wallet address on two different chains.\n\nA similar issue occurred in the Optimism-Wintermute Hack, but the actual incident is more complicated. Assume that `0xABC` is a smart contract wallet owned and deployed by Alice on ZkSync chain. Alice performs an `xcall` from Ethereum to ZkSync with the delegate set to the `0xABC` address. Thus, on the destination chain (ZkSync), only Alice's smart contract wallet `0xABC` is authorized to call functions protected by the `onlyDelegate` modifier.\n\nBob (the attacker) saw that the `0xABC` address is not owned by anyone on Ethereum. Therefore, he proceeds to take ownership of the `0xABC` by interacting with the wallet factory to deploy a smart contract wallet on the same address on Ethereum. Bob can do so by checking out the inputs that Alice used to create the wallet previously. Thus, Bob can technically make a request from L1 -> L2 to impersonate Alice's wallet (`0xABC`) and bypass the `onlyDelegate` modifier on ZkSync.\n\nAdditionally, Bob could make an L1 -> L2 request by calling the ZKSync's `BridgeFacet.xcall` directly to steal Alice's approved funds. Since the `xcall` relies on `msg.sender`, it will assume that the caller is Alice.\n\nThis issue is specific to ZkSync chain due to the preservation of `msg.sender` for L1 -> L2 calls. For the other chains, the `msg.sender` is not preserved for L1 -> L2 calls and will always point to the L2's AMB forwarding the requests.\n\n## Recommendation\nDue to the preservation of `msg.sender` for L1 -> L2 calls in ZkSync chain, any contracts deployed on ZkSync chain that rely on `msg.sender` for access control should be aware of the possibility that the same address on Ethereum and ZkSync chains might belong to two different owners.\n\nThis issue will only happen if contract-based accounts are involved. It does not affect EOAs, as only the owner who has the private key of the EOA can control the EOA on any EVM chain. If Connext plans to support ZkSync, it is recommended that only EOAs can interact with ZkSync.\n\nOtherwise, add a disclaimer/comment informing the users about the risks and asking them to verify that they have ownership of the address in both Ethereum and ZkSync before proceeding to interact with ZkSync.\n\n## Connext\n**Update from ZkSync Team:** We have a different address generation schema that would not allow an address to be claimed on L2 by an adversary. Even if you deploy the same address and use the same private key, it would be different.\n\n**Spearbit:** Acknowledged, since ZkSync L2 is using a different address generation schema as per the ZkSync team, this attack vector will not be possible.",
+      "summary": "\nThis bug report is about a potential security vulnerability when using ZkSync, a layer-2 scaling solution for Ethereum. The vulnerability is related to msg.sender, which is preserved for L1 -> L2 calls. This means that if someone deploys a smart contract wallet on both Ethereum and ZkSync, and someone else tries to take ownership of the address on Ethereum, they might be able to impersonate the owner of the wallet on ZkSync. This could be used to bypass the onlyDelegate modifier and steal funds.\n\nTo prevent this issue, it is recommended to use only EOAs (non-contract accounts) when interacting with ZkSync, as only the owner with the private key of the EOA can control the EOA on any EVM chain. If Connext plans to support ZkSync, it is recommended to add a disclaimer/comment informing users about the risks and asking them to verify that they have ownership of the address in both Ethereum and ZkSync before proceeding to interact with ZkSync.\n\nUpdate from zkSync Team: They have a different address generation schema that would not allow address to be claimed on L2 by an adversary. Even if someone deploys the same address and same private key, it would be different. This means that this attack vector will not be possible.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/ConnextNxtp-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/ConnextNxtp-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/ConnextNxtp-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 12,
+      "contest_id": "",
+      "slug": "preservation-of-msgsender-in-zksync-could-break-certain-trust-assumption-spearbit-connext-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Connext",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Connext",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "EOA"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5925",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "106",
+      "title": "[M-17] Address.isContract() is not a reliable way of checking if the input is an EOA",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2022-11-stakehouse/blob/4b6828e9c807f2f7c569e6d721ca1289f7cf7112/contracts/liquid-staking/LiquidStakingManager.sol#L435\n\n\n## Vulnerability details\n\n## Impact\nThe underlying assumption of `eoaRepresentative` being an EOA can be untrue. This can cause many unintended effects as the contract comments strongly suggests that this must be an EOA account.\n\n## Proof of Concept\nWhen BLS public key is registered in `registerBLSPublicKeys()`, it has the check of \n> `require(!Address.isContract(_eoaRepresentative), \"Only EOA representative permitted\")`\n\nHowever, this check can be passed even though input is a smart contract if\n1. Function is called in the constructor. `Address.isContract()` checks for the code length, but during construction code length is 0.\n2. Smart contract that has not been deployed yet can be used. The CREATE2 opcode can be used to deterministically calculate the address of a smart contract before it is created. This means that the user can bypass this check by calling this function before deploying the contract.\n\n## Tools Used\nManual Review\n\n## Recommended Mitigation Steps\nIt is generally not recommended to enforce an address to be only EOA and AFAIK, this is impossible to enforce due to the aforementioned cases. I recommend the protocol team to take a closer look at this and build the protocol with the assumption that `_eoaRepresentative == EOA`.",
+      "summary": "\nThis bug report concerns the LiquidStakingManager.sol contract, which can be found on Github at the link provided. It is possible for the underlying assumption of the 'eoaRepresentative' being an EOA (externally owned account) to be untrue, leading to unintended effects. This occurs because the check of the function 'registerBLSPublicKeys()' can be passed even if the input is a smart contract. This is due to either the code length being 0 when the function is called in the constructor, or a smart contract that has not been deployed yet being used. Manual review was used to identify the vulnerability. It is recommended that the protocol team take a closer look at this and build the protocol with the assumption that '_eoaRepresentative == EOA'.",
+      "report_date": {},
+      "contest_prize_txt": "$90,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-11-lsd-network-stakehouse-contest",
+      "sponsor_name": "Stakehouse Protocol",
+      "sponsor_link": "https://twitter.com/blockswap_team",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2022-11-stakehouse",
+      "github_link": "https://github.com/code-423n4/2022-11-stakehouse-findings/issues/189",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "182",
+      "slug": "m-17-addressiscontract-is-not-a-reliable-way-of-checking-if-the-input-is-an-eoa-code4rena-stakehouse-protocol-lsd-network-stakehouse-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Stakehouse Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Stakehouse Protocol",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "EOA"
+          }
+        }
+      ]
+    }
+  ]
+}

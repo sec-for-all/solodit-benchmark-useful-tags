@@ -1,0 +1,295 @@
+{
+  "tag": "Rebasing Tokens",
+  "count": 4,
+  "metadata": {
+    "totalResults": 4,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 14,
+    "reset": 1771761120
+  },
+  "findings": [
+    {
+      "id": "21961",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "11",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "1045",
+      "title": "Non-standard ERC20 tokens are not supported",
+      "content": "**Severity:** Medium\n\n**Description:** The protocol implemented a function `deposit()` to allow users to deposit.\n```solidity\nDepositVault.sol\n37:     function deposit(uint256 amount, address tokenAddress) public payable {\n38:         require(amount > 0 || msg.value > 0, \"Deposit amount must be greater than 0\");\n39:         if(msg.value > 0) {\n40:             require(tokenAddress == address(0), \"Token address must be 0x0 for ETH deposits\");\n41:             uint256 depositIndex = deposits.length;\n42:             deposits.push(Deposit(payable(msg.sender), msg.value, tokenAddress));\n43:             emit DepositMade(msg.sender, depositIndex, msg.value, tokenAddress);\n44:         } else {\n45:             require(tokenAddress != address(0), \"Token address must not be 0x0 for token deposits\");\n46:             IERC20 token = IERC20(tokenAddress);\n47:             token.safeTransferFrom(msg.sender, address(this), amount);\n48:             uint256 depositIndex = deposits.length;\n49:             deposits.push(Deposit(payable(msg.sender), amount, tokenAddress));//@audit-issue fee-on-transfer, rebalancing tokens will cause problems\n50:             emit DepositMade(msg.sender, depositIndex, amount, tokenAddress);\n51:\n52:         }\n53:     }\n```\nLooking at the line L49, we can see that the protocol assumes `amount` of tokens were transferred.\nBut this does not hold true for some non-standard ERC20 tokens like fee-on-transfer tokens or rebalancing tokens.\n(Refer to [here](https://github.com/d-xo/weird-erc20) about the non-standard weird ERC20 tokens)\n\nFor example, if token incurs fee on transfer, the actually transferred amount will be less than the provided parameter `amount` and the `deposits` will have a wrong state value. Because the current implementation only allows full withdrawal, this means the tokens will be locked in the contract permanently.\n\n**Impact:** If non-standard ERC20 tokens are used, the tokens could be locked in the contract permanently.\n\n**Recommended Mitigation:**\n- We recommend adding another field in the `Deposit` structure, say `balance`\n- We recommend allow users to withdraw partially and decrease the `balance` field appropriately for successful withdrawals.\nIf these changes are going to be made, we note that there are other parts that need changes. For example, the withdraw function would need to be updated so that it does not require the withdrawal amount is same to the original deposit amount.\n\n**Protocol:**\nContract updated to support non-standard ERC-20 tokens. We've decided to not allow users to partially withdraw since it would complicate the logic of the signatures, as of now only full withdraws can be executed.\n\n**Cyfrin:** Verified in commit [405fa78](https://github.com/HyperGood/woosh-contracts/commit/405fa78a2c0cf8b8ab8943484cb95b5c8807cbfb).",
+      "summary": "\nA bug was found in the protocol implemented with the function `deposit()` that allows users to deposit. If non-standard ERC20 tokens are used, the tokens could be locked in the contract permanently. This is because the protocol assumes a certain amount of tokens were transferred, but this does not hold true for some non-standard ERC20 tokens like fee-on-transfer tokens or rebalancing tokens. To mitigate this, the protocol was updated to support non-standard ERC-20 tokens. The `Deposit` structure was updated with a new field called `balance` and full withdrawals can be executed. This update was verified in commit 405fa78.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/solodit/solodit_content/blob/main/reports/Cyfrin/2023-09-06-Woosh Deposit Vault.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "non-standard-erc20-tokens-are-not-supported-cyfrin-none-woosh-deposit-vault-markdown",
+      "firm_name": "Cyfrin",
+      "firm_logo_square": "Cyfrin_square.jpg",
+      "protocol_name": "Woosh Deposit Vault",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Cyfrin",
+        "logo_square": "Cyfrin_square.jpg"
+      },
+      "protocols_protocol": {
+        "name": "Woosh Deposit Vault",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 1
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Deposit/Reward tokens"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Rebasing Tokens"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Pre/Post Balance"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Fee On Transfer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Weird ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "21160",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "933",
+      "title": "[M-15] Lack of timelock on `rigidRedemption`, enables to steal yield from other users",
+      "content": "\nThe withdraw function of the `LybraEUSDVaultBase` vaults, uses a time softlock to prevent users from hopping in and out of the protocol; to gain access to the yield generated by other users and then leave right away (by charging a small percentage from the withdrawn amount).\n\nThe same measure isn't applied to `rigidRedemptions`, which enable a user to withdraw most of the underlying assets at any time after deposit. This enables a user to deposit into the pool right before a rebase is about to happen, get access to the yield generated by other users and leave by calling `rigidRedemption` and withdraw on the tokens left by `rigidRedemption` (the amount charged on the leftovers assets, can be outbalanced by the yield).\n\nTherefore, a malicious user to get access to yield that they didn't generate, effectively stealing it from others. The amount that the user will get access to will vary based on the deposited amounts.\n\n### Proof of Concept\n\nThis issue involves 3 functions:\n\n- `withdraw(address onBehalfOf, uint256 amount)` from the `LybraEUSDVaultBase` [contract](https://github.com/code-423n4/2023-06-lybra/blob/7b73ef2fbb542b569e182d9abf79be643ca883ee/contracts/lybra/pools/base/LybraEUSDVaultBase.sol#L98), which internally calls `checkWithdrawal(address user, uint256 amount)` to check that 3 days has passed after deposit and charges the user otherways:\n\n    ```\n    withdrawal = block.timestamp - 3 days >= depositedTime[user] ? amount : (amount * 999) / 1000;\n    ```\n\n- `rigidRedemption(address provider, uint256 eusdAmount)` from the `LybraEUSDVaultBase` [contract](<https://github.com/code-423n4/2023-06-lybra/blob/7b73ef2fbb542b569e182d9abf79be643ca883ee/contracts/lybra/pools/base/LybraEUSDVaultBase.sol#L232>), which enables a user to withdraw the full borrowed amount getting back a 1:1 ratio of collateral (the rest will be left in the vault and can be withdrawn).\n    ```    \n    * @notice Choose a Redemption Provider, Rigid Redeem `eusdAmount` of EUSD and get 1:1 value of stETH\n    * Emits a `RigidRedemption` event.\n    ```\n\n- `excessIncomeDistribution(uint256 stETHAmount)` from the `LybraStETHDepositVault` [contract](<https://github.com/code-423n4/2023-06-lybra/blob/7b73ef2fbb542b569e182d9abf79be643ca883ee/contracts/lybra/pools/LybraStETHVault.sol#L62>), which enables anyone to buy the stETH, generated by lido to the vault (or by charging on withdraws and `rigidRedemptions`), for EUSD, allocating them to EUSD holders through rebasing.\n    ```\n    * @notice When stETH balance increases through LSD or other reasons, the excess income is sold for EUSD, allocated to EUSD holders through rebase mechanism.\n    * Emits a `LSDValueCaptured` event.\n    ```\nScenario:\n\n1. Users use the protocol as intended depositing stETH which will generate a yield.\n2. Bob calls the rebase mechanism (`excessIncomeDistribution`).\n3. Alice sees the rebase and preceeds it with a deposit (either by frontruinng or by pure prediction, since stETH rebase happens daily at a fixed time).\n4. Right after Bob's rebase gets executed, Alice calls `rigidRedemption` (to repay the full debt) followed by a withdraw (to get the difference out), getting most of the stETH back and some EUSD.\n5. Since the stETH charged by the withdraw function is left in the vault, if they want, Alice can now call `excessIncomeDistribution` to get the tokens back, using the EUSD recived by rebasing, and leaving with slightly more stETH and some EUSD, that they got for free; leaving 0 debts and 0 assets deposited, having left their tokens in the vault for a few seconds.\n\nHere is an hardhat script that shows the scenario above in javascript (each step is highlighted in the comments and it will print all the balances to the console).\nBefore running it you'll have to install the `'@openzeppelin/test-helpers'` package:\n\n<details>\n\n    const {ethers} = require(\"hardhat\");\n    const {\n            constants,\n            expectRevert,\n        } = require('@openzeppelin/test-helpers');//questo va installato\n    const { expect } = require(\"chai\");\n    async function main() {\n      this.accounts = await ethers.getSigners()\n            this.owner = this.accounts[0].address\n            console.log(\"Deployng contracts...\")\n            const goerliEndPoint = '0xbfD2135BFfbb0B5378b56643c2Df8a87552Bfa23'\n            const goerliChainId = 10121\n\n            const oracle = await ethers.getContractFactory(\"mockChainlink\")\n            const stETH = await ethers.getContractFactory(\"stETHMock\")\n            const EUSDMock = await ethers.getContractFactory(\"EUSD\")\n            const configurator = await ethers.getContractFactory(\"Configurator\")\n            const LybraStETHDepositVault = await ethers.getContractFactory(\"LybraStETHDepositVault\")\n            const GovernanceTimelock = await ethers.getContractFactory(\"GovernanceTimelock\")\n            const EUSDMiningIncentives = await ethers.getContractFactory(\"EUSDMiningIncentives\")\n            const esLBRBoost = await ethers.getContractFactory(\"esLBRBoost\")\n            const LBR = await ethers.getContractFactory(\"LBR\")\n            const esLBR = await ethers.getContractFactory(\"esLBR\")\n            const PeUSDMainnet = await ethers.getContractFactory(\"PeUSDMainnet\")\n            const ProtocolRewardsPool = await ethers.getContractFactory(\"ProtocolRewardsPool\")\n            const mockCurvePool = await ethers.getContractFactory(\"mockCurve\")//\n            const mockUSDC = await ethers.getContractFactory(\"mockUSDC\")\n            const lbrOracleMock = await ethers.getContractFactory(\"mockLBRPriceOracle\")//\n            \n            this.oracle = await oracle.deploy()\n\n            this.lbrOracleMock = await lbrOracleMock.deploy()\n\n            this.stETHMock = await stETH.deploy()\n\n            this.GovernanceTimelock = await GovernanceTimelock.deploy(1,[this.owner],[this.owner],this.owner);\n\n\n            this.esLBRBoost = await esLBRBoost.deploy()\n\n            this.usdc = await mockUSDC.deploy()\n\n            this.mockCurvePool = await mockCurvePool.deploy()\n\n            this.configurator = await configurator.deploy(this.GovernanceTimelock.address, this.mockCurvePool.address)\n\n\n            this.LBR = await LBR.deploy(this.configurator.address, 8, goerliEndPoint)\n      \n            this.esLBR = await esLBR.deploy(this.configurator.address)\n\n\n            this.EUSDMock = await EUSDMock.deploy(this.configurator.address)\n\n            await this.configurator.initToken(this.EUSDMock.address, constants.ZERO_ADDRESS)//\n\n            this.EUSDMiningIncentives = await EUSDMiningIncentives.deploy(this.configurator.address, this.esLBRBoost.address, this.oracle.address, this.lbrOracleMock.address)\n\n            this.ProtocolRewardsPool = await ProtocolRewardsPool.deploy(this.configurator.address)\n\n            this.stETHVault = await LybraStETHDepositVault.deploy(this.configurator.address, this.stETHMock.address, this.oracle.address)\n\n            this.PeUSDMainnet = await PeUSDMainnet.deploy(this.configurator.address, 8, goerliEndPoint)\n\n            await this.mockCurvePool.setToken(this.EUSDMock.address, this.usdc.address)\n            await this.configurator.setMintVault(this.stETHVault.address, true);\n            await this.configurator.setPremiumTradingEnabled(true);\n            await this.configurator.setMintVaultMaxSupply(this.stETHVault.address, ethers.utils.parseEther(\"10000000000\"));\n            await this.configurator.setBorrowApy(this.stETHVault.address, 200);\n            await this.configurator.setEUSDMiningIncentives(this.EUSDMiningIncentives.address)\n\n            await this.EUSDMiningIncentives.setToken(this.LBR.address, this.esLBR.address)\n            await this.ProtocolRewardsPool.setTokenAddress(this.esLBR.address, this.LBR.address, this.esLBRBoost.address);\n\n\n\n\n\n\n\n            ///////////////////////////////////////////POC////////////////////////////////////////////////////////////\n\n            //random users, mints stETH and deposits them (only 1 in the script for simplicity)\n            await stETHMock.connect(accounts[2]).submit(accounts[2].address, {value:ethers.utils.parseEther(\"1000\") });\n            await stETHMock.connect(accounts[2]).approve(this.stETHVault.address, ethers.constants.MaxUint256)\n            await stETHVault.connect(accounts[2]).depositAssetToMint(await stETHMock.balanceOf(accounts[2].address),ethers.utils.parseEther(\"10000\"));\n           \n            //time passes generathing stETH yield\n            await network.provider.send(\"evm_increaseTime\", [6500])\n            await network.provider.send(\"evm_mine\")\n\n            //user 3 balances before exploit \n            await stETHMock.connect(accounts[3]).submit(accounts[3].address, {value:ethers.utils.parseEther(\"100\") });\n            //timestamp\n            const blockNumBefore = await ethers.provider.getBlockNumber();\n            const blockBefore = await ethers.provider.getBlock(blockNumBefore);\n            const timestampBefore = blockBefore.timestamp;\n            console.log(\"Timestamp before the exploit: \" + timestampBefore)\n            //stETH balance\n            const sthETHBalanceBefore = await stETHMock.balanceOf(accounts[3].address)\n            console.log(\"sthETHBalance before the exploit: \" +sthETHBalanceBefore)\n            //EUSD shares\n            const EUSDSharesBefore = await this.EUSDMock.sharesOf(accounts[3].address)\n            console.log(\"EUSD shares before the exploit: \" + EUSDSharesBefore)\n            //EUSD balance \n            const EUSDBalanceBefore = await this.EUSDMock.balanceOf(accounts[3].address)\n            console.log(\"EUSD balance before the exploit: \" + EUSDBalanceBefore)\n            //Deposited assets\n            const depositedAssetBefore = await stETHVault.depositedAsset(accounts[3].address)\n            console.log(\"Deposited assets before the exploit: \" + depositedAssetBefore)\n            //Borrowed amount\n            const borrowedBefore = await stETHVault.getBorrowedOf(accounts[3].address)\n            console.log(\"Borrowed amount before the exploit: \" + borrowedBefore)\n\n            //right before somene calls the rebasde function (excessIncomeDistribution) user3 deposits into the vault\n            const depositedAmount = ethers.utils.parseEther(\"1.0\")\n            await stETHMock.connect(accounts[3]).approve(this.stETHVault.address, ethers.constants.MaxUint256)\n            await stETHVault.connect(accounts[3]).depositAssetToMint(depositedAmount,ethers.utils.parseEther(\"1000.0\"))\n\n            //someone call excessIncomeDistribution causing the rebase to distribute the yield to users\n            await stETHVault.connect(accounts[2]).excessIncomeDistribution(ethers.utils.parseEther(\"0.01\"))\n            console.log(\"Alice deposits before rebase and withdraws immediately after\")\n\n            //right after the rebase user3 redeems all the necessary tokens\n            await this.configurator.connect(accounts[3]).becomeRedemptionProvider(true)\n            await stETHVault.connect(accounts[3]).rigidRedemption(accounts[3].address, await stETHVault.getBorrowedOf(accounts[3].address))\n            await stETHVault.connect(accounts[3]).withdraw(accounts[3].address,await stETHVault.depositedAsset(accounts[3].address));\n            await stETHVault.connect(accounts[3]).excessIncomeDistribution(ethers.utils.parseEther(\"0.01\"))\n\n           \n            //user3 balances after exploit\n            //timestamp\n            const blockNumAfter = await ethers.provider.getBlockNumber();\n            const blockAfter = await ethers.provider.getBlock(blockNumAfter);\n            const timestampAfter = blockAfter.timestamp;\n            console.log(\"Timestamp after the exploit: \" + timestampAfter)\n            //stETH balance\n            const sthETHBalanceAfter = await stETHMock.balanceOf(accounts[3].address)\n            console.log(\"sthETH balance after the exploit: \" +sthETHBalanceAfter)\n            //EUSD shares\n            const EUSDSharesAfter = await this.EUSDMock.sharesOf(accounts[3].address)\n            console.log(\"EUSD shares after the exploit: \" + EUSDSharesAfter)\n            //EUSD balance \n            const EUSDBalanceAfter = await this.EUSDMock.balanceOf(accounts[3].address)\n            console.log(\"EUSD balance after the exploit: \" + EUSDBalanceAfter)\n            //Deposited assets\n            const depositedAssetAfter = await stETHVault.depositedAsset(accounts[3].address)\n            console.log(\"Deposited assets after the exploit: \" + depositedAssetAfter)\n            //Borrowed amount\n            const borrowedAfter = await stETHVault.getBorrowedOf(accounts[3].address)\n            console.log(\"Borrowed amount after the exploit: \" + borrowedAfter)\n\n            expect(sthETHBalanceAfter > sthETHBalanceBefore)\n\n    }\n\n    // We recommend this pattern to be able to use async/await everywhere\n    // and properly handle errors.\n    main().catch((error) => {\n      console.error(error);\n      process.exitCode = 1;\n    });\n\nIt will log the following content to the console:\n\n    Deployng contracts...\n    Timestamp before the exploit: 1688138231\n    sthETHBalance before the exploit: 99999999999999999999\n    EUSD shares before the exploit: 0\n    EUSD balance before the exploit: 0\n    Deposited assets before the exploit: 0\n    Borrowed amount before the exploit: 0\n    Alice deposits before rebase and withdraws immediately after\n    Timestamp after the exploit: 1688138238\n    sthETH balance after the exploit: 100000319476188886835\n    EUSD shares after the exploit: 320852235386255949\n    EUSD balance after the exploit: 321329019285990239\n    Deposited assets after the exploit: 0\n    Borrowed amount after the exploit: 0\n\n</details>\n\n### Recommended Mitigation Steps\n\nThe same timelock logic that is applied to the withdraw function could be applied to `rigidRedemption`, making this type of interaction unprofitable.\n\n### Assessed type\n\nTiming\n\n**[LybraFinance disputed and commented](https://github.com/code-423n4/2023-06-lybra-findings/issues/290#issuecomment-1635597408):**\n > There is a 0.5% fee for redemptions, which offsets the potential gains from such operations.\n\n**[0xean (judge) commented](https://github.com/code-423n4/2023-06-lybra-findings/issues/290#issuecomment-1650757930):**\n > @LybraFinance - can you comment on why you believe the test is not showing that fee outweighing the benefit?\n\n**[LybraFinance confirmed and commented](https://github.com/code-423n4/2023-06-lybra-findings/issues/290#issuecomment-1655277926):**\n > Because in step three, there are additional fees involved when the user performs a withdraw, so it's not possible to completely avoid losses. This situation does exist, but we consider it a moderate-risk issue.\n\n**[0xean (judge) decreased severity to Medium](https://github.com/code-423n4/2023-06-lybra-findings/issues/290#issuecomment-1655652712)**\n\n***\n\n",
+      "summary": "\nThis bug report is about a potential exploit in the LybraFinance protocol. The exploit involves the withdraw and rigidRedemption functions of the LybraEUSDVaultBase vaults. The withdraw function is protected by a time softlock, which prevents users from hopping in and out of the protocol to gain access to the yield generated by other users and then leave right away. The same measure isn't applied to rigidRedemption, which enables a user to withdraw most of the underlying assets at any time after deposit. This allows a malicious user to get access to yield that they didn't generate, effectively stealing it from others. \n\nThe recommended mitigation step is to apply the same timelock logic that is applied to the withdraw function to rigidRedemption, making this type of interaction unprofitable. LybraFinance have disputed this and commented that there is a 0.5% fee for redemptions, which offsets the potential gains from such operations. 0xean (judge) has commented that this is an acceptable mitigation step for the exploit.",
+      "report_date": {},
+      "contest_prize_txt": "$60,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-06-lybra",
+      "sponsor_name": "Lybra Finance",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-06-lybra",
+      "github_link": "https://github.com/code-423n4/2023-06-lybra-findings/issues/290",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "254",
+      "slug": "m-15-lack-of-timelock-on-rigidredemption-enables-to-steal-yield-from-other-users-code4rena-lybra-finance-lybra-finance-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Lybra Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Lybra Finance",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Timing"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Rebasing Tokens"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6064",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 7,
+      "protocol_id": "79",
+      "title": "[M-02] The recipient receives free collateral token if an ERC20 token that deducts a fee on transfer used as baseToken",
+      "content": "\n<https://github.com/prepo-io/prepo-monorepo/blob/feat/2022-12-prepo/apps/smart-contracts/core/contracts/Collateral.sol#L45-L61>\n\n<https://github.com/prepo-io/prepo-monorepo/blob/feat/2022-12-prepo/apps/smart-contracts/core/contracts/Collateral.sol#L64-L78>\n\n<https://github.com/prepo-io/prepo-monorepo/blob/feat/2022-12-prepo/apps/smart-contracts/core/contracts/DepositHook.sol#L49-L50>\n\n<https://github.com/prepo-io/prepo-monorepo/blob/feat/2022-12-prepo/apps/smart-contracts/core/contracts/WithdrawHook.sol#L76-L77>\n\n### Impact\n\n*   There are some ERC20 tokens that deduct a fee on every transfer call. If these tokens are used as baseToken then:\n    1.  When depositing into the **Collateral** contract, the recipient will receive collateral token more than what they should receive.\n\n    2.  The **DepositRecord** contract will track wrong user deposit amounts and wrong globalNetDepositAmount as the added amount to both will be always more than what was actually deposited.\n\n    3.  When withdrawing from the **Collateral** contract, the user will receive less baseToken amount than what they should receive.\n\n    4.  The treasury will receive less fee and the user will receive more `PPO` tokens that occur in **DepositHook**  and **WithdrawHook**.\n\n### Proof of Concept\n\nGiven:\n* baseToken is an ERC20 token that deduct a fee on every transfer call.\n* **FoT** is the deducted fee on transfer.\n\n1.  The user deposits baseToken to the **Collateral** contract by calling `deposit` function passing **`\\_amount`** as 100e18.\n2.  `baseToken.transferFrom` is called to transfer the amount from the user to the contract.\n    *   <https://github.com/prepo-io/prepo-monorepo/blob/feat/2022-12-prepo/apps/smart-contracts/core/contracts/Collateral.sol#L49>\n3.  The contract receives the ``\\_amount` - **FoT**. Let's assume the FoT percentage is 1%. Therefore, the actual amount received is 99e18.\n4.  When the **DepositHook** is called. the **`\\_amount`** passed is 100e18 which is wrong as it should be the actual amount 99e18.\n    *   <https://github.com/prepo-io/prepo-monorepo/blob/feat/2022-12-prepo/apps/smart-contracts/core/contracts/Collateral.sol#L53>\n5.  Calculating **collateralMintAmount** is based on the **`\\_amount`**  (100e18- the fee for treasury) which will give the recipient additional collateral token that they shouldn't receive.\n    *   <https://github.com/prepo-io/prepo-monorepo/blob/feat/2022-12-prepo/apps/smart-contracts/core/contracts/Collateral.sol#L57>\n\n### Recommended Mitigation Steps\n\n1.  Consider calculating the actual amount by recording the balance before and after.\n\n    *   For example:\n\n```sh\nuint256 balanceBefore = baseToken.balanceOf(address(this));\nbaseToken.transferFrom(msg.sender, address(this), _amount);\nuint256 balanceAfter = baseToken.balanceOf(address(this));\nuint256 actualAmount = balanceAfter - balanceBefore;\n```\n\n2.  Then use **actualAmount** instead of **`\\_amount`** to perform any further calculations or external calls.\n\nNote: apply the same logic for **DepositHook** and **WithdrawHook** as well at:\n\n*   <https://github.com/prepo-io/prepo-monorepo/blob/feat/2022-12-prepo/apps/smart-contracts/core/contracts/DepositHook.sol#L49-L50>\n\n*   <https://github.com/prepo-io/prepo-monorepo/blob/feat/2022-12-prepo/apps/smart-contracts/core/contracts/WithdrawHook.sol#L76-L77>\n\n**[ramenforbreakfast (prePO) confirmed](https://github.com/code-423n4/2022-12-prepo-findings/issues/332)** \n\n**[Picodes (judge) decreased severity to Medium](https://github.com/code-423n4/2022-12-prepo-findings/issues/52)** \n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the Collateral.sol, DepositHook.sol, and WithdrawHook.sol contracts. The vulnerability occurs when an ERC20 token that deducts a fee on every transfer call is used as the baseToken in the contracts. The vulnerability causes the user to receive more collateral token than they should when depositing, the DepositRecord contract to track wrong user deposit amounts and wrong globalNetDepositAmount, the user to receive less baseToken amount than they should when withdrawing, and the treasury to receive less fee and the user to receive more PPO tokens.\n\nThe recommended mitigation steps are to consider calculating the actual amount by recording the balance before and after and then using the actualAmount instead of _amount to perform any further calculations or external calls. This should be applied to the DepositHook and WithdrawHook contracts as well.",
+      "report_date": {},
+      "contest_prize_txt": "$36,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-12-prepo-contest",
+      "sponsor_name": "prePO",
+      "sponsor_link": "https://twitter.com/prepo_io",
+      "quality_score": 4,
+      "general_score": 3,
+      "source_link": "https://code4rena.com/reports/2022-12-prepo",
+      "github_link": "https://github.com/code-423n4/2022-12-prepo-findings/issues/52",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "190",
+      "slug": "m-02-the-recipient-receives-free-collateral-token-if-an-erc20-token-that-deducts-a-fee-on-transfer-used-as-basetoken-code4rena-prepo-prepo-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "prePO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "prePO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Fee On Transfer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Rebasing Tokens"
+          }
+        }
+      ]
+    },
+    {
+      "id": "1188",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 2,
+      "protocol_id": "261",
+      "title": "[H-05] Aave's share tokens are rebasing breaking current strategy code",
+      "content": "_Submitted by cmichel, also found by WatchPug and leastwood_\n\nWhen depositing into Aave through the `AaveYield.lockTokens` contract strategy, one receives the `sharesReceived` amount corresponding to the diff of `aToken` balance, which is just always the deposited amount as aave is a rebasing token and `1.0 aToken = 1.0 underlying` at each deposit / withdrawal.\n\nNote that this `sharesReceived` (the underlying deposit amount) is cached in a `balanceInShares` map in `SavingsAccount.deposit` which makes this share *static* and not dynamically rebasing anymore:\n\n```solidity\nfunction deposit(\n    uint256 _amount,\n    address _token,\n    address _strategy,\n    address _to\n) external payable override nonReentrant returns (uint256) {\n    require(_to != address(0), 'SavingsAccount::deposit receiver address should not be zero address');\n    uint256 _sharesReceived = _deposit(_amount, _token, _strategy);\n    balanceInShares[_to][_token][_strategy] = balanceInShares[_to][_token][_strategy].add(_sharesReceived);\n    emit Deposited(_to, _sharesReceived, _token, _strategy);\n    return _sharesReceived;\n}\n\nfunction getTokensForShares(uint256 shares, address asset) public view override returns (uint256 amount) {\n    if (shares == 0) return 0;\n    address aToken = liquidityToken(asset);\n\n    (, , , , , , , uint256 liquidityIndex, , ) = IProtocolDataProvider(protocolDataProvider).getReserveData(asset);\n\n    // @audit-info tries to do (user shares / total shares) * underlying amount where underlying amount = scaledBalance * liquidityIndex\n    amount = IScaledBalanceToken(aToken).scaledBalanceOf(address(this)).mul(liquidityIndex).mul(shares).div(\n        IERC20(aToken).balanceOf(address(this))\n    );\n}\n```\n\nHowever, the `getTokensForShares` function uses a rebasing total share supply of `IERC20(aToken).balanceOf(this)`.\n\n###### POC\n\n*   SavingsAccount deposits 1000 DAI for user and user receives 1000 aDAI as shares. These shares are cached in `balanceInShares[user][dai][aave]`.\n*   Time passes, Aave accrues interest for lenders, and the initial 1000 aTokens balance has rebased to 1200 aTokens\n*   SavingsAccount `withdraw`s 1000 aDAI shares for user which calls `AaveYield.unlockTokens`. The user receives only 1000 DAI. The interest owed to the user is not paid out.\n*   Note that `getTokensForShares` also returns the wrong amount as `1200 * 1000 / 1200 = 1000`\n\n#### Impact\n\nInterest is not paid out to users.\nPool collateral is measured without the interest accrued as it uses `getTokensForShares` which will lead to early liquidations and further loss.\n\n#### Recommended Mitigation Steps\n\nIf the user shares are not rebasing, you cannot have the \"total shares supply\" (the shares in the contract) be rebasing as in `getTokensForShares`. Also withdrawing the share amount directly from Aave as in `_withdrawERC` does not withdraw the yield.\nA fix could be to create a *non-rebasing* wrapper LP token that is paid out to the user proportional to the current strategy TVL at time of user deposit.\n\n**[ritik99 (Sublime) acknowledged](https://github.com/code-423n4/2021-12-sublime-findings/issues/137#issuecomment-1001476854):**\n > We've been aware of this issue for some time.. ended up including the AaveYield file in the scope by mistake! We do not plan to include the Aave strategy in our launch (we maintain a strategy registry that allows us to add/drop yield strategies), and as noted in #128, we will be utilizing [wrapper contracts](https://github.com/aave/protocol-v2/blob/feat-atoken-wrapper-liquidity-mining/contracts/protocol/tokenization/StaticATokenLM.sol) that mimics behaviour of non-rebasing LP tokens\n\n**[0xean (judge) commented](https://github.com/code-423n4/2021-12-sublime-findings/issues/137#issuecomment-1018051683):**\n > going to side with the warden since they believed the contract to be in scope and it's a valid concern.\n\n\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the AaveYield.lockTokens contract strategy when depositing into Aave. Currently, when a user deposits into Aave, they receive the same amount of shares as the deposited amount. This share amount is then cached in a balanceInShares map in SavingsAccount.deposit. This means that the share amount is static and not dynamically rebasing anymore. When a user withdraws, they only receive the amount of the initial deposit, not the amount that should have been accrued with the interest. This means that the user does not receive the interest owed to them. Additionally, the collateral pool is measured without the interest accrued, which can lead to early liquidations and further loss.\n\nIn order to fix this vulnerability, a non-rebasing wrapper LP token should be created, which is paid out to the user proportional to the current strategy TVL at the time of the user's deposit.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2021-12-sublime-contest",
+      "sponsor_name": "Sublime",
+      "sponsor_link": "https://twitter.com/sublimefinance",
+      "quality_score": 3,
+      "general_score": 3,
+      "source_link": "https://code4rena.com/reports/2021-12-sublime",
+      "github_link": "https://github.com/code-423n4/2021-12-sublime-findings/issues/137",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "61",
+      "slug": "h-05-aaves-share-tokens-are-rebasing-breaking-current-strategy-code-code4rena-sublime-sublime-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Sublime",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Sublime",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Rebasing Tokens"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Wrong Math"
+          }
+        }
+      ]
+    }
+  ]
+}

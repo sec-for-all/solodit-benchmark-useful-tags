@@ -1,0 +1,1049 @@
+{
+  "tag": "Chain Reorganization Attack",
+  "count": 18,
+  "metadata": {
+    "totalResults": 18,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 1,
+    "reset": 1771760940
+  },
+  "findings": [
+    {
+      "id": "32240",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "1336",
+      "title": "M-4: Loss of bond amounts on re-org attacks",
+      "content": "Source: https://github.com/sherlock-audit/2024-02-optimism-2024-judging/issues/201 \n\nThe protocol has acknowledged this issue.\n\n## Found by \nMiloTruck, Trust\n## Summary\n\nThe `move()` function lacks proper identification of the target of the move, leading to successful re-org attacks which can take the honest participant's funds.\n\n## Vulnerability Detail\n\nParticipants in the game can call `attack()`, `defend()` or `move()`, each accepting a `parentIndex` which corresponds to the claim being challenged, and a `_claim` commitment. \n\nWhen participants claim, they have a particular claim in mind which they wish to challenge, and then pass on that claim's index. However, between the moment they sent the TX and the moment that TX is executed, a block reorg can take place. When it occurs, the challenge corresponding to that ID may change to another challenge, which may be valid or invalid in a different way. Regardless, the participant's commitment to that `move()` will be wrong, and they stand to lose their bond amount.\n\nChain reorgs are very prevalent in Ethereum mainnet, where the contract is deployed. You can check [this](https://etherscan.io/blocks_forked) index of reorged blocks on etherscan. It is **incorrect** to assume the attacker will wait until it achieved finality, because there's no warnings or documentation available for them to identify this as a threat. Therefore, it remains a very valid concern with reasonable hypotheticals.\n\nNote that in high depths, the bond amount is very large, leading to a large loss of funds.\n\nPossible flow:\n- Attacker submits invalid claim hash\n- Honest defenders rush to prove the claim wrong (note that only first defender gets the bond, so they will rush to submit the TX. They would not be concerned about waiting against reorgs without warning)\n- A block re-org occurs\n- The attacker replaces the invalid claim with a valid claim hash\n- Defender's TXs are applied on top of the valid claim.\n- Attacker can scoop up all the defenders' bonds\n\n## Impact\n\nLoss of bond value for honest participants of the dispute game.\n\n## Code Snippet\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nEvery move needs to include the key parameters which it wishes to attack/defend - the claim hash and the Position in the game tree.\n\n\n\n## Discussion\n\n**smartcontracts**\n\nThis is the intended behavior of the contract so we have confirmed the factuality of the report and marked as \"won't fix\". Challenger software can handle this case offchain.\n\n**nevillehuang**\n\nI believe this is out of scope, given there is no network admins in mainnet and thus doesn't satisfy the the requirements for the exception\n\n> Chain re-org and network liveness related issues are not considered valid.\nException: If an issue concerns any kind of a network admin (e.g. a sequencer), can be remedied by a smart contract modification, the protocol team considers external admins restricted and the considered network was explicitly mentioned in the contest README, it may be a valid medium. It should be assumed that any such network issues will be resolved within 7 days, if that may be possible.\n\n**trust1995**\n\nEscalate\n\nThe finding is in-scope as Medium severity for the following reasons:\n\n- The impact is direct loss of bonds of an honest challenger, who did not make any mistakes\n- There are no other preconditions except a re-org on the blockchain\n- As shown in the report, there is more than sufficient likelihood for re-orgs on ETH to render this a valuable concern that needs to be protected from\n- The issue is CLEARLY a smart contract issue, it is a lack of sufficient identification of a claim and is fixed by adding one line of code. It does not belong to the usual category of re-org issues which can be treated as unavoidable risks of blockchain architecture. The impact and circumstances are concrete and likely.\n- The challenge game is presented as a race where the first challenger picks up the bond - it is only natural that challengers will pop up as quickly as possible to challenge a honeypot claim. There are zero warnings or ways where a challenger can foresee such an attack is possible - unless we assume challengers are  coding gurus which would audit the code and identify this re-org attack could steal their bonds. To be clear, a simple warning saying challengers should wait until the claim block is finalized would be sufficient to close the issue as a user-error, but that's not the case.\n- \n\n**sherlock-admin2**\n\n> Escalate\n> \n> The finding is in-scope as Medium severity for the following reasons:\n> \n> - The impact is direct loss of bonds of an honest challenger, who did not make any mistakes\n> - There are no other preconditions except a re-org on the blockchain\n> - As shown in the report, there is more than sufficient likelihood for re-orgs on ETH to render this a valuable concern that needs to be protected from\n> - The issue is CLEARLY a smart contract issue, it is a lack of sufficient identification of a claim and is fixed by adding one line of code. It does not belong to the usual category of re-org issues which can be treated as unavoidable risks of blockchain architecture. The impact and circumstances are concrete and likely.\n> - The challenge game is presented as a race where the first challenger picks up the bond - it is only natural that challengers will pop up as quickly as possible to challenge a honeypot claim. There are zero warnings or ways where a challenger can foresee such an attack is possible - unless we assume challengers are  coding gurus which would audit the code and identify this re-org attack could steal their bonds. To be clear, a simple warning saying challengers should wait until the claim block is finalized would be sufficient to close the issue as a user-error, but that's not the case.\n> - \n\nYou've created a valid escalation!\n\nTo remove the escalation from consideration: Delete your comment.\n\nYou may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.\n\n**nevillehuang**\n\nBased on sherlock rules, I believe this is still invalid based on comments [here](https://github.com/sherlock-audit/2024-02-optimism-2024-judging/issues/201#issuecomment-2061664567). \n\n**Evert0x**\n\nThe following rule applies\n> Chain re-org and network liveness related issues are not considered valid.\n\nPlanning to reject escalation and keep issue state as is \n\n**trust1995**\n\n@nevillehuang \nThe rationale for the scoping rules on Sherlock excluding re-org attacks is the assumption that a TX sender is responsible for waiting for finality (stated by Judge on discord). \nHowever, due to Optimism-specific circumstances detailed in depth by the dup submission by MiloTruck, it is proven that an honest party cannot afford to wait for finality (the so called chess-clock mechanism).\nFor this reason, and the fact that re-orgs on L1 are proven to be highly likely, it is only common sense to see that the issue is a valid risk of loss of funds for Medium severity.\n\n**nevillehuang**\n\nHi @Evert0x although I believe this issue could still be possibly out of scope due to it being related to resolution logic, I think @trust1995 has a point [here](https://github.com/sherlock-audit/2024-02-optimism-2024-judging/issues/201#issuecomment-2085970350). Re-orgs are often times out of the control of a user, and in optimisms case, this directly leads to a serious inconsistency where user would dispute a claim incorrectly (although there are safeguards). \n\nI believe that re-org issues exception could be re-considered for sherlock's scope in the future, possibly a proposal could be put up to address this [per discussed]( https://discord.com/channels/812037309376495636/881726370370158592/1233391162556026891), especially so when a fund loss impact is involved. \n\n**Evert0x**\n\nI understand that re-org attacks are possibly more interesting to L1's or L2's than the average protocol. However, using the same judging rules as every Watson used during the contest, it would only be fair to invalidate it. As the language is clear\n\n> Chain re-org and network liveness related issues are not considered valid.\n\n\n\n\n\n**trust1995**\n\n@Evert0x The language is clear, but guidelines always have exceptions. It is up to the judge to apply common sense and the contest-specific context to every verdict. Blindly following every rule will lead to injustice and counterexamples where an impact is clearly real and valuable, but is not rewarded. That is well understood in the Sherlock rulebook:\n> Note: Despite these rules, **we must understand that because of the complexity & subjective nature of smart contract security, there may be issues that are judged beyond the purview of this guide**. However, for the vast majority of cases, this guide should suffice. **Sherlock's internal judges continue to have the last word on considering any issue as valid or not**.\n\nThe chain re-org and liveness rule already has an exception. \n>Exception: If an issue concerns any kind of a network admin (e.g. a sequencer), can be remedied by a smart contract modification, the protocol team considers external admins restricted and the considered network was explicitly mentioned in the contest README, it may be a valid medium. It should be assumed that any such network issues will be resolved within 7 days, if that may be possible. \n\nThe submission abides by all the criteria for that exception except the network (mainnet) does not have an admin. The intention around that criteria is that because there's no admin, we can assume actors can wait for finality before submitting a transaction, and they could not get attacked. However in the Optimism codebase, we have shown the game clock forces honest parties to respond before blocks are finalized, re-opening the vector. \n\nIt is very clear that the combination of the impact, simple code fix, execution before finality, and ease of exploit make an extremely sound case for Medium severity. \n\nJudging is not clerk work, it requires making nuanced decisions and not continuously falling back on previous decisions, which were made with different contexts. Apply common sense, and determine if the submission is worthy of H/M.\n\n\n\n**Evert0x**\n\nResult:\nInvalid\nHas Duplicates\n\n---\n\nThe judges have the last of opinion but objectivity is held to a high regard. As the language is so clear, I believe it's the correct judgment \n\n**sherlock-admin2**\n\nEscalations have been resolved successfully!\n\nEscalation status:\n- [trust1995](https://github.com/sherlock-audit/2024-02-optimism-2024-judging/issues/201/#issuecomment-2075436915): rejected\n\n**Evert0x**\n\nThis was initially deemed invalid by a strict interpretation of our judging guidelines (\"Chain re-org and network liveness related issues are not considered valid.\"). This rule exists as the \"blockchain is trusted\" from the perspective of app builders. However, a different trust level applies when building an L1/L2.\n\nAfter a discussion with the lead judge and the protocol team I'm assigning Medium severity.",
+      "summary": "\nThe report discusses a vulnerability found in a protocol that can lead to the loss of bond amounts during re-org attacks. This issue was found by MiloTruck and Trust and has been acknowledged by the protocol. The vulnerability is caused by the lack of proper identification of the target in the `move()` function, which can result in successful re-org attacks and loss of funds for honest participants. This vulnerability is prevalent in Ethereum mainnet and can be exploited by an attacker to steal bonds from defenders. The impact of this vulnerability is the direct loss of bond value for honest participants. The vulnerability can be fixed by adding a line of code to identify the claim and position in the game tree. The issue has been reviewed manually and has been deemed as \"won't fix\" by the protocol team. However, there has been a discussion about the severity of the vulnerability and it has been escalated to Medium severity due to the impact and likelihood of occurrence.",
+      "report_date": {},
+      "contest_prize_txt": "200000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/205",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2024-02-optimism-2024-judging/issues/201",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "205",
+      "slug": "m-4-loss-of-bond-amounts-on-re-org-attacks-sherlock-optimism-fault-proofs-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Optimism Fault Proofs",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Optimism Fault Proofs",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "29409",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "1231",
+      "title": "Block depth used does not offer guarantees against reorgs under edge cases",
+      "content": "## Severity: Medium Risk\n\n**Context:** cdk-dinero-keeper/src/functions/update-validator-stats/index.ts#L226\n\n**Description:** \nThe Ethereum chain finalizes roughly every 2 epochs (64 slots); at this point, the network offers extreme guarantees for the finalized blocks. The current value of `CONFIRMATION_BLOCKS=30` would be historically safe but offers no guarantees in edge/attack cases against reorgs and non-finality incidents.\n\n**Recommendation:** \nThere is a notion of finalized blocks that could be used instead. The data would be older but would represent the finalized state of the network. Note that in the case of a non-finality incident on the network, the value will be stuck in the past unless the network is healthy again. This may even be an advantage as you will not perform actions on data that might change or spend funds that should not have been.\n\n**Redacted:** Fixed in PR 56.\n\n**Spearbit:** \nThe recommendation was followed and a fix was applied in PR 56 at commit `3772bdd8`.",
+      "summary": "\nThis bug report is about a risk of medium severity in the cdk-dinero-keeper/src/functions/update-validator-stats/index.ts#L226. The current value of CONFIRMATION_BLOCKS=30 would be historically safe, but offers no guarantees in edge/attack cases against reorgs and non-finality incidents.\n\nThe recommendation is to use a notion of finalized blocks instead, as this would represent the finalized state of the network. This data would be older, but it would also mean that in case of a non-finality incident, the value would be stuck in the past unless the network is healthy again. Additionally, this could be an advantage as it would stop any actions being taken on data that might change or funds being spent that should not have been.\n\nThe recommendation was followed and a fix was applied in PR 56 at commit 3772bdd8.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Redacted-Dinero-Infrastructure-Security-Review.pdf",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Redacted-Dinero-Infrastructure-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/Redacted-Dinero-Infrastructure-Security-Review.pdf",
+      "pdf_page_from": 7,
+      "contest_id": "",
+      "slug": "block-depth-used-does-not-offer-guarantees-against-reorgs-under-edge-cases-spearbit-none-redacted-dinero-infrastructure-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Redacted Dinero Infrastructure",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Redacted Dinero Infrastructure",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "30221",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "1175",
+      "title": "[M-01] No check for sequencer uptime can lead to dutch auctions failing or executing at bad prices",
+      "content": "\nThe `AuctionHouse` contract implements a Dutch auction mechanism to recover debt from collateral. However, there is no check for sequencer uptime, which could lead to auctions failing or executing at unfavorable prices.\n\nThe current deployment parameters allow auctions to succeed without a loss to the protocol for a duration of 10m 50s. If there's no bid on the auction after this period, the protocol has no other option but to take a loss or forgive the loan. This could have serious consequences in the event of a network outage, as any loss results in the slashing of all users with weight on the term.\n\nNetwork outages and large reorgs happen with relative frequency. For instance, Arbitrum suffered an hour-long outage just two weeks ago ([source](https://github.com/ArbitrumFoundation/docs/blob/50ee88b406e6e5f3866b32d147d05a6adb0ab50e/postmortems/15\\_Dec\\_2023.md)).\n\n### Proof of Concept\n\nConsider the following scenario:\n\n1. A loan is called and an auction is initiated.\n2. The network experiences an outage, causing the sequencer to go offline.\n3. The auction fails to receive any bids within the 10m 50s window due to the outage.\n4. The protocol is forced to take a loss (if there's still a bid after the `midPoint` and before the auction ends) or forgive the loan, both leading to the complete slashing of all users with weight on the term.\n\n### Recommended Mitigation Steps\n\nTo mitigate this issue, consider integrating an external uptime feed such as [Chainlink's L2 Sequencer Feeds](https://docs.chain.link/data-feeds/l2-sequencer-feeds). This would allow the contract to invalidate an auction if the sequencer was ever offline during its duration. Alternatively, implement a mechanism to restart an auction if it has received no bids.\n\n**[eswak (Ethereum Credit Guild) acknowledged, but disagreed with severity and commented](https://github.com/code-423n4/2023-12-ethereumcreditguild-findings/issues/1253#issuecomment-1898857129):**\n > Acknowledging this, we definitely don't want to add a dependency on an oracle to run the liquidations, so maybe another fix would be to define auction durations in number of blocks. I think basing auctions on time is semantically correct because it depends on market conditions (that are based on time) and when the sequencer resumes the conditions that triggered the auction might not hold anymore. The `forgive()` path at the end of the auction could be used to unstick the situation at the smart contract level, and the governance can organize an orderly fix of the situation when the sequencer resumes.\n> \n> Given the likelihood, I think it should be low severity, especially since we know auctions have to be longer on L2s than on mainnet (liquidity potentially needs to bridge, etc), so the chance that a downtime large enough relative to the auction duration will happen is pretty low.\n\n**[TrungOre (judge) commented](https://github.com/code-423n4/2023-12-ethereumcreditguild-findings/issues/1253#issuecomment-1917487929):**\n > In my opinion, if an auction is still active when the sequencer is down, it may cause a loss of assets (collateral) for the borrower. Although governance's measures can help mitigate the situation when the sequencer resumes, loss and slashing in this lending term will be inevitable in such cases. So I think medium severity is appropriate for this issue, but I'm open to other feedback.\n\n***\n\n",
+      "summary": "\nThe `AuctionHouse` contract has a bug that can cause auctions to fail or execute at unfavorable prices. This is because there is no check for sequencer uptime, which can lead to issues if there is a network outage. This can result in a loss for the protocol and the slashing of all users with weight on the term. To fix this, it is recommended to integrate an external uptime feed or implement a mechanism to restart auctions if there are no bids. The severity of this bug is debated, with some suggesting it is low due to the low likelihood of a network outage, while others argue it should be medium as it can still result in loss and slashing for users.",
+      "report_date": {},
+      "contest_prize_txt": "90500",
+      "contest_link": "https://code4rena.com/reports/2023-12-ethereumcreditguild",
+      "sponsor_name": "Ethereum Credit Guild",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-12-ethereumcreditguild",
+      "github_link": "https://github.com/code-423n4/2023-12-ethereumcreditguild-findings/issues/1253",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "310",
+      "slug": "m-01-no-check-for-sequencer-uptime-can-lead-to-dutch-auctions-failing-or-executing-at-bad-prices-code4rena-ethereum-credit-guild-ethereum-credit-guild-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Ethereum Credit Guild",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Ethereum Credit Guild",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "29266",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "11",
+      "impact": "HIGH",
+      "finders_count": 2,
+      "protocol_id": "1221",
+      "title": "Polygon chain reorgs will change mystery box tiers which can be gamed by validators",
+      "content": "**Description:** [`REQUEST_CONFIRMATIONS = 3`](https://github.com/Earnft/smart-contracts/blob/43d3a8305dd6c7325339ed35d188fe82070ee5c9/contracts/MysteryBox.sol#L26) is too small for polygon, as [chain re-orgs frequently have block-depth greater than 3](https://polygonscan.com/blocks_forked?p=1).\n\n**Impact:** Chain re-orgs re-order blocks and transactions changing randomness results. Someone who originally won a rare box could have that result changed into a common box and vice versa due to changing randomness result during the re-org.\n\nThis can also be [exploited by validators](https://docs.chain.link/vrf/v2/security/#choose-a-safe-block-confirmation-time-which-will-vary-between-blockchains) who can intentionally rewrite the chain's history to force a randomness request into a different block, changing the randomness result. This allows validators to get a fresh random value which may be to their advantage if they are minting mystery boxes by moving the txn around to get a better randomness result to mint a rarer box.\n\n**Recommended Mitigation:** `REQUEST_CONFIRMATIONS = 30` appears very safe for polygon as it is very rare for chain re-orgs to have block-depth greater than this. If this happens occasionally it isn't a big deal, but if it happens all the time (\"3\" ensures this) that is not good and potentially exploitable by validators.\n\n**Mode:**\nFixed in commit [85b2012](https://github.com/Earnft/smart-contracts/commit/85b20121604b5d162bb14c2c96731b8345ca1cb3).\n\n**Cyfrin:** Verified.",
+      "summary": "\nThe bug report is about a smart contract called MysteryBox.sol which has a parameter called REQUEST_CONFIRMATIONS set to 3. This value is too small for the polygon blockchain, as chain re-orgs (which re-order blocks and transactions) can have a block-depth greater than 3. This can be exploited by validators who can intentionally rewrite the chain's history to force a randomness request into a different block, changing the randomness result. This could result in someone who originally won a rare box having that result changed into a common box and vice versa.\n\nThe recommended mitigation for this issue is to set REQUEST_CONFIRMATIONS to 30, as it is very rare for chain re-orgs to have block-depth greater than this. This was fixed in a commit called 85b20121604b5d162bb14c2c96731b8345ca1cb3, and was verified by Cyfrin.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/solodit/solodit_content/blob/main/reports/Cyfrin/2023-11-20-cyfrin-mode-earnm.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "polygon-chain-reorgs-will-change-mystery-box-tiers-which-can-be-gamed-by-validators-cyfrin-none-cyfrin-mode-earnm-markdown",
+      "firm_name": "Cyfrin",
+      "firm_logo_square": "Cyfrin_square.jpg",
+      "protocol_name": "Mode Earnm",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Cyfrin",
+        "logo_square": "Cyfrin_square.jpg"
+      },
+      "protocols_protocol": {
+        "name": "Mode Earnm",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "26696",
+      "kind": "PDF",
+      "auditfirm_id": "9",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "1130",
+      "title": "Risk of double-spend attacks due to use of single-node Clique consensus without ﬁnality API",
+      "content": "## Diﬃculty: Medium\n\n## Type: Denial of Service\n\n## Description\nl2geth uses the proof-of-authority Clique consensus protocol, defined by EIP-255. This consensus type is not designed for single-node networks, and an attacker-controlled sequencer node may produce multiple conflicting forks of the chain to facilitate double-spend attacks.\n\nThe severity of this finding is compounded by the fact that there is no API for an end user to determine whether their transaction has been finalized by L1, forcing L2 users to use ineffective block/time delays to determine finality.\n\nClique consensus was originally designed as a replacement for proof-of-work consensus for Ethereum testnets. It uses the same fork choice rule as Ethereum’s proof-of-work consensus; the fork with the highest “difficulty” should be considered the canonical fork.\n\nClique consensus does not use proof-of-work and cannot update block difficulty using the traditional calculation; instead, block difficulty may be one of two values:\n- “1” if the block was mined by the designated signer for the block height\n- “2” if the block was mined by a non-designated signer for the block height\n\nThis means that in a network with only one authorized signer, all of the blocks and forks produced by the sequencer will have the same difficulty value, making it impossible for syncing nodes to determine which fork is canonical at the given block height.\n\nIn a normal proof-of-work network, one of the proposed blocks will have a higher difficulty value, causing syncing nodes to reorganize and drop the block with the lower difficulty value. In a single-validator proof-of-authority network, neither block will be preferred, so each syncing node will simply prefer the first block they received.\n\nThis finding is not unique to l2geth; it will be endemic to all L2 systems that have only one authorized sequencer.\n\n## Exploit Scenario\nAn attacker acquires control over l2geth’s centralized sequencer node. The attacker modifies the node to prove two forks: one fork containing a deposit transaction to a centralized exchange, and one fork with no such deposit transaction. The attacker publishes the first fork, and the centralized exchange picks up and processes the deposit transaction. The attacker continues to produce blocks on the second private fork. Once the exchange processes the deposit, the attacker stops generating blocks on the public fork, generates an extra block to make the private fork longer than the public fork, then publishes the private fork to cause a re-organization across syncing nodes. This attack must be completed before the sequencer is required to publish a proof to L1.\n\n## Recommendations\nShort term, add API methods and documentation to ensure that bridges and centralized exchanges query only for transactions that have been proved and finalized on the L1 network.\n\nLong term, decentralize the sequencer in such a way that a majority of sequencers must collude in order to successfully execute a double-spend attack. This design should be accompanied by a slashing mechanism to penalize sequencers that sign conflicting blocks.",
+      "summary": "\nThis bug report is about a Denial of Service vulnerability in l2geth, a decentralized platform that uses the Clique consensus protocol. This protocol is not designed for single-node networks, and an attacker-controlled sequencer node can exploit the vulnerability to produce multiple conflicting forks of the chain and double-spend attacks. This vulnerability is compounded by the lack of an API for end-users to determine whether their transaction has been finalized on the L1 network, forcing them to use ineffective block/time delays.\n\nClique consensus is a replacement for proof-of-work consensus for Ethereum testnets. It uses the same fork choice rule as Ethereum's proof-of-work consensus, where the fork with the highest difficulty should be considered the canonical fork. However, Clique consensus does not use proof-of-work and cannot update block difficulty using the traditional calculation. This means that in a single-node network, all forks produced by the sequencer will have the same difficulty value, making it impossible to determine which fork is canonical at a given block height.\n\nThe exploit scenario involves an attacker taking control of l2geth's centralized sequencer node and modifying it to produce two forks: one with a deposit transaction to a centralized exchange, and one without. The attacker publishes the first fork and the exchange processes the deposit. The attacker then stops generating blocks on the public fork, generates an extra block on the private fork, and publishes the private fork to cause a re-organization across syncing nodes.\n\nTo mitigate this vulnerability, short-term recommendations include adding API methods and documentation to ensure that bridges and centralized exchanges query only for transactions that have been proved and finalized on the L1 network. Long-term recommendations include decentralizing the sequencer in such a way that a majority of sequencers must collude in order to successfully execute a double-spend attack, as well as introducing a slashing mechanism to penalize sequencers that sign conflicting blocks.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/trailofbits/publications/blob/master/reviews/2023-08-scrollL2geth-initial-securityreview.pdf",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/trailofbits/publications/blob/master/reviews/2023-08-scrollL2geth-initial-securityreview.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/trailofbits/2023-08-scrollL2geth-initial-securityreview.pdf",
+      "pdf_page_from": 21,
+      "contest_id": "",
+      "slug": "risk-of-double-spend-attacks-due-to-use-of-single-node-clique-consensus-without-finality-api-trailofbits-none-scroll-l2geth-pdf",
+      "firm_name": "TrailOfBits",
+      "firm_logo_square": "trailofbits_square.png",
+      "protocol_name": "Scroll, l2geth",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "TrailOfBits",
+        "logo_square": "trailofbits_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Scroll, l2geth",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "25969",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 4,
+      "protocol_id": "471",
+      "title": "[M-09] Create methods are suspicious of the reorg attack",
+      "content": "\nThe createVaultBooster() function deploys a new VaultBooster contract using the `create`, where the address derivation depends only on the VaultBoosterFactory nonce.\n\nRe-orgs can happen in all EVM chains and as confirmed the contracts will be deployed on most EVM compatible L2s including Arbitrum, etc. It is also planned to be deployed on ZKSync in future. In ethereum, where this is deployed, Re-orgs has already been happened. For more info, [check here](https://decrypt.co/101390/ethereum-beacon-chain-blockchain-reorg).\n\nThis issue will increase as some of the chains like Arbitrum and Polygon are suspicious of the reorg attacks.\n\nPolygon re-org reference: [click here](https://protos.com/polygon-hit-by-157-block-reorg-despite-hard-fork-to-reduce-reorgs/). This one happened this year in February, 2023.\n\nPolygon blocks forked: [check here](https://polygonscan.com/blocks_forked)\n\nThe issue would happen when users rely on the address derivation in advance or try to deploy the position clone with the same address on different EVM chains, any funds sent to the `new` contract could potentially be withdrawn by anyone else. All in all, it could lead to the theft of user funds.\n\n```Solidity\nFile: src/VaultBoosterFactory.sol\n\n    function createVaultBooster(PrizePool _prizePool, address _vault, address _owner) external returns (VaultBooster) {\n>>        VaultBooster booster = new VaultBooster(_prizePool, _vault, _owner);\n\n        emit CreatedVaultBooster(booster, _prizePool, _vault, _owner);\n\n        return booster;\n    }\n```\n\nOptimistic rollups (Optimism/Arbitrum) are also suspect to reorgs since if someone finds a fraud the blocks will be reverted, even though the user receives a confirmation.\n\n**Attack Scenario**<br>\nImagine that Alice deploys a new VaultBooster, and then sends funds to it. Bob sees that the network block reorg happens and calls createVaultBooster. Thus, it creates VaultBooster with an address to which Alice sends funds. Then Alices’ transactions are executed and Alice transfers funds to Bob’s controlled VaultBooster.\n\nThis is a Medium severity issue that has been referenced from below Code4rena reports:<br>\n<https://code4rena.com/reports/2023-01-rabbithole/#m-01-questfactory-is-suspicious-of-the-reorg-attack><br>\n<https://code4rena.com/reports/2023-04-frankencoin#m-14-re-org-attack-in-factory>\n\n### Proof of Concept\n\n<https://github.com/GenerationSoftware/pt-v5-vault-boost/blob/9d640051ab61a0fdbcc9500814b7f8242db9aec2/src/VaultBoosterFactory.sol#L29>\n\n### Recommended Mitigation Steps\n\nDeploy such contracts via `create2` with `salt` that includes `msg.sender`.\n\n**[asselstine (PoolTogether) confirmed via duplicate issue `#169`](https://github.com/code-423n4/2023-08-pooltogether-findings/issues/169#issuecomment-1673828427)**\n\n**[hickuphh3 (judge) commented](https://github.com/code-423n4/2023-08-pooltogether-findings/issues/31#issuecomment-1682442917):**\n > Accepting because of this:<br>\n> > *\"Imagine that Alice deploys a new VaultBooster, and then sends funds to it. Bob sees that the network block reorg happens and calls createVaultBooster. Thus, it creates VaultBooster with an address to which Alice sends funds. Then Alices’ transactions are executed and Alice transfers funds to Bob’s controlled VaultBooster.\"*\n> \n> Again, the scenario should have been more explicit: stating how the vault could be different, how funds are transferred & possibly exploited.\n\n\n\n***\n\n",
+      "summary": "\nA bug has been identified in the createVaultBooster() function of the VaultBoosterFactory contract. This bug could potentially lead to the theft of user funds. Re-orgs, which are a type of blockchain reorganization, can happen in EVM chains and have already happened in Ethereum. As the address derivation depends only on the VaultBoosterFactory nonce, if a user relies on the address derivation in advance or tries to deploy the position clone with the same address on different EVM chains, any funds sent to the new contract could potentially be withdrawn by anyone else.\n\nThe issue is expected to increase as some of the chains like Arbitrum and Polygon are particularly susceptible to reorg attacks. In February 2021, Polygon experienced a 157 block reorg. The attack scenario is as follows: Alice deploys a new VaultBooster and sends funds to it, and Bob sees that the network block reorg happens and calls createVaultBooster, thus creating a VaultBooster with an address to which Alice sent funds, so Alice's transactions are executed and the funds are transferred to Bob's controlled VaultBooster.\n\nThe bug has been confirmed by asselstine (PoolTogether) and hickuphh3 (judge) has commented that the scenario should have been more explicit. The recommended mitigation step is to deploy such contracts via create2 with salt that includes msg.sender.",
+      "report_date": {},
+      "contest_prize_txt": "$42,000 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-08-pooltogether",
+      "sponsor_name": "PoolTogether",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-08-pooltogether",
+      "github_link": "https://github.com/code-423n4/2023-08-pooltogether-findings/issues/31",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "271",
+      "slug": "m-09-create-methods-are-suspicious-of-the-reorg-attack-code4rena-pooltogether-pooltogether-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "PoolTogether",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "PoolTogether",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "28980",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "940",
+      "title": "[M-01] Identifying publications using its ID makes the protocol vulnerable to blockchain re-orgs",
+      "content": "\nIn the protocol, publications are uniquely identified through the publisher's profile ID and the publication's ID. For example, when a user calls `act()`, the publication being acted on is determined by `publicationActedProfileId` and `publicationActedId`:\n\n[ActionLib.sol#L23-L26](https://github.com/code-423n4/2023-07-lens/blob/main/contracts/libraries/ActionLib.sol#L23-L26)\n\n```solidity\n        Types.Publication storage _actedOnPublication = StorageLib.getPublication(\n            publicationActionParams.publicationActedProfileId,\n            publicationActionParams.publicationActedId\n        );\n```\n\nHowever, as publication IDs are not based on the publication's data, this could cause users to act on the wrong publication in the event a blockchain re-org occurs.\n\nFor example:\n\n*   Assume the following transactions occur in separate blocks:\n    *   Block 1: Alice calls `post()` to create a post; its publication ID is 20.\n    *   Block 2: Bob is interested in the post, he calls `act()` with `publicationActedId = 20` to act on the post.\n    *   Block 3: Alice calls `comment()` separately, which creates another publication; its publication ID is 21.\n*   A blockchain re-org occurs; block 1 is dropped in place of block 3:\n    *   Alice's comment now has the publication ID 20 instead of 21.\n*   Bob's call to `act()` in block 2 is applied on top of the re-orged blockchain:\n    *   This causes him to act on the comment instead of the post he intended to, as it now has the publication ID 20.\n\nIn this scenario, due to the blockchain re-org, Bob calls `act()` on a different publication than the one he wanted. This could have severe impacts depending on the action module being called; if the action module is used to collect and pay fees to the publisher and referrals (eg. [`MultirecipientFeeCollectModule.sol`](https://github.com/code-423n4/2023-07-lens/blob/main/contracts/modules/act/collect/MultirecipientFeeCollectModule.sol)), Bob could have lost funds.\n\nNote that this also applies to [`comment()`](https://github.com/code-423n4/2023-07-lens/blob/main/contracts/LensHub.sol#L247-L255), [`mirror`](https://github.com/code-423n4/2023-07-lens/blob/main/contracts/LensHub.sol#L270-L278) and [`quote()`](https://github.com/code-423n4/2023-07-lens/blob/main/contracts/LensHub.sol#L293-L301), as they can be called with reference modules with sensitive logic as well.\n\n### Impact\n\nIf a blockchain re-org occurs, users could potentially act/comment/mirror/quote on the wrong publication, which has varying impacts depending on the action or reference module being used, such as a loss of funds due to paying fees.\n\nGiven that Lens Protocol is deployed on Poylgon, which has [experienced large re-orgs in the past](https://forum.polygon.technology/t/157-block-reorg-at-block-height-39599624/11388), the likelihood of the scenario described above occuring due to a blockchain re-org is not low.\n\n### Recommended Mitigation\n\nConsider identifying publications with a method that is dependent on its contents. For example, users could be expected to provide the `keccak256` hash of a publication's contents alongside its publication ID.\n\nThis would prevent users from acting on the wrong publication should a publication's contents change despite having the same ID.\n\n**[donosonaumczuk (Lens) disputed and commented](https://github.com/code-423n4/2023-07-lens-findings/issues/148#issuecomment-1669778308):**\n > We disagree with the validity of this issue.\n> \n> Transactions will have a nonce (even when meta-txs), so each profile will already have a specific order for each of their publications, which means that the IDs of the publications will be asigned correctly to those profiles, whenever the transactions get confirmed.\n> \n> What can happen, is that the re-org ends up executing the \"act\" transaction before the \"post/quote/comment\" that is being acted on is created, leading the \"act\" transaction to revert. It shouldn't be likely to occur.\n> \n> For the described issue to happen, a really weird edge case needs to occur, a re-org that also includes a transaction replacement (override) for the \"post/quote/comment\". This is very unlikely and the harm caused is also not clear.\n\n**[Picodes (judge) commented](https://github.com/code-423n4/2023-07-lens-findings/issues/148#issuecomment-1695853088):**\n > > *Transactions will have a nonce (even when meta-txs), so each profile will already have a specific order for each of their publications, which means that the IDs of the publications will be asigned correctly to those profiles, whenever the transactions get confirmed.*\n> \n> As it may happen that multiple addresses have the right to post (for example delegated executors and owners), I think the described scenario is valid and it's possible to have multiple publications being reordered in a different order. So to me this finding is valid. Let me know if I am missing something!\n\n**[donosonaumczuk (Lens) commented](https://github.com/code-423n4/2023-07-lens-findings/issues/148#issuecomment-1699465260):**\n > > *As it may happen that multiple addresses have the right to post (for example delegated executors and owners) I think the described scenario is valid.*\n> \n> Yes, I did not consider that detail. What you have said is correct and then the issue is valid.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a potential issue that could occur in the Lens Protocol due to a blockchain re-org. When a user calls `act()`, the publication being acted on is determined by `publicationActedProfileId` and `publicationActedId`. However, as publication IDs are not based on the publication's data, this could cause users to act on the wrong publication in the event a blockchain re-org occurs. \n\nFor example, if Alice calls `post()` to create a post and Bob calls `act()` with `publicationActedId = 20` to act on the post, and then Alice calls `comment()` which creates another publication, if a blockchain re-org occurs, Alice's comment now has the publication ID 20 instead of 21, and Bob's call to `act()` is applied on top of the re-orged blockchain, causing him to act on the comment instead of the post he intended to. This could have severe impacts depending on the action module being called, such as a loss of funds due to paying fees.\n\nThe potential issue applies to `comment()`, `mirror` and `quote()` as well, as they can be called with reference modules with sensitive logic as well. Given that Lens Protocol is deployed on Polygon, which has experienced large re-orgs in the past, the likelihood of the scenario described above occuring due to a blockchain re-org is not low. \n\nTo mitigate this issue, the team recommends identifying publications with a method that is dependent on its contents. For example, users could be expected to provide the `keccak256` hash of a publication's contents alongside its publication ID. This would prevent users from acting on the wrong publication should a publication's contents change despite having the same ID.",
+      "report_date": {},
+      "contest_prize_txt": "85500",
+      "contest_link": "https://code4rena.com/reports/2023-07-lens",
+      "sponsor_name": "Lens Protocol",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-07-lens",
+      "github_link": "https://github.com/code-423n4/2023-07-lens-findings/issues/148",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "263",
+      "slug": "m-01-identifying-publications-using-its-id-makes-the-protocol-vulnerable-to-blockchain-re-orgs-code4rena-lens-protocol-lens-protocol-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Lens Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Lens Protocol",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "26377",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 5,
+      "protocol_id": "471",
+      "title": "[M-08] An attacker can front-run `deployVault` to deploy at the same address",
+      "content": "\nVaults are created from the factory via `CREATE1`. An attacker can front-run `deployVault` to deploy at the same address, but with different config. If the deployed chain reorg, a different vault might also be deployed at the same address.\n\n### Proof of Concept\n\n<https://github.com/GenerationSoftware/pt-v5-vault/blob/b1deb5d494c25f885c34c83f014c8a855c5e2749/src/VaultFactory.sol#L67-L78>\n\n1.  Bob setup a bot to monitor the `mempool` when PT deploys a new vault.\n2.  Bob's bot saw a deployment by PT at `0x1234` and fires a tx to deposit immediately.\n3.  Alice front-runs PT's deployment by deploying a malicious vault at `0x1234`.\n4.  Bob's transaction ended up deposited into Alice's malicious vault.\n\n### Recommended Mitigation Steps\n\nUse `CREATE2` and the vault config as salt.\n\n### Assessed type\n\nMEV\n\n**[asselstine (PoolTogether) disputed and commented](https://github.com/code-423n4/2023-07-pooltogether-findings/issues/416#issuecomment-1644728305):**\n > The Vault address is a derivative of the (sender address, nonce).  I don't see how this scenario is possible?\n\n**[Picodes (judge) commented](https://github.com/code-423n4/2023-07-pooltogether-findings/issues/416#issuecomment-1666992892):**\n > @asselstine - exactly. Here, it only depends on the nonce of the factory; so in case of reorg, someone could \"override\" a vault deployment and all following transactions would still be executed.\n\n**[PoolTogether mitigated](https://github.com/code-423n4/2023-08-pooltogether-mitigation#individual-prs):**\n> Used `CREATE2` for `VaultFactory`.<br>\n> PR: https://github.com/GenerationSoftware/pt-v5-vault/pull/25\n\n**Status**: Mitigation confirmed. Full details in reports from [dirk\\_y](https://github.com/code-423n4/2023-08-pooltogether-mitigation-findings/issues/14), [rvierdiiev](https://github.com/code-423n4/2023-08-pooltogether-mitigation-findings/issues/48) and [0xStalin](https://github.com/code-423n4/2023-08-pooltogether-mitigation-findings/issues/82).\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability in PoolTogether's VaultFactory contract. The vulnerability is that an attacker can front-run `deployVault` to deploy a malicious vault at the same address as PoolTogether's vault, and if the deployed chain reorgs, a different vault might be deployed at the same address. This would mean that any transactions that were meant to go to PoolTogether's vault, would instead go to the malicious vault. \n\nTo prove this vulnerability, a proof of concept was provided. This proof of concept outlined that Bob set up a bot to monitor the mempool when PT deploys a new vault. Bob's bot saw a deployment by PT at 0x1234 and fired a transaction to deposit immediately. Alice then front-runs PT's deployment by deploying a malicious vault at 0x1234. Bob's transaction ended up deposited into Alice's malicious vault.\n\nThe recommended mitigation step for this vulnerability was to use `CREATE2` and the vault config as salt. PoolTogether mitigated this vulnerability by using `CREATE2` for `VaultFactory`. This mitigation was confirmed by reports from 3 different sources.",
+      "report_date": {},
+      "contest_prize_txt": "$121,650 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-07-pooltogether",
+      "sponsor_name": "PoolTogether",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-07-pooltogether",
+      "github_link": "https://github.com/code-423n4/2023-07-pooltogether-findings/issues/416",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "258",
+      "slug": "m-08-an-attacker-can-front-run-deployvault-to-deploy-at-the-same-address-code4rena-pooltogether-pooltogether-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "PoolTogether",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "PoolTogether",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "20616",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "16",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "970",
+      "title": "[C-01] Polygon chain reorgs will often change game results",
+      "content": "**Impact:**\nHigh, as an already winning user will lose its reward\n\n**Likelihood:**\nHigh, as reorgs with > 3 depth happen often on Polygon\n\n**Description**\n\nThe `REQUEST_CONFIRMATION` constant in `VRFv2Consumer` is set to 3. This value is used to tell the Chainlink VRF service how much blocks do you want to wait at a minimum before receiving randomness. The reason this value was added is because of chain reorganizations - when this event happens, blocks and transactions get reorganized and they change. This is a serious problem in this application as it is expected to be launched on Polygon (mentioned in `README.md`), but as we can see [here](https://polygonscan.com/blocks_forked) there are more than 5 block reorganizations a day with depth that is more than 3 blocks. In [this article](https://protos.com/polygon-hit-by-157-block-reorg-despite-hard-fork-to-reduce-reorgs/) we can even see a recent event where there was a 156 block depth chain reorg on Polygon. This means that it is possible that often the winner of a lootbox game to be changed since when your transaction for requesting randomness from VRF is moved to a different block then the randomness will change as well.\n\n**Recommendations**\n\nUse a larger `REQUEST_CONFIRMATIONS` value - I would suggest around 60 to be safe. For the past 7 days the deepest chain reorganization had a depth of < 30 blocks. While 60 might not fit your use case for the game, I think anything below 25-30 is potentially dangerous to the project's users and reputation.",
+      "summary": "\nThis bug report is about a constant, `REQUEST_CONFIRMATION` set to 3, in the `VRFv2Consumer` code. This value is used to tell the Chainlink VRF service how much blocks do you want to wait at a minimum before receiving randomness. The problem is that the application is expected to be launched on Polygon, where more than 5 block reorganizations a day with depth that is more than 3 blocks can occur. This means that the winner of a lootbox game might be changed, as the randomness will change when the transaction for requesting randomness from VRF is moved to a different block. The impact of this bug is high, as an already winning user will lose its reward, and the likelihood is also high. The recommendation is to use a larger `REQUEST_CONFIRMATIONS` value, suggested to be around 60, as the deepest chain reorganization had a depth of < 30 blocks in the past 7 days.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/solodit/solodit_content/blob/main/reports/Pashov/2023-06-01-NFT Loots.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "c-01-polygon-chain-reorgs-will-often-change-game-results-pashov-none-nft-loots-markdown",
+      "firm_name": "Pashov Audit Group",
+      "firm_logo_square": "Pashov_square.png",
+      "protocol_name": "Nft Loots",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Pashov Audit Group",
+        "logo_square": "Pashov_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Nft Loots",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "26073",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "922",
+      "title": "[M-04] Many `create` methods are suspicious of the reorg attack",
+      "content": "\n### Proof of Concept\n\nThere are many instances of this; but to understand things better, take the example of the `createTalosV3Strategy` method.\n\nThe `createTalosV3Strategy` function deploys a new `TalosStrategyStaked` contract using the `create` method, where the address derivation depends only on the arguments passed.\n\nAt the same time, some of the chains like Arbitrum and Polygon are suspicious of the reorg attack.\n\n```solidity\nFile: TalosStrategyStaked.sol\n\n  function createTalosV3Strategy(\n        IUniswapV3Pool pool,\n        ITalosOptimizer optimizer,\n        BoostAggregator boostAggregator,\n        address strategyManager,\n        FlywheelCoreInstant flywheel,\n        address owner\n    ) public returns (TalosBaseStrategy) {\n        return new TalosStrategyStaked( // @audit-issue Reorg Attack\n                pool,\n                optimizer,\n                boostAggregator,\n                strategyManager,\n                flywheel,\n                owner\n            );\n    }\n\n```\n\n[Link to Code](https://github.com/code-423n4/2023-05-maia/blob/main/src/talos/TalosStrategyStaked.sol#L28)\n\nEven more, the reorg can be a couple of minutes long. So, it is quite enough to create the `TalosStrategyStaked` and transfer funds to that address using the `deposit` method; especially when someone uses a script and not doing it by hand.\n\nOptimistic rollups (Optimism/Arbitrum) are also suspect to reorgs. If someone finds a fraud, the blocks will be reverted, even though the user receives a confirmation.\n\nThe same issue can affect factory contracts in Ulysses omnichain contracts as well, with more severe consequences.\n\nYou can refer to this issue previously reported, [here](https://code4rena.com/reports/2023-04-frankencoin#m-14-re-org-attack-in-factory), to have a better understanding of it.\n\n### Impact\n\nExploits involving the stealing of funds.\n\n### Tools Used\n\nVS Code\n\n### Recommended Mitigation Steps\n\nDeploy such contracts via `create2` with `salt`.\n\n**[0xLightt (Maia) confirmed](https://github.com/code-423n4/2023-05-maia-findings/issues/861#issuecomment-1640083554)**\n\n**[T1MOH (warden) commented](https://github.com/code-423n4/2023-05-maia-findings/issues/861#issuecomment-1651485343):**\n > In my opinion, low severity is more appropriate as there is no loss of funds when reorg attack happens.\n >\n> >So, it is quite enough to create the `TalosStrategyStaked` and transfer funds to that address using the `deposit` method; especially when someone uses a script and not doing it by hand.\n> \n> But in the described scenario, there is no loss of funds of users, as they deposit to `TalosStrategyStaked` and receive shares in exchange. So they don't lose funds, because anytime they can exchange shares back. The report lacks severe impact and is more of an informational type.\n\n**[0xLightt (Maia) commented](https://github.com/code-423n4/2023-05-maia-findings/issues/861#issuecomment-1708800852):**\n > Addressed [here](https://github.com/Maia-DAO/eco-c4-contest/tree/861)\n\n***\n\n",
+      "summary": "\nA bug report was submitted about a possible reorg attack in the `createTalosV3Strategy` method of the `TalosStrategyStaked` contract. This bug is particularly concerning for chains like Arbitrum and Polygon, as a reorg attack can last a few minutes, allowing someone to create the `TalosStrategyStaked` contract and transfer funds to it using the `deposit` method. The same issue can affect factory contracts in Ulysses omnichain contracts as well, with more severe consequences.\n\nThe impact of this bug is the potential for fund exploits. The tools used to identify the bug were VS Code.\n\nThe recommended mitigation steps to prevent this bug from happening in the future are to deploy such contracts via `create2` with `salt`. This bug was addressed in the Maia-DAO/eco-c4-contest repository. The severity of the bug was determined to be low, as there is no loss of funds when a reorg attack happens.",
+      "report_date": {},
+      "contest_prize_txt": "$300,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-05-maia",
+      "sponsor_name": "Maia DAO Ecosystem",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-05-maia",
+      "github_link": "https://github.com/code-423n4/2023-05-maia-findings/issues/861",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "242",
+      "slug": "m-04-many-create-methods-are-suspicious-of-the-reorg-attack-code4rena-maia-dao-ecosystem-maia-dao-ecosystem-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Maia DAO Ecosystem",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Maia DAO Ecosystem",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 202630.75
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 202630.75
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 202630.75
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 202630.75
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "18999",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "13",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "847",
+      "title": "TRST-M-3 Attacker could abuse victim's vote to pass their own proposal",
+      "content": "**Description:**\nProposals are created using `submitProposal()`:\n```solidity\n        function submitProposal(uint8 _actionType, bytes memory _payload)  public onlyCouncil {\n             uint256 proposalId = proposalCount;\n                 proposals[proposalId] = Proposal(msg.sender,_actionType, \n                    _payload, 0, false);\n                proposalCount += 1;\n         emit ProposalSubmitted(proposalId, msg.sender);\n        }\n```\nAfter submission, council members approve them by calling `confirmTransaction()`:\n\n```solidity\n        function confirmTransaction(uint256 _proposalId) public onlyCouncil \n            notConfirmed(_proposalId) {\n             confirmations[_proposalId][msg.sender] = true;\n             proposals[_proposalId].confirmation += 1;\n        emit Confirmation(_proposalId, msg.sender);\n        }\n```\nNotably, the **_proposalId** passed to `confirmTransaction()` is simply the **proposalCount** at time \nof submission. This design allows the following scenario to occur:\n1. User A submits proposal P1\n2. User B is interested in the proposal and confirms it\n3. Attacker submits proposal P2\n4. A blockchain re-org occurs. Submission of P1 is dropped in place of P2.\n5. User B's confirmation is applied on top of the re-orged blockchain. Attacker gets their \nvote.\nWe've seen very large re-orgs in top blockchains such as Polygon, so this threat remains a \npossibility to be aware of.\n\n**Recommended Mitigation:**\nCalculate **proposalId** as a hash of the proposal properties. This way, votes cannot be \nmisdirected.\n\n**Team Response:**\nFixed.\n\n**Mitigation review:**\nThe suggestion mitigation has been applied correctly. It is woth noting that the new \nproposalIds array will keep growing throughout the governance lifetime. At some point, it \nmay be too large to fetch using getProposalIds().",
+      "summary": "\nA bug was identified in a smart contract's submission and confirmation process for proposals. The bug allowed an attacker to submit a proposal and have a council member's confirmation applied to it, even if the council member was originally confirming a different proposal. This was possible because the proposalId passed to the confirmTransaction() function was simply the proposalCount at the time of submission. To fix this issue, the proposalId was calculated as a hash of the proposal properties, preventing votes from being misdirected. The mitigation was applied correctly and it was noted that the new proposalIds array would keep growing throughout the governance lifetime, which may eventually become too large to fetch using getProposalIds().",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/solodit/solodit_content/blob/main/reports/Trust Security/2023-05-23-Mozaic Archimedes.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "trst-m-3-attacker-could-abuse-victims-vote-to-pass-their-own-proposal-trust-security-none-mozaic-archimedes-markdown_",
+      "firm_name": "Trust Security",
+      "firm_logo_square": "Trust_Security_square.png",
+      "protocol_name": "Mozaic Archimedes",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Trust Security",
+        "logo_square": "Trust_Security_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Mozaic Archimedes",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "21063",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "19",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "989",
+      "title": "Block Reorg Can Allow For Double Spending",
+      "content": "**Description**: \n\nBlock reorg, also known as blockchain reorganization, is a situation where a competing chain replaces the main blockchain. This can happen when multiple miners find valid blocks at the same time, and the network has to decide which block to include in the blockchain. In some cases, the network may choose to include a block that is not in the main blockchain, resulting in a reorganization of the chain.\n\n**Recommendations:**\n\nTo mitigate the risk of block reorgs, the Fast Bridge project may need to implement additional measures, such as waiting for multiple confirmations before proceeding with token transfers or implementing a fallback mechanism in case of a block reorg.",
+      "summary": "\nBlock reorg is a situation where a competing chain replaces the main blockchain. This can occur when multiple miners find valid blocks at the same time, and the network has to decide which block to include in the blockchain. In order to reduce the risk of block reorgs, the Fast Bridge project may need to take additional precautions, such as waiting for multiple confirmations before processing token transfers or implementing a fallback mechanism in case of a block reorg.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 1,
+      "general_score": 4,
+      "source_link": "https://github.com/solodit/solodit_content/blob/main/reports/AuditOne/2023-05-09-Aurorafastbridge.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "block-reorg-can-allow-for-double-spending-auditone-none-aurorafastbridge-markdown",
+      "firm_name": "AuditOne",
+      "firm_logo_square": "AuditOne_square.png",
+      "protocol_name": "Aurorafastbridge",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "AuditOne",
+        "logo_square": "AuditOne_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Aurorafastbridge",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "20035",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 4,
+      "protocol_id": "912",
+      "title": "[M-14] Re-org attack in factory",
+      "content": "\nThe `createClone` function deploys a clone contract using the create, where the address derivation depends only on the `PositionFactory` nonce.\n\nRe-orgs can happen in all EVM chains. In ethereum, where currently Frankencoin is deployed, it is not \"super common\" but it still happens, being the last one less than a year ago:\n\n<https://decrypt.co/101390/ethereum-beacon-chain-blockchain-reorg>\n\nThe issue increases the changes of happening because frankencoin is thinking about deploying also in L2's/ rollups, proof:\n\n<https://discord.com/channels/810916927919620096/1095308824354758696/1096693817450692658>\n\nwhere re-orgs have been much more active:\n\n<https://protos.com/polygon-hit-by-157-block-reorg-despite-hard-fork-to-reduce-reorgs/>\n\nbeing the last one, less than a year ago.\n\nThe issue would happen when users rely on the address derivation in advance or try to deploy the position clone with the same address on different EVM chains, any funds sent to the new clone could potentially be withdrawn by anyone else. All in all, it could lead to the theft of user funds.\n\nAs you can see in a previous report, the issue should be marked and judged as a medium:\n\n<https://code4rena.com/reports/2023-01-rabbithole/#m-01-questfactory-is-suspicious-of-the-reorg-attack>\n\n### Proof of Concept\n\nImagine that Alice deploys a position clone, and then sends funds to it. Bob sees that the network block reorg happens and calls `clonePosition`. Thus, it creates a position clone with an address to which Alice sends funds. Then Alice's transactions are executed and Alice transfers funds to Bob’s position contract.\n\n### Recommended Mitigation Steps\n\nThe recommendation is basically the same as:\n\n<https://code4rena.com/reports/2023-01-rabbithole/#m-01-questfactory-is-suspicious-of-the-reorg-attack>\n\nDeploy the cloned Position via create2 with a specific salt that includes msg.sender and address `_existing`\n\n**[luziusmeisser (Frankencoin) confirmed](https://github.com/code-423n4/2023-04-frankencoin-findings/issues/155#issuecomment-1532565147)**\n\n***\n\n",
+      "summary": "\nThis bug report is about the `createClone` function in the Frankencoin project, which deploys a clone contract using the create command. The issue is that re-orgs (blockchain reorganizations) can happen in the EVM chains where Frankencoin is deployed, which increases the chances of someone else being able to withdraw funds sent to the new clone contract. This could lead to the theft of user funds.\n\nTo demonstrate the issue, the report provides an example of Alice deploying a position clone, and then sending funds to it. Bob then sees that the network block reorg happens and calls `clonePosition`, creating a position clone with an address to which Alice sends funds. Alice's transactions are then executed, and Alice transfers funds to Bob’s position contract.\n\nThe recommended mitigation steps are to deploy the cloned Position via create2 with a specific salt that includes msg.sender and address `_existing`. This was confirmed by luziusmeisser (Frankencoin).",
+      "report_date": {},
+      "contest_prize_txt": "$60,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-04-frankencoin",
+      "sponsor_name": "Frankencoin",
+      "sponsor_link": "",
+      "quality_score": 3,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2023-04-frankencoin",
+      "github_link": "https://github.com/code-423n4/2023-04-frankencoin-findings/issues/155",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "231",
+      "slug": "m-14-re-org-attack-in-factory-code4rena-frankencoin-frankencoin-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Frankencoin",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Frankencoin",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "12279",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "10",
+      "title": "M-2: useLoan doesn't allow liqudator to specifiy maximum price",
+      "content": "Source: https://github.com/sherlock-audit/2023-02-kairos-judging/issues/25 \n\n## Found by \n0x52\n\n## Summary\n\nuseLoan doesn't allow the liquidator to specify a max price they are will to pay for the collateral they are liquidating. On the surface this doesn't seem like an issue because the price is always decreasing due to the dutch auction. However this can be problematic if the chain the contracts are deployed suffers a reorg attack. This can place the transaction earlier than anticipated and therefore charge the user more than they meant to pay. On Ethereum this is unlikely but this is meant to be deployed on any compatible EVM chain many of which are frequently reorganized.\n\n## Vulnerability Detail\n\nSee summary.\n\n## Impact\n\nLiquidator can be charged more than intended\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2023-02-kairos/blob/main/kairos-contracts/src/AuctionFacet.sol#L59-L73\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nAllow liquidator to specify a max acceptable price to pay\n\n\n\n## Discussion\n\n**npasquie**\n\nfixed here https://github.com/kairos-loan/kairos-contracts/pull/50",
+      "summary": "\nThis bug report is about the useLoan feature in the kairos-contracts repository not allowing the liquidator to specify a maximum price they are willing to pay for the collateral they are liquidating. This can be problematic if the chain the contracts are deployed on suffers a reorg attack, which can place the transaction earlier than anticipated and therefore charge the user more than they meant to pay. On Ethereum this is unlikely, but this is meant to be deployed on any compatible EVM chain, many of which are frequently reorganized. It was found manually and the code snippet can be found at the given link. The recommendation is to allow liquidator to specify a max acceptable price to pay. The bug was fixed in a pull request.",
+      "report_date": {},
+      "contest_prize_txt": "17500 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/56",
+      "sponsor_name": "Kairos",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-02-kairos-judging/issues/25",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "56",
+      "slug": "m-2-useloan-doesnt-allow-liqudator-to-specifiy-maximum-price-sherlock-kairos-kairos-loan-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Kairos Loan",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Kairos Loan",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA Lending"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "8852",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "51",
+      "title": "[M-01] QuestFactory is suspicious of the reorg attack",
+      "content": "## Lines of code\n\nhttps://github.com/rabbitholegg/quest-protocol/blob/8c4c1f71221570b14a0479c216583342bd652d8d/contracts/QuestFactory.sol#L75\nhttps://github.com/rabbitholegg/quest-protocol/blob/8c4c1f71221570b14a0479c216583342bd652d8d/contracts/QuestFactory.sol#L108\n\n\n## Vulnerability details\n\n## Description\n\nThe `createQuest` function deploys a quest contract using the `create`, where the address derivation depends only on the `QuestFactory` nonce. \n\nAt the same time, some of the chains (Polygon, Optimism, Arbitrum) to which the `QuestFactory` will be deployed are suspicious of the reorg attack.\n\n- https://polygonscan.com/blocks_forked\n\n![](https://i.imgur.com/N8tDUVX.png)\n\nHere you may be convinced that the Polygon has in practice subject to reorgs. Even more, the reorg on the picture is 1.5 minutes long. So, it is quite enough to create the quest and transfer funds to that address, especially when someone uses a script, and not doing it by hand.\n\nOptimistic rollups (Optimism/Arbitrum) are also suspect to reorgs since if someone finds a fraud the blocks will be reverted, even though the user receives a confirmation and already created a quest.\n\n## Attack scenario\n\nImagine that Alice deploys a quest, and then sends funds to it. Bob sees that the network block reorg happens and calls `createQuest`. Thus, it creates `quest` with an address to which Alice sends funds. Then Alices' transactions are executed and Alice transfers funds to Bob's controlled quest. \n\n## Impact\n\nIf users rely on the address derivation in advance or try to deploy the wallet with the same address on different EVM chains, any funds sent to the wallet could potentially be withdrawn by anyone else. All in all, it could lead to the theft of user funds.\n\n## Recommended Mitigation Steps\n\nDeploy the quest contract via `create2` with `salt` that includes `msg.sender` and `rewardTokenAddress_`.",
+      "summary": "\nA bug has been discovered in the QuestFactory.sol contract, which is part of the Quest Protocol. The `createQuest` function deploys a quest contract using the `create` command, where the address derivation depends only on the `QuestFactory` nonce. This is a problem for some of the chains (Polygon, Optimism, Arbitrum) to which the `QuestFactory` will be deployed, as they are vulnerable to reorg attacks. \n\nIn a reorg attack, Bob can call `createQuest` and create a quest with an address to which Alice sends funds. As a result, Alice's funds can be withdrawn by Bob. This could lead to the theft of user funds, which is a serious issue.\n\nTo mitigate this issue, it is recommended to deploy the quest contract via `create2` with `salt` that includes `msg.sender` and `rewardTokenAddress_`. This will help to ensure that the address derivation is secure, and users will not be at risk of having their funds stolen.",
+      "report_date": {},
+      "contest_prize_txt": "$36,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2023-01-rabbithole-quest-protocol-contest",
+      "sponsor_name": "RabbitHole",
+      "sponsor_link": "https://twitter.com/rabbithole_gg",
+      "quality_score": 5,
+      "general_score": 2.8,
+      "source_link": "https://code4rena.com/reports/2023-01-rabbithole",
+      "github_link": "https://github.com/code-423n4/2023-01-rabbithole-findings/issues/661",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "208",
+      "slug": "m-01-questfactory-is-suspicious-of-the-reorg-attack-code4rena-rabbithole-rabbithole-quest-protocol-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "RabbitHole",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "RabbitHole",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "25558",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 0,
+      "protocol_id": "471",
+      "title": "[H-02] Miners Can Re-Roll the VRF Output to Game the Protocol",
+      "content": "_Submitted by leastwood_.\n\n#### Impact\n\nMiners are able to rewrite a chain's history if they dislike the VRF output used by the protocol. Consider the following example:\n\n*   A miner or well-funded user is participating in the PoolTogether protocol.\n*   A VRF request is made and fulfilled in the same block.\n*   The protocol participant does not benefit from the VRF output and therefore wants to increase their chances of winning by including the output in another block, producing an entirely new VRF output. This is done by re-orging the chain, i.e. following a new canonical chain where the VRF output has not been included in a block.\n*   This attack can be continued as long as the attacker controls 51% of the network. The miner itself could control a much smaller proportion of the network and still be able to mine a few blocks in succession, although this is of low probability but entirely possible.\n*   A well-funded user could also pay miners to re-org the chain on their behalf in the form of MEV to achieve the same benefit.\n\nThe PoolTogether team is aware of this issue but is yet to mitigate this attack vector fully.\n\n#### Proof of Concept\n\n- <https://docs.chain.link/docs/vrf-security-considerations/#choose-a-safe-block-confirmation-time-which-will-vary-between-blockchains>\n- <https://github.com/pooltogether/pooltogether-rng-contracts/blob/master/contracts/RNGChainlink.sol>\n- <https://github.com/pooltogether/v4-core/blob/master/contracts/DrawBeacon.sol#L311-L324>\n- <https://github.com/pooltogether/v4-core/blob/master/contracts/DrawBeacon.sol#L218-L232>\n- <https://github.com/pooltogether/blockhash-analysis-simulation>\n\n#### Tools Used\n\n- Manual code review\n- Discussions with Brendan\n\n#### Recommended Mitigation Steps\n\nConsider adding a confirmation time between when the actual VRF request was made and when it was later fulfilled on-chain. This could be as few as 5 blocks, reducing the probability of an effective chain reorganization to extremely close to 0.\n\n**[asselstine (PoolTogether) acknowledged](https://github.com/code-423n4/2021-10-pooltogether-findings/issues/56#issuecomment-942861105):**\n > Yes, this is something I've known for awhile.  The VRF operator whose signature we are requesting *could* collude with a miner to manipulate the blockhash that is being fed to the VRF.\n> \n> We're using the original VRF implementation by Chainlink.  VRF 2.0 is rolling out soon, and we'll explore confirmation times with their team.\n> \n> \n\n**[Alex the Entreprenerd (judge) commented](https://github.com/code-423n4/2021-10-pooltogether-findings/issues/56#issuecomment-943848009):**\n > The warden has identified a \"supply chain\" attack on the VRF, while the finding may seem innocuous, it does pose the fundamental question as to whether Chainlink's VRF is a source of truly verifiable randomness that won't be gamed for personal gains.\n> \n> The sponsor does agree on the attack vector, the miner and the chainlink provider could collude with the purpose of gaming the system.\n> \n> I find it hard to leave this as a High Severity finding, because it implies that Chainlink's VRF Service is flawed in it's design\n> \n> However, if trace of proof of collusion between miners and chainlink operators where to be found, this would question the impartiality of their service.\n> \n\n**[Alex the Entreprenerd (judge) commented](https://github.com/code-423n4/2021-10-pooltogether-findings/issues/56#issuecomment-944362046):**\n > After a day of thinking I've decided to leave the finding as high risk.\n> Not as a statement to Chainlink's security model, as that's outside of scope, but because the finding is objectively true.\n> \n> A malicious operator can, in conjunction with a miner, re-roll the VRF to pursue their own gains.\n> \n> I'm not sure what could be done to mitigate this at the chain level, it seems to me that at this time, there may be no source of true randomness that can be achieved on-chain without assuming a degree of counter-party risk\n\n\n\n \n",
+      "summary": "\nThis bug report is about miners being able to rewrite a chain's history if they dislike the VRF output used by the protocol. This is done by re-orging the chain, meaning they follow a new canonical chain where the VRF output has not been included in a block. This attack can be continued as long as the attacker controls 51% of the network. The PoolTogether team is aware of this issue but has not yet fully mitigated this attack vector.\n\nThe bug report includes a proof of concept which includes links to code reviews, discussions with Brendan, and other tools used. It also includes recommended mitigation steps such as adding a confirmation time between when the actual VRF request was made and when it was later fulfilled on-chain. This could reduce the probability of an effective chain reorganization to extremely close to 0.\n\nAlex the Entreprenerd (judge) commented that this finding could question the impartiality of Chainlink's service, but after a day of thinking decided to leave the finding as high risk as a malicious operator can, in conjunction with a miner, re-roll the VRF to pursue their own gains. It is unclear what could be done to mitigate this at the chain level.",
+      "report_date": {},
+      "contest_prize_txt": "$105,000 USDC",
+      "contest_link": "https://code4rena.com/reports/2021-10-pooltogether",
+      "sponsor_name": "PoolTogether",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2021-10-pooltogether",
+      "github_link": "https://github.com/code-423n4/2021-10-pooltogether-findings/issues/56",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "34",
+      "slug": "h-02-miners-can-re-roll-the-vrf-output-to-game-the-protocol-code4rena-pooltogether-pooltogether-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "PoolTogether",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "PoolTogether",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "13966",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "8",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "550",
+      "title": "in3-server - should enforce safe settings for minBlockHeight  Won't Fix",
+      "content": "#### Resolution\n\n\n\nThe default block is changed to 10 and `minBlockHeight` is added to the registry\n(as part of the properties) in [8c72633e](https://git.slock.it/in3/ts/in3-server/commit/8c72633e53651bb4dc2b0d6627ce6c238dd3e2e8), but allow the user to define a `minBlockHeight` lower than this number. The client is responsible to review the settings depending on how secure they want their nodes to be.\n\n\nClient response:\n\n\n\n> \n> We have discussed this, but decided to keep it flexible. This means:\n> \n> \n> 1. We have put the minBlockHeight into the registry (as part of the properties). Because these properties indicate the limit and capabilities of the node and give the client a chance to filter out nodes if they don’t match the requirements. So each client is able to filter out node who are not willing to take the risk and sign for example latest-6. Of course these nodes will most likely only store a low deposit ( you can not have a signature of a young block and a high deposit), but if you need a high security the nodes with a deposit will propably wait at least 10 or more blocks. In order to protect the owner of a node of using insecure settings, we will use our wizard to check the deposit and minBlockHeights and warn or educate the user. The reason why this flexibility is important, is because there use cases where dapps will not accept the let user wait 10 blocks before confirming a transaction. If the dapp developer needs a signature of a younger block, he will need to live with the fact, that he won’t be able to find a high deposit to secure it.\n> 2. We also changed the default to 10 blocks, but allow the user to define a minBlockHeight lower than this number. In this case the node would write a warning in the logfile, but still accepts the user configuration. This allows to use incubed also on different chains other than the mainnet.\n> 3. The `safeMinBlockHeight` is now dependend on different chains, which is one single function, so we don’t have hardcoded values in different places anymore.\n> \n> \n> \n\n\n\n\n#### Description\n\n\nA node that is signing wrong blockhashes might get their deposit slashed from the registry. The entity that is convicting a node that signs a wrong blockhash is awarded half of the deposit.\n\n\nA threat to this kind of system is that blocks might constantly be reorganized in the chain, especially with the latest block. Allowing a node to sign the latest block will definitely put the node’s deposit at stake with every signature they provide.\n\n\nA node can configure the `minBlockHeight` it is about to sign with a configurative option. The option defaults to a `minBlockHeight` of `6` in the default config:\n\n\n**code/in3-server/src/server/config.ts:L32-L32**\n\n\n\n```\nminBlockHeight: 6,\n\n```\nAnd again in the signing function for blockheaders:\n\n\n**code/in3-server/src/chains/signatures.ts:L189-L189**\n\n\n\n```\nconst blockHeight = handler.config.minBlockHeight === undefined ? 6 : handler.config.minBlockHeight\n\n```\n`handleSign` will refuse to sign any block that is within the last 5 blocks. The `6`th block will be signed.\n\n\n**code/in3-server/src/chains/signatures.ts:L190-L193**\n\n\n\n```\nconst tooYoungBlock = blockData.find(block => toNumber(blockNumber) - toNumber(block.number) < blockHeight)\nif (tooYoungBlock)\n  throw new Error(' cannot sign for block ' + tooYoungBlock.number + ', because the blockHeight must be at least ' + blockHeight)\n\n\n```\nHowever, a user is not prevented from configuring an insecure `minBlockHeight` (e.g. `0`) which will very likely lead to the loss of funds because the node will be signing the latest block.\n\n\nThe current default of `6` blocks leads to an approximate lag of `14 (avg blocktime) *6 (blocks) = 84 seconds`. While this is a favorable setting because it allows nodes to provide signatures for blocks that are at least older than 6 blocks it might still not be secure. For example, CryptoExchange [Kraken](https://support.kraken.com/hc/en-us/articles/203325283-Cryptocurrency-deposit-processing-times) requires at least 30 confirmation (abt. 6 minutes) until a transaction is confirmed. For Bitcoin it is said to be safe to wait more than 6 blocks (abt. 1 hr) for a transaction to be confirmed. ETC even underwent a [deep chain reorg](https://blog.coinbase.com/ethereum-classic-etc-is-currently-being-51-attacked-33be13ce32de) that could have caused many nodes to lose their deposits. The [ethereum whitepaper](https://github.com/ethereum/wiki/wiki/White-Paper#modified-ghost-implementation) defines an uncle that can be referenced in a block to have the following property: `It must be a direct child of the k-th generation ancestor of B, where 2 <= k <= 7.` This suggests that `k=7`‘th block can at least still be an uncle. [Bitfinex](https://support.bitfinex.com/hc/en-us/articles/115003291405-Where-is-my-cryptocurrency-deposit-or-withdrawal-) requires a minimum of 10 confirmations. Some blockchain explorers and analytics tools also require a minimum of 10 confirmations. Scraped data from <https://etherscan.io/blocks_forked?ps=100> shows 3 forks of depth 3 since they started keeping records 115 days ago, and no forks deeper than 3. So some applications might legitimately pick a number somewhere between 5 and 20, trading some security for better UX. However, it should be re-evaluated whether the current default provides enough security to protect the nodes funds with a trade-off of lag to the network.\n\n\nGiven these values it is suggested to revalidate the default of a `minBlockHeight` of 6 in favor of a more secure depth to make sure that - with a default setting - nodes will not lose funds in case of re-orgs.\n\n\n#### Recommendation\n\n\n* `config.minBlockHeight` should always be set to a sane value when loading the configuration. There should be no need to reset it to a hardcoded default value of 6 in `handleSign`. Do not hardcode the values in various places in the config.\n* normalize and sanitize the settings to make sure that after loading they are always valid and within reasonable bounds. the application should refuse to run with a `minBlockHeader` set to `0` as this is a guarantee for losing funds. Other nodes can enumerate nodes that are misconfigured (e.g. with `minBlockHeight` being `0`) to request signatures just to convict them on micro-forks.\n* assume a secure default setting for every chain (note that this might be different for every chain). allow to override the value by the user. warn the user of less secure settings and do not allow to set settings that are obviously leading to the loss of funds.\n* re-evaluate the `minBlockHeight` of 6 for the ethereum blockchain and choose a koservative secure default.",
+      "summary": "\nThis bug report discusses the issue of a node signing wrong blockhashes and potentially losing their deposit. The node is able to configure the `minBlockHeight` it is about to sign with a configurative option, which defaults to a `minBlockHeight` of `6` in the default config. This allows the node to provide signatures for blocks that are at least older than 6 blocks, but it might still not be secure enough. It is suggested to revalidate the default of a `minBlockHeight` of 6 in favor of a more secure depth to make sure that nodes will not lose funds in case of re-orgs. The report recommends that the `config.minBlockHeight` should always be set to a sane value when loading the configuration, normalize and sanitize the settings to make sure that after loading they are always valid and within reasonable bounds, assume a secure default setting for every chain, allow to override the value by the user, and warn the user of less secure settings.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://consensys.net/diligence/audits/2019/09/slock.it-incubed3/",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "in3-server-should-enforce-safe-settings-for-minblockheight-wont-fix-consensys-slockit-incubed3-markdown",
+      "firm_name": "ConsenSys",
+      "firm_logo_square": "consensys_square.png",
+      "protocol_name": "Slock.it Incubed3",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "ConsenSys",
+        "logo_square": "consensys_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Slock.it Incubed3",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "13961",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "8",
+      "impact": "HIGH",
+      "finders_count": 2,
+      "protocol_id": "550",
+      "title": "Malicious clients can use forks or reorgs to convict honest nodes  Won't Fix",
+      "content": "#### Resolution\n\n\n\nDefault value for past signed blocks is changed to 10 blocks. Slockit plans to use their off-chain channels to notify clients for planned forks. They also looking into using fork oracles in the future releases to detect planned hardforks to mitigate risks.\n\n\n#### Description\n\n\nIn case of reorgs it is possible to have more than 6 blocks in a node that gets replaced by a new longer chain. Also for forks, such as upcoming [Istanbul fork](https://blog.infura.io/were-ready-for-the-istanbul-fork-e39afc2b1412), it’s common to have some nodes taking some time to update and they will be in the wrong chain for the time being. In both cases, in3-nodes are prone to sign blocks that are considered invalid in the main chain.\nMalicious nodes can catch these instances and convict the honest users in the main chain to get 50% of their deposits.\n\n\n#### Recommendation\n\n\nNo perfect solution comes to mind at this time. One possible mitigation method for forks could be to disable the network on the time of the fork but this is most certainly going to be a threat to the system itself.",
+      "summary": "\nThis bug report describes a potential security risk in the Slockit system. It is possible for a malicious node to take advantage of reorgs and forks, where some nodes are on the wrong chain, to convict honest users in the main chain and get 50% of their deposits. To mitigate this risk, the default value for past signed blocks has been changed to 10 blocks. Slockit is also looking into using off-chain channels to notify clients for planned forks and fork oracles in future releases. However, no perfect solution has been identified yet. One possible mitigation method is to disable the network on the time of a fork, but this could be a threat to the system itself.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://consensys.net/diligence/audits/2019/09/slock.it-incubed3/",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "malicious-clients-can-use-forks-or-reorgs-to-convict-honest-nodes-wont-fix-consensys-slockit-incubed3-markdown",
+      "firm_name": "ConsenSys",
+      "firm_logo_square": "consensys_square.png",
+      "protocol_name": "Slock.it Incubed3",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "ConsenSys",
+        "logo_square": "consensys_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Slock.it Incubed3",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chain Reorganization Attack"
+          }
+        }
+      ]
+    }
+  ]
+}

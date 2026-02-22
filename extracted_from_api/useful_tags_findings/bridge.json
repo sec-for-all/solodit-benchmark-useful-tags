@@ -1,0 +1,542 @@
+{
+  "tag": "Bridge",
+  "count": 7,
+  "metadata": {
+    "totalResults": 7,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 5,
+    "reset": 1771760940
+  },
+  "findings": [
+    {
+      "id": "7155",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "MEDIUM",
+      "finders_count": 5,
+      "protocol_id": "72",
+      "title": "RootManager.propagate does not operate in a fail-safe manner",
+      "content": "## Severity: Medium Risk\n\n## Context\nRootManager.sol#L147-L173\n\n## Description\nA bridge failure on one of the supported chains will cause the entire messaging network to break down.\n\nWhen the `RootManager.propagate` function is called, it will loop through the hub connector of all six chains (Arbitrum, Gnosis, Multichain, Optimism, Polygon, ZKSync) and attempt to send over the latest aggregated root by making a function call to the respective chain's AMB contract. There is a tight dependency between the chain's AMB and hub connector.\n\nThe problem is that if one of the function calls to the chain's AMB contract reverts (e.g. one of the bridges is paused), the entire `RootManager.propagate` function will revert, and the messaging network will stop working until someone figures out the problem and manually removes the problematic hub connector.\n\nAs Connext grows, the number of chains supported will increase, and the risk of this issue occurring will also increase.\n\n## Recommendation\nThe `RootManager.propagate` function should operate in a fail-safe manner (e.g. using try-catch or `address.call`). Chain's AMB contracts are considered external third-party and beyond Connext's control. Thus, the `RootManager.propagate` function should not assume that function calls to these third-party bridge contracts will always succeed and will not revert.\n\n- **Connext:** Solved in PR 2430.\n- **Spearbit:** Verified.",
+      "summary": "\nThis bug report is about the RootManager.sol#L147-L173 function of the Connext messaging network. The function calls the AMB contract of six different chains (Arbitrum, Gnosis, Multichain, Optimism, Polygon, and ZKSync) in order to send the latest aggregated root. If one of the function calls to the chain's AMB contract reverts, the entire RootManager.propagate function will revert and the messaging network will stop working until the problem is manually resolved. \n\nThe risk of this issue occurring increases as more chains are added to the Connext messaging network. To address this issue, the RootManager.propagate function should be made fail-safe by using try-catch or address.call, as the AMB contracts are considered external and beyond the control of Connext.\n\nConnext has solved this issue in PR 2430 and it has been verified by Spearbit.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/ConnextNxtp-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/ConnextNxtp-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/ConnextNxtp-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 27,
+      "contest_id": "",
+      "slug": "rootmanagerpropagate-does-not-operate-in-a-fail-safe-manner-spearbit-connext-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Connext",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Connext",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Bridge"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7133",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "HIGH",
+      "finders_count": 5,
+      "protocol_id": "72",
+      "title": "Users are forced to accept any slippage on the destination chain",
+      "content": "## Severity: High Risk\n\n## Context\nBridgeFacet.sol#L28\n\n## Description\nThe documentation mentioned that there is a cancel function on the destination domain that allows users to send the funds back to the origin domain, accepting the loss incurred by slippage from the origin pool. However, this feature is not found in the current codebase. If the high slippage rate persists continuously on the destination domain, the users will be forced to accept the high slippage rate. Otherwise, their funds will be stuck in Connext.\n\n## Recommendation\nImplement the cancel function on the destination domain to allow users to send funds back to the origin domain if they choose not to accept the high slippage rate on the destination domain.\n\n## Connext\nSolved in PR 2456.\n\n## Spearbit\nVerified.",
+      "summary": "\nThis bug report is about a high risk issue with the BridgeFacet.sol codebase. The documentation mentions a cancel function on the destination domain, which would allow users to send funds back to the origin domain if they don't want to accept the high slippage rate on the destination domain. However, this feature is not found in the current codebase. This means that users may be stuck with the high slippage rate. To solve this issue, the cancel function should be implemented on the destination domain. The bug has been solved in PR 2456 and verified by Spearbit.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/ConnextNxtp-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/ConnextNxtp-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/ConnextNxtp-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 12,
+      "contest_id": "",
+      "slug": "users-are-forced-to-accept-any-slippage-on-the-destination-chain-spearbit-connext-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Connext",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Connext",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Slippage"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Bridge"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7050",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "MEDIUM",
+      "finders_count": 3,
+      "protocol_id": "2",
+      "title": "Funds can be locked during the recovery stage",
+      "content": "## Security Report\n\n## Severity\n**Low Risk**\n\n## Context\n`AmarokFacet.sol#L133`\n\n## Description\nThe recovery address is intended to receive funds if the execution fails on the destination domain. This approach ensures that funds are never lost due to failed calls. However, in the `AmarokFacet`, it is hardcoded as `msg.sender`. Several unexpected behaviors can be observed with this implementation:\n\n- If the `msg.sender` is a smart contract, it might not be available on the destination chain.\n- If the `msg.sender` is a smart contract deployed on another chain, the contract may not have a function to withdraw the native token.\n\nAs a result of this implementation, funds can be locked when an execution fails.\n\n```solidity\ncontract AmarokFacet is ILiFi, SwapperV2, ReentrancyGuard {\n...\nIConnextHandler.XCallArgs memory xcallArgs = IConnextHandler.XCallArgs({\n    params: IConnextHandler.CallParams({\n        to: _bridgeData.receiver,\n        callData: _bridgeData.callData,\n        originDomain: _bridgeData.srcChainDomain,\n        destinationDomain: _bridgeData.dstChainDomain,\n        agent: _bridgeData.receiver,\n        recovery: msg.sender,\n        forceSlow: false,\n        receiveLocal: false,\n        callback: address(0),\n        callbackFee: 0,\n        relayerFee: 0,\n        slippageTol: _bridgeData.slippageTol\n    }),\n    transactingAssetId: _bridgeData.assetId,\n    amount: _amount\n});\n...\n}\n```\n\n## Recommendation\nConsider taking the recovery parameter as an argument.\n\n## LiFi\nFixed with PR #28.\n\n## Spearbit\nVerified.",
+      "summary": "\nThis bug report is about the AmarokFacet smart contract, specifically at line 133. The recovery parameter is hardcoded as msg.sender, which can lead to unexpected behaviour in certain cases. If the msg.sender is a smart contract, it may not be available on the destination chain, and if it is, the contract may not have a function to withdraw native tokens. This can result in funds being locked if an execution fails. The recommendation is to consider taking the recovery parameter as an argument. The LiFi issue was fixed with a pull request, and Spearbit has verified the fix.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/LIFI-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 19,
+      "contest_id": "",
+      "slug": "funds-can-be-locked-during-the-recovery-stage-spearbit-lifi-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "LI.FI",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "LI.FI",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Fund Lock"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Bridge"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7036",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "HIGH",
+      "finders_count": 3,
+      "protocol_id": "2",
+      "title": "Tokens are left in the protocol when the swap at the destination chain fails",
+      "content": "## Security Report\n\n## Severity\n**High Risk**\n\n## Context\n- AmarokFacet.sol#L55-L94\n- StargateFacet.sol#L149-L187\n- NXTPFacet.sol#L86-L117\n- Executor.sol#L125-L221\n- XChainExecFacet.sol#L17-L51\n\n## Description\nLiFi protocol finds the best bridge route for users. In some cases, it helps users do a swap at the destination chain. With the help of the bridge protocols, the LiFi protocol assists users in triggering `swapAndComplete-BridgeTokensVia{Services}` or `CompleteBridgeTokensVia{Services}` at the destination chain to perform the swap.\n\nSome bridge services will send the tokens directly to the receiver address when the execution fails. For example, Stargate, Amarok, and NXTP conduct the external call in a try-catch clause and send the tokens directly to the receiver when it fails. The tokens will remain in the LiFi protocol in this scenario. If the receiver is the Executor contract, users can freely pull the tokens. \n\n**Note:** Exploiters can pull the tokens from the LiFi protocol. Please refer to the issue **\"Remaining tokens can be swept from the LiFi Diamond or the Executor,\" Issue #82**. Exploiters can take a more aggressive strategy and force the victim's swap to revert. A possible exploit scenario:\n\n- A victim wants to swap 10K optimism’s BTC into Ethereum mainnet USDC.\n- Since DEXs on the mainnet have the best liquidity, the LiFi protocol helps users swap on the mainnet.\n- The transaction on the source chain (optimism) succeeds, and the bridge services try to call `Complete-BridgeTokensVia{Services}` on the mainnet.\n- The exploiter builds a sandwich attack to pump the BTC price. The `CompleteBridgeTokens` fails since the price is unfavorable.\n- The bridge service does not revert the entire transaction. Instead, it sends the BTC on the mainnet to the receiver (LiFi protocol).\n- The exploiter pulls tokens from the LiFi protocol.\n\n## Recommendation\n- Since the remaining tokens are dangerous, we should avoid leaving tokens in the protocol address. In case the bridge services (e.g., Stargate, Connext) send tokens directly to the protocol in certain edge cases, we should never set the protocol address as the receiver.\n- Similar to the AxelarFacet’s issue, the protocol should handle edge cases when the swap fails. Please refer to the issue **\"Tokens transferred with Axelar can get lost if the destination transaction can’t be executed,\" Issue #73.**\n\nRecommend implementing a receiver contract. The receiver contract is responsible for handling callbacks. Since the bridge services may send the tokens directly to the receiver contract, we should avoid unsafe external calls. A possible receiver contract could be:\n\n```solidity\ncontract ReceiverContract {\n    ...\n    function pullTokens(...) onlyOwner {\n        // @audit handles edge cases\n        ...\n    }\n    ...\n    function sgReceive(\n        uint16, // _srcChainId unused\n        bytes memory, // _srcAddress unused\n        uint256, // _nonce unused\n        address token, // _token unused\n        uint256 _amountLD,\n        bytes memory _payload\n    ) external {\n        Storage storage s = getStorage();\n        if (msg.sender != s.stargateRouter) {\n            revert InvalidStargateRouter();\n        }\n\n        //@audit: should use token address from the parameters instead of assetId from payload.\n        (LiFiData memory lifiData, LibSwap.SwapData[] memory swapData, address receiver) = abi.decode(\n            _payload,\n            (LiFiData, LibSwap.SwapData[], address)\n        );\n        //@audit: optional.\n        // Could skip this if the contract always clears the allowance after the external call.\n        ERC20(assetId).safeApprove(address(s.executor), 0);\n        ERC20(assetId).safeIncreaseAllowance(address(s.executor), _amountLD);\n        bool success;\n        try s.executor.swapAndCompleteBridgeTokensViaStargate(lifiData, swapData, token, receiver) {\n            success = true;\n        } catch {\n            ERC20(token).safeTransfer(receiver, _amountLD);\n            success = false;\n        }\n        // always clear the allowance.\n        ERC20(token).safeApprove(address(s.executor), 0);\n    }\n}\n``` \n\n## Status\n**LiFi:** Fixed with PR #73.  \n**Spearbit:** Verified.",
+      "summary": "\nThis bug report is about the LiFi protocol, which helps users do a swap at the destination chain using bridge protocols. The bridge services like Stargate, Amarok and NXTP do an external call in a try-catch clause and send the tokens directly to the receiver if the execution fails. Exploiters can take advantage of this and pull the tokens from the LiFi protocol. \n\nA possible exploit scenario is when a victim wants to swap 10K optimism’s BTC into Ethereum mainnet USDC. The transaction on the source chain (optimism) succeeds but the bridge services fail since the price is bad. The bridge service does not revert the whole transaction, instead, it sends the BTC on the mainnet to the receiver (LiFi protocol). The exploiter can then pull tokens from the LiFi protocol.\n\nTo avoid leaving tokens in the protocol address, the protocol should handle edge cases when the swap fails. A receiver contract should also be implemented, which is responsible for handling callbacks. The receiver contract should avoid unsafe external calls and should always clear the allowance after the external call. \n\nFinally, the bug was fixed with PR #73 and verified by Spearbit.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/LIFI-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 8,
+      "contest_id": "",
+      "slug": "tokens-are-left-in-the-protocol-when-the-swap-at-the-destination-chain-fails-spearbit-lifi-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "LI.FI",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "LI.FI",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Swap"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Fund Lock"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Bridge"
+          }
+        }
+      ]
+    },
+    {
+      "id": "722",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "392",
+      "title": "[H-04] Large Validator Sets/Rapid Validator Set Updates May Freeze the Bridge or Relayers",
+      "content": "_Submitted by nascent_\n\nIn a similar vein to \"Freeze The Bridge Via Large ERC20 Names/Symbols/Denoms\", a sufficiently large validator set or sufficiently rapid validator update, could cause both the `eth_oracle_main_loop` and `relayer_main_loop` to fall into a state of perpetual errors. In `find_latest_valset`, [we call](https://github.com/althea-net/cosmos-gravity-bridge/blob/92d0e12cea813305e6472851beeb80bd2eaf858d/orchestrator/relayer/src/find_latest_valset.rs#L33-L40):\n\n```rust\nlet mut all_valset_events = web3\n    .check_for_events(\n        end_search.clone(),\n        Some(current_block.clone()),\n        vec![gravity_contract_address],\n        vec![VALSET_UPDATED_EVENT_SIG],\n    )\n    .await?;\n```\n\nWhich if the validator set is sufficiently large, or sufficiently rapidly updated, continuoussly return an error if the logs in a 5000 (see: `const BLOCKS_TO_SEARCH: u128 = 5_000u128;`) block range are in excess of 10mb. Cosmos hub says they will be pushing the number of validators up to 300 (currently 125). At 300, each log would produce 19328 bytes of data (4\\*32+64\\*300). Given this, there must be below 517 updates per 5000 block range otherwise the node will fall out of sync.\n\nThis will freeze the bridge by disallowing attestations to take place.\n\nThis requires a patch to reenable the bridge.\n\n#### Recommendation\n\nHandle the error more concretely and check if you got a byte limit error. If you did, chunk the search size into 2 and try again. Repeat as necessary, and combine the results.\n\n**[jkilpatr (Althea) confirmed](https://github.com/code-423n4/2021-08-gravitybridge-findings/issues/6#issuecomment-916968683):**\n > This is a solid report with detailed computations to back it up. I appreciate it and will take actions in our web3 library to prevent this exact scenario.\n\n",
+      "summary": "\nThis bug report details a vulnerability in the Cosmos Gravity Bridge that could cause both the eth_oracle_main_loop and relayer_main_loop to fall into a state of perpetual errors. The vulnerability is triggered when a validator set is sufficiently large or rapidly updated, which causes the web3 call \"check_for_events\" to continuously return an error if the logs in a 5000 block range are in excess of 10mb. This will freeze the bridge by disallowing attestations to take place. \n\nThe recommended solution is to handle the error more concretely and check if a byte limit error has occurred. If so, the search size should be chunked into 2 and repeated as necessary, with the results combined.",
+      "report_date": {},
+      "contest_prize_txt": "$100,000 USDC + tokens",
+      "contest_link": "https://code4rena.com/contests/2021-08-gravity-bridge-contest",
+      "sponsor_name": "Althea Gravity Bridge",
+      "sponsor_link": "https://twitter.com/AltheaNetwork",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2021-08-gravitybridge",
+      "github_link": "https://github.com/code-423n4/2021-08-gravitybridge-findings/issues/6",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "27",
+      "slug": "h-04-large-validator-setsrapid-validator-set-updates-may-freeze-the-bridge-or-relayers-code4rena-althea-gravity-bridge-gravity-bridge-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Althea Gravity Bridge",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Althea Gravity Bridge",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Bridge"
+          }
+        }
+      ]
+    },
+    {
+      "id": "721",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "392",
+      "title": "[H-03] Freeze The Bridge Via Large ERC20 Names/Symbols/Denoms",
+      "content": "_Submitted by nascent_\n\nEthereum Oracles watch for events on the `Gravity.sol` contract on the Ethereum blockchain. This is performed in the [`check_for_events`](https://github.com/althea-net/cosmos-gravity-bridge/blob/92d0e12cea813305e6472851beeb80bd2eaf858d/orchestrator/orchestrator/src/ethereum_event_watcher.rs#L23) function, and run in the [`eth_oracle_main_loop`](https://github.com/althea-net/cosmos-gravity-bridge/blob/92d0e12cea813305e6472851beeb80bd2eaf858d/orchestrator/orchestrator/src/main_loop.rs#L94).\n\nIn this function, there is [the following code snippet](https://github.com/althea-net/cosmos-gravity-bridge/blob/92d0e12cea813305e6472851beeb80bd2eaf858d/orchestrator/orchestrator/src/ethereum_event_watcher.rs#L66-L73):\n\n```rust\nlet erc20_deployed = web3\n    .check_for_events(\n        starting_block.clone(),\n        Some(latest_block.clone()),\n        vec![gravity_contract_address],\n        vec![ERC20_DEPLOYED_EVENT_SIG],\n    )\n    .await;\n```\n\nThis snippet leverages the `web30` library to check for events from the `starting_block` to the `latest_block`. Inside the `web30` library this nets out to calling:\n\n```rust\npub async fn eth_get_logs(&self, new_filter: NewFilter) -> Result<Vec<Log>, Web3Error> {\n    self.jsonrpc_client\n        .request_method(\n            \"eth_getLogs\",\n            vec![new_filter],\n            self.timeout,\n            Some(10_000_000),\n        )\n        .await\n}\n```\n\nThe `10_000_000` specifies the maximum size of the return in bytes and returns an error if the return is larger:\n\n```rust\nlet res: Response<R> = match res.json().limit(limit).await {\n    Ok(val) => val,\n    Err(e) => return Err(Web3Error::BadResponse(format!(\"Web3 Error {}\", e))),\n};\n```\n\nThis can be triggered at will and keep the loop in a perpetual state of returning the `GravityError::EthereumRestError(Web3Error::BadResponse(\n            \"Failed to get logs!\".to_string()))` error. To force the node into this state, you just have to deploy ERC20s generated by the [public function in `Gravity.sol`](https://github.com/althea-net/cosmos-gravity-bridge/blob/92d0e12cea813305e6472851beeb80bd2eaf858d/solidity/contracts/Gravity.sol#L546-L565):\n\n```solidity\nfunction deployERC20(\n    string memory _cosmosDenom,\n    string memory _name,\n    string memory _symbol,\n    uint8 _decimals\n) public {\n    // Deploy an ERC20 with entire supply granted to Gravity.sol\n    CosmosERC20 erc20 = new CosmosERC20(address(this), _name, _symbol, _decimals);\n\n    // Fire an event to let the Cosmos module know\n    state_lastEventNonce = state_lastEventNonce.add(1);\n    emit ERC20DeployedEvent(\n        _cosmosDenom,\n        address(erc20),\n        _name,\n        _symbol,\n        _decimals,\n        state_lastEventNonce\n    );\n}\n```\n\nAnd specify a large string as the denom, name, or symbol.\n\nIf an attacker uses the denom as the attack vector, they save significant gas costing just 256 per additional 32 bytes. For other cases, to avoid gas overhead, you can have the string be mostly 0s resulting in just 584 gas per additional 32 bytes. This leaves it feasible to surpass the 10mb response data in the 6 block buffer. This would throw every ethereum oracle into a state of perpetual errors and all would fall out of sync with the ethereum blockchain. This would result in the batches, logic calls, deposits, ERC20 creations, and `valset` updates to never receive attestations from other validators because their ethereum oracles would be down; the bridge would be frozen and remain frozen until the bug is fixed due to `get_last_checked_block`.\n\nThis will freeze the bridge by disallowing attestations to take place.\n\nThis requires a patch to reenable the bridge.\n\n#### Recommendation\nHandle the error more concretely and check if you got a byte limit error. If you did, chunk the search size into 2 and try again. Repeat as necessary, and combine the results.\n\nAdditionally, you could require that validators sign ERC20 creation requests.\n\n**[jkilpatr (Althea) confirmed](https://github.com/code-423n4/2021-08-gravitybridge-findings/issues/5#issuecomment-917150363):**\n > Excellent bug report.\n>\n> I just ran into the buffer limit issue this morning with an Ethereum block. I agree handling this error correctly is essential to long term reliability.\n\n**[albertchon (judge) commented](https://github.com/code-423n4/2021-08-gravitybridge-findings/issues/5#issuecomment-925869600):**\n > Nice :)\n\n",
+      "summary": "\nThis bug report is about the Ethereum Oracles watch for events on the Gravity.sol contract on the Ethereum blockchain, which is performed in the check_for_events and eth_oracle_main_loop functions. The code snippet leverages the web30 library to check for events from the starting_block to the latest_block, however, the maximum size of the return in bytes is set at 10_000_000. If the return is larger than this, it will return an error, resulting in the GravityError::EthereumRestError being thrown. This can be triggered at will and keep the loop in a perpetual state of returning the error, freezing the bridge and disallowing attestations to take place.\n\nTo fix this bug, it is recommended to handle the error more concretely and check if a byte limit error has been thrown. If it has, the search size should be chunked into two and tried again, repeating the process as necessary and combining the results. Additionally, validators should be required to sign ERC20 creation requests.",
+      "report_date": {},
+      "contest_prize_txt": "$100,000 USDC + tokens",
+      "contest_link": "https://code4rena.com/contests/2021-08-gravity-bridge-contest",
+      "sponsor_name": "Althea Gravity Bridge",
+      "sponsor_link": "https://twitter.com/AltheaNetwork",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2021-08-gravitybridge",
+      "github_link": "https://github.com/code-423n4/2021-08-gravitybridge-findings/issues/5",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "27",
+      "slug": "h-03-freeze-the-bridge-via-large-erc20-namessymbolsdenoms-code4rena-althea-gravity-bridge-gravity-bridge-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Althea Gravity Bridge",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Althea Gravity Bridge",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Bridge"
+          }
+        }
+      ]
+    },
+    {
+      "id": "720",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "392",
+      "title": "[H-02] Freeze Bridge via Non-UTF8 Token Name/Symbol/Denom",
+      "content": "_Submitted by nascent_\n\nManual insertion of non-utf8 characters in a token name will break parsing of logs and will always result in the oracle getting in a loop of failing and early returning an error. The fix is non-trivial and likely requires significant redesign.\n\n### Proof of Concept\nNote the `c0` in the last argument of the call data (invalid UTF8).\n\nIt can be triggered with:\n\n```solidity\ndata memory bytes = hex\"f7955637000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000012000000000000000000000000000000000000000000000000000000000000000461746f6d0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000046e616d6500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000673796d626fc00000000000000000000000000000000000000000000000000000\";\ngravity.call(data);\n```\n\nThe log output is as follows:\n```solidity\n    ERC20DeployedEvent(\"atom\", \"name\", ❮utf8 decode failed❯: 0x73796d626fc0, 18, 2)\n```\n\nWhich hits [this code path](https://github.com/althea-net/cosmos-gravity-bridge/blob/92d0e12cea813305e6472851beeb80bd2eaf858d/orchestrator/gravity_utils/src/types/ethereum_events.rs#L431-L438):\n\n```rust\n    let symbol = String::from_utf8(input.data[index_start..index_end].to_vec());\n    trace!(\"Symbol {:?}\", symbol);\n    if symbol.is_err() {\n        return Err(GravityError::InvalidEventLogError(format!(\n            \"{:?} is not valid utf8, probably incorrect parsing\",\n            symbol\n        )));\n    }\n```\n\nAnd would cause an early return [here](https://github.com/althea-net/cosmos-gravity-bridge/blob/92d0e12cea813305e6472851beeb80bd2eaf858d/orchestrator/orchestrator/src/ethereum_event_watcher.rs#L99):\n\n```rust\nlet erc20_deploys = Erc20DeployedEvent::from_logs(&deploys)?;\n```\n\nNever updating last checked block and therefore, this will freeze the bridge by disallowing any attestations to take place. This is an extremely low cost way to bring down the network.\n\n#### Recommendation\nThis is a hard one. Re-syncing is permanently borked because, on the Go side, there is seemingly no way to ever process the event nonce because protobufs do not handle non-utf8 strings. The validator would report they need event nonce `N` from the orchestrator, but they can never parse the event `N`. Seemingly, validators & orchestrators would have to know to ignore that specific event nonce. But it is a permissionless function, so it can be used to effectively permanently stop attestations & the bridge until a new `Gravity.sol` is deployed.\n\nOne potential fix is to check in the solidity contract if the name contains valid utf8 strings for denom, symbol and name. This likely will be expensive though. Alternatively, you could require that validators sign ERC20 creation requests and perform checks before the transaction is sent.\n\n**[jkilpatr (Althea) confirmed](https://github.com/code-423n4/2021-08-gravitybridge-findings/issues/4#issuecomment-917151454):**\n > This is a valid and well considered bug.\n>\n> I do disagree about the difficulty of the fix though, if we fail to parse the token name as utf8 we can just encode the bytes themselves in hex and pass that along. The result will be perfectly valid if a little unergonomic.\n\n**[albertchon (judge) commented](https://github.com/code-423n4/2021-08-gravitybridge-findings/issues/4#issuecomment-925867313):**\n > Clever, great catch\n\n",
+      "summary": "\nA bug has been identified in the Cosmos Gravity Bridge that affects the parsing of logs. Manual insertion of non-utf8 characters in a token name will break parsing of logs and will always result in the oracle getting in a loop of failing and early returning an error. This bug can be triggered by sending a specific call data to the Gravity contract. The log output of this call data will be invalid utf8, which will cause the validator and orchestrator to not process the event nonce. This means that the validators and orchestrators will not be able to process attestations and the bridge will be effectively stopped until a new Gravity contract is deployed. A possible fix for this bug is to check in the solidity contract if the name contains valid utf8 strings for denom, symbol and name. Alternatively, validators can be required to sign ERC20 creation requests and perform checks before the transaction is sent.",
+      "report_date": {},
+      "contest_prize_txt": "$100,000 USDC + tokens",
+      "contest_link": "https://code4rena.com/contests/2021-08-gravity-bridge-contest",
+      "sponsor_name": "Althea Gravity Bridge",
+      "sponsor_link": "https://twitter.com/AltheaNetwork",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2021-08-gravitybridge",
+      "github_link": "https://github.com/code-423n4/2021-08-gravitybridge-findings/issues/4",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "27",
+      "slug": "h-02-freeze-bridge-via-non-utf8-token-namesymboldenom-code4rena-althea-gravity-bridge-gravity-bridge-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Althea Gravity Bridge",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Althea Gravity Bridge",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Bridge"
+          }
+        }
+      ]
+    }
+  ]
+}

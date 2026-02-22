@@ -1,0 +1,454 @@
+{
+  "tag": "Account Abstraction",
+  "count": 6,
+  "metadata": {
+    "totalResults": 6,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 16,
+    "reset": 1771760940
+  },
+  "findings": [
+    {
+      "id": "61887",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "37",
+      "impact": "LOW",
+      "finders_count": 3,
+      "protocol_id": "3359",
+      "title": "Missing Validation for Zero `success_percentage` in DAO Creation",
+      "content": "**Update**\nThe team addressed in: `a429b0c9ce78be9294a27934e1a184261b88917a`, `2255f30c7f9559ce225b407c26f6d816325d78f3`with the following explanation:\n\n> Second commit (2255f30c7f9559ce225b407c26f6d816325d78f3) contains constants.fc update.\n\n**File(s) affected:**`contracts/factory.fc`, `contracts/master.fc`\n\n**Description:** In both the `factory`’s `op::create_master` and the `master`’s `op::change_success_percentage`, the code checks that `success_percentage` does not exceed 100%, but it does not enforce a minimum above zero.\n\nGenerally, we should not expect a proposal to pass with zero votes.\n\n**Recommendation:** Add a validation such as `throw_if(error::value_too_low, success_percentage == 0)` in both `op::create_master` and `op::change_success_percentage` to ensure `success_percentage >= 1`.",
+      "summary": "",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://certificate.quantstamp.com/full/xdao/2670863d-2e1c-42e6-a15c-5572dd4fef85/index.html",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 3.666666666666667,
+      "general_score": 4,
+      "source_link": "https://certificate.quantstamp.com/full/xdao/2670863d-2e1c-42e6-a15c-5572dd4fef85/index.html",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "missing-validation-for-zero-success_percentage-in-dao-creation-quantstamp-xdao-markdown",
+      "firm_name": "Quantstamp",
+      "firm_logo_square": "quantstamp_square.png",
+      "protocol_name": "XDAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Quantstamp",
+        "logo_square": "quantstamp_square.png"
+      },
+      "protocols_protocol": {
+        "name": "XDAO",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Auditing and Logging"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Access Control"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Account Abstraction"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6451",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 4,
+      "protocol_id": "271",
+      "title": "[M-05] DoS of user operations and loss of user transaction fee due to insufficient gas value submission by malicious bundler",
+      "content": "\n[contracts/smart-contract-wallet/aa-4337/core/EntryPoint.sol#L68-L86](https://github.com/code-423n4/2023-01-biconomy/blob/main/scw-contracts/contracts/smart-contract-wallet/aa-4337/core/EntryPoint.sol#L68-L86)<br>\n[contracts/smart-contract-wallet/aa-4337/core/EntryPoint.sol#L168-L190](https://github.com/code-423n4/2023-01-biconomy/blob/main/scw-contracts/contracts/smart-contract-wallet/aa-4337/core/EntryPoint.sol#L168-L190)\n\nAn attacker (e.g. a malicious bundler) could submit a bundle of high gas usage user operations with insufficient gas value, causing the bundle to fail even when the users calculated the gas limits correctly. This will result in a DoS for the user and the user/paymaster still have to pay for the execution, potentially draining their funds. This attack is possible as user operations are included by bundlers from the UserOperation mempool into the Ethereum block (see post on ERC-4337 <https://medium.com/infinitism/erc-4337-account-abstraction-without-ethereum-protocol-changes-d75c9d94dc4a>).\n\nReference for this issue: <https://github.com/eth-infinitism/account-abstraction/commit/4fef857019dc2efbc415ac9fc549b222b07131ef>\n\n### Proof of Concept\n\nIn innerHandleOp(), a call was made to handle the operation with the specified mUserOp.callGasLimit. However, a malicious bundler could call the innerHandleOp() via handleOps() with a gas value that is insufficient for the transactions, resulting in the call to fail.\n\nThe remaining gas amount (e.g. gasLeft()) at this point was not verified to ensure that it is more than enough to fulfill the specified mUserOp.callGasLimit for the user operation. Even though the operation failed, the user/payment will still pay for the transactions due to the post operation logic.\n\n[contracts/smart-contract-wallet/aa-4337/core/EntryPoint.sol#L176](https://github.com/code-423n4/2023-01-biconomy/blob/main/scw-contracts/contracts/smart-contract-wallet/aa-4337/core/EntryPoint.sol#L176)\n\n    (bool success,bytes memory result) = address(mUserOp.sender).call{gas : mUserOp.callGasLimit}(callData);\n\n### Recommended Mitigation Steps\n\nUpdate the Account Abstraction implementation to the latest version. This will update the innerHandleOp() to verify that remaining gas is more than sufficient to cover the specified mUserOp.callGasLimit and mUserOp.verificationGasLimit.\n\nReference: <https://github.com/eth-infinitism/account-abstraction/commit/4fef857019dc2efbc415ac9fc549b222b07131ef>\n\n**[livingrockrises (Biconomy) disagreed with severity and commented](https://github.com/code-423n4/2023-01-biconomy-findings/issues/303#issuecomment-1397764016):**\n > If bundle fails, bundler has no incentive.<br>\n> Lacks proof for draining funds.\n\n**[livingrockrises (Biconomy) confirmed and commented](https://github.com/code-423n4/2023-01-biconomy-findings/issues/303#issuecomment-1420343386):**\n > Lack of proof.\n>\n > \"Update the Account Abstraction implementation to the latest version. This will update the innerHandleOp() to verify that remaining gas is more than sufficient to cover the specified mUserOp.callGasLimit and mUserOp.verificationGasLimit.\" Will be doing this.\n\n**[gzeon (judge) decreased severity to Medium](https://github.com/code-423n4/2023-01-biconomy-findings/issues/303#issuecomment-1425711786)**\n\n\n\n***\n\n",
+      "summary": "\nA bug report has been filed which points to a vulnerability in the Account Abstraction implementation. This vulnerability can be exploited by a malicious bundler, who can submit a bundle of high gas usage user operations with insufficient gas value, resulting in a Denial of Service (DoS) attack for the user and the user/paymaster still having to pay for the execution, potentially draining their funds. The vulnerability is present in the innerHandleOp() call which does not verify that the remaining gas is more than sufficient to cover the specified mUserOp.callGasLimit and mUserOp.verificationGasLimit.\n\nTo mitigate this vulnerability, it is recommended to update the Account Abstraction implementation to the latest version. This will update the innerHandleOp() to verify that remaining gas is more than sufficient to cover the specified mUserOp.callGasLimit and mUserOp.verificationGasLimit.",
+      "report_date": {},
+      "contest_prize_txt": "$60,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2023-01-biconomy-smart-contract-wallet-contest",
+      "sponsor_name": "Biconomy",
+      "sponsor_link": "https://twitter.com/biconomy",
+      "quality_score": 3,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2023-01-biconomy",
+      "github_link": "https://github.com/code-423n4/2023-01-biconomy-findings/issues/303",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "200",
+      "slug": "m-05-dos-of-user-operations-and-loss-of-user-transaction-fee-due-to-insufficient-gas-value-submission-by-malicious-bundler-code4rena-biconomy-biconomy-smart-contract-wallet-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Biconomy",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Biconomy",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Account Abstraction"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6449",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "271",
+      "title": "[M-03] Cross-Chain Signature Replay Attack",
+      "content": "\nUser operations can be replayed on smart accounts accross different chains. This can lead to user's losing funds or any unexpected behaviour that transaction replay attacks usually lead to.\n\n### Proof of Concept\n\nAs specified by the [EIP4337](https://eips.ethereum.org/EIPS/eip-4337) standard `to prevent replay attacks ... the signature should depend on chainid`. In [VerifyingSingletonPaymaster.sol#getHash](https://github.com/code-423n4/2023-01-biconomy/blob/main/scw-contracts/contracts/smart-contract-wallet/paymasters/verifying/singleton/VerifyingSingletonPaymaster.sol#L77-L90) the chainId is missing which means that the same UserOperation can be replayed on a different chain for the same smart contract account if the `verifyingSigner` is the same (and most likely this will be the case).\n\n### Recommended Mitigation Steps\n\nAdd the chainId in the calculation of the UserOperation hash in [VerifyingSingletonPaymaster.sol#getHash](https://github.com/code-423n4/2023-01-biconomy/blob/main/scw-contracts/contracts/smart-contract-wallet/paymasters/verifying/singleton/VerifyingSingletonPaymaster.sol#L77-L90)\n\n        function getHash(UserOperation calldata userOp)\n        public view returns (bytes32) { // @audit change to view\n            //can't use userOp.hash(), since it contains also the paymasterAndData itself.\n            return keccak256(abi.encode(\n                    userOp.getSender(),\n                    userOp.nonce,\n                    keccak256(userOp.initCode),\n                    keccak256(userOp.callData),\n                    userOp.callGasLimit,\n                    userOp.verificationGasLimit,\n                    userOp.preVerificationGas,\n                    userOp.maxFeePerGas,\n                    userOp.maxPriorityFeePerGas\n    \t\tblock.chainid // @audit add chain id\n                ));\n        }\n\n**[livingrockrises (Biconomy) confirmed](https://github.com/code-423n4/2023-01-biconomy-findings/issues/466#issuecomment-1421110204)**\n\n**[gzeon (judge) decreased severity to Medium](https://github.com/code-423n4/2023-01-biconomy-findings/issues/466#issuecomment-1425735635)**\n\n**[vlad\\_bochok (warden) commented](https://github.com/code-423n4/2023-01-biconomy-findings/issues/466#issuecomment-1426673710):**\n > @gzeon @livingrockrises \n> \n> > User operations can be replayed on smart accounts accross different chains\n> \n> The author refers that the operation may be replayed on a different chain. That is not true. The \"getHash\" function derives the hash of UserOp specifically for the paymaster's internal usage. While the paymaster doesn't sign the chainId, the UserOp may not be relayed on a different chain. So, the only paymaster may get hurt. In all other respects, the bug is valid.\n> \n> The real use case of this cross-chan replayability is described in issue [`#504`](https://github.com/code-423n4/2023-01-biconomy-findings/issues/504) (which, I believe, was mistakenly downgraded).\n\n**[livingrockrises (Biconomy) commented](https://github.com/code-423n4/2023-01-biconomy-findings/issues/466#issuecomment-1426685496):**\n > True. Besides chainId , address(this) should be hashed and contract must maintain it's own nonces per wallet otherwise wallet can replay the signature and use paymaster to sponsor! We're also planning to hash paymasterId as add-on on top of our off-chain validation for it.  \n> \n> I have't seen an issue which covers all above. Either cross chain replay or suggested paymaster nonce.\n\n\n\n***\n\n",
+      "summary": "\nA Cross-Chain Signature Replay Attack vulnerability has been identified in the lines of code provided in the report. This vulnerability can lead to users losing funds or any unexpected behaviour that transaction replay attacks usually lead to. The vulnerability is due to the fact that the chainId is missing from the calculation of the UserOperation hash in the specified code. This means that the same UserOperation can be replayed on a different chain for the same smart contract account if the verifyingSigner is the same. The recommended mitigation step is to add the chainId in the calculation of the UserOperation hash in the specified code. This will ensure that the same UserOperation cannot be replayed on a different chain for the same smart contract account.",
+      "report_date": {},
+      "contest_prize_txt": "$60,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2023-01-biconomy-smart-contract-wallet-contest",
+      "sponsor_name": "Biconomy",
+      "sponsor_link": "https://twitter.com/biconomy",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2023-01-biconomy",
+      "github_link": "https://github.com/code-423n4/2023-01-biconomy-findings/issues/466",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "200",
+      "slug": "m-03-cross-chain-signature-replay-attack-code4rena-biconomy-biconomy-smart-contract-wallet-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Biconomy",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Biconomy",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Account Abstraction"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Cross Chain"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Replay Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6448",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 7,
+      "protocol_id": "271",
+      "title": "[M-02] Non-compliance with EIP-4337",
+      "content": "\n[contracts/smart-contract-wallet/BaseSmartAccount.sol#L60-L68](https://github.com/code-423n4/2023-01-biconomy/blob/main/scw-contracts/contracts/smart-contract-wallet/BaseSmartAccount.sol#L60-L68)<br>\n[contracts/smart-contract-wallet/aa-4337/core/EntryPoint.sol#L319-L329](https://github.com/code-423n4/2023-01-biconomy/blob/main/scw-contracts/contracts/smart-contract-wallet/aa-4337/core/EntryPoint.sol#L319-L329)<br>\n[contracts/smart-contract-wallet/BaseSmartAccount.sol#L60-L68](https://github.com/code-423n4/2023-01-biconomy/blob/main/scw-contracts/contracts/smart-contract-wallet/BaseSmartAccount.sol#L60-L68)\n\nSome parts of the codebase are not compliant with the EIP-4337 from the [EIP-4337 specifications](https://eips.ethereum.org/EIPS/eip-4337#specification), at multiple degrees of severity.\n\n### Proof of Concept\n\n**Sender existence**\n\n```text\nCreate the account if it does not yet exist, using the initcode provided in the UserOperation. If the account does not exist, and the initcode is empty, or does not deploy a contract at the “sender” address, the call must fail.\n```\n\nIf we take a look at the [`_createSenderIfNeeded()`]() function, we can see that it's not properly implemented:\n\n```solidity\nfunction _createSenderIfNeeded(uint256 opIndex, UserOpInfo memory opInfo, bytes calldata initCode) internal {\n\tif (initCode.length != 0) {\n\t\taddress sender = opInfo.mUserOp.sender;\n    \tif (sender.code.length != 0) revert FailedOp(opIndex, address(0), \"AA10 sender already constructed\");\n      \taddress sender1 = senderCreator.createSender{gas: opInfo.mUserOp.verificationGasLimit}(initCode);\n        if (sender1 == address(0)) revert FailedOp(opIndex, address(0), \"AA13 initCode failed or OOG\");\n        if (sender1 != sender) revert FailedOp(opIndex, address(0), \"AA14 initCode must return sender\");\n        if (sender1.code.length == 0) revert FailedOp(opIndex, address(0), \"AA15 initCode must create sender\");\n        address factory = address(bytes20(initCode[0:20]));\n      \temit AccountDeployed(opInfo.userOpHash, sender, factory, opInfo.mUserOp.paymaster);\n\t}\n}\n```\n\nThe statement in the EIP implies that if the account does not exist, the initcode **must** be used.<br>\nIn this case, it first check if the initcode exists, but this condition should be checked later.\n\nThis could be rewritten to:\n\n```solidity\nfunction _createSenderIfNeeded(uint256 opIndex, UserOpInfo memory opInfo, bytes calldata initCode) internal {\n\taddress sender = opInfo.mUserOp.sender;\n\tif (sender.code.length == 0) {\n\t\trequire(initCode.length != 0, \"empty initcode\");\n\t\taddress sender1 = senderCreator.createSender{gas: opInfo.mUserOp.verificationGasLimit}(initCode);\n        if (sender1 == address(0)) revert FailedOp(opIndex, address(0), \"AA13 initCode failed or OOG\");\n        if (sender1 != sender) revert FailedOp(opIndex, address(0), \"AA14 initCode must return sender\");\n        if (sender1.code.length == 0) revert FailedOp(opIndex, address(0), \"AA15 initCode must create sender\");\n        address factory = address(bytes20(initCode[0:20]));\n      \temit AccountDeployed(opInfo.userOpHash, sender, factory, opInfo.mUserOp.paymaster);\n\t}\n}\n```\n\n**Account**\n\nThe third specification of the [`validateUserOp()`](https://github.com/code-423n4/2023-01-biconomy/blob/main/scw-contracts/contracts/smart-contract-wallet/BaseSmartAccount.sol#L60-L68) is the following:\n\n```text\nIf the account does not support signature aggregation, it MUST validate the signature is a valid signature of the userOpHash, and SHOULD return SIG_VALIDATION_FAILED (and not revert) on signature mismatch. Any other error should revert.\n```\n\nThis is currently not the case, as the case when the account does not support signature aggregation is not supported right now in the code. The `validateUserOp()` [reverts everytime](https://github.com/code-423n4/2023-01-biconomy/blob/main/scw-contracts/contracts/smart-contract-wallet/aa-4337/core/EntryPoint.sol#L319-L329) if the recovered signature does not match.\n\nAdditionally, the `validateUserOp()` should return a time range, as per the EIP specifications:\n\n```text\nThe return value is packed of sigFailure, validUntil and validAfter timestamps.\n\t\t- sigFailure is 1 byte value of “1” the signature check failed (should not revert on signature failure, to support estimate)\n\t\t- validUntil is 8-byte timestamp value, or zero for “infinite”. The UserOp is valid only up to this time.\n\t\t- validAfter is 8-byte timestamp. The UserOp is valid only after this time.\n```\n\nThis isn't the case. It just returns a signature deadline validity, which would probably be here the `validUntil` value.\n\n**Aggregator**\n\nThis part deals with the aggregator interfacing:\n\n```text\nvalidateUserOp() (inherited from IAccount interface) MUST verify the aggregator parameter is valid and the same as getAggregator\n\n...\n\nThe account should also support aggregator-specific getter (e.g. getAggregationInfo()). This method should export the account’s public-key to the aggregator, and possibly more info (note that it is not called directly by the entryPoint)\n\n...\n\nIf an account uses an aggregator (returns it with getAggregator()), then its address is returned by simulateValidation() reverting with ValidationResultWithAggregator instead of ValidationResult\n```\n\nThis aggregator address validation is not [done](https://github.com/code-423n4/2023-01-biconomy/blob/main/scw-contracts/contracts/smart-contract-wallet/BaseSmartAccount.sol#L60-L68).\n\n### Recommended Mitigation Steps\n\nRefactor the code that is not compliant with the EIP.\n\n**[livingrockrises (Biconomy) confirmed and commented](https://github.com/code-423n4/2023-01-biconomy-findings/issues/498#issuecomment-1420546708):**\n > We're refactoring the code with latest ERC4337 contracts (^0.4.0).\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about the codebase of a smart contract wallet not being compliant with the EIP-4337 specifications. This lack of compliance is present at multiple degrees of severity. The proof of concept shows that the code does not properly implement the `_createSenderIfNeeded()` function and the `validateUserOp()` function does not return a time range as specified by the EIP. Additionally, the aggregator address validation is not done.\n\nTo fix this issue, it is recommended to refactor the code that is not compliant with the EIP. This can be done by manually inspecting the code.",
+      "report_date": {},
+      "contest_prize_txt": "$60,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2023-01-biconomy-smart-contract-wallet-contest",
+      "sponsor_name": "Biconomy",
+      "sponsor_link": "https://twitter.com/biconomy",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2023-01-biconomy",
+      "github_link": "https://github.com/code-423n4/2023-01-biconomy-findings/issues/498",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "200",
+      "slug": "m-02-non-compliance-with-eip-4337-code4rena-biconomy-biconomy-smart-contract-wallet-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Biconomy",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Biconomy",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Account Abstraction"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6447",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 4,
+      "protocol_id": "271",
+      "title": "[M-01] Griefing attacks on `handleOps` and `multiSend` logic",
+      "content": "\n[contracts/smart-contract-wallet/aa-4337/core/EntryPoint.sol#L68](https://github.com/code-423n4/2023-01-biconomy/blob/5df2e8f8c0fd3393b9ecdad9ef356955f07fbbdd/scw-contracts/contracts/smart-contract-wallet/aa-4337/core/EntryPoint.sol#L68)<br>\n[contracts/smart-contract-wallet/libs/MultiSend.sol#L26](https://github.com/code-423n4/2023-01-biconomy/blob/5df2e8f8c0fd3393b9ecdad9ef356955f07fbbdd/scw-contracts/contracts/smart-contract-wallet/libs/MultiSend.sol#L26)\n\nThe `handleOps` function executes an array of `UserOperation`. If at least one user operation fails the whole transaction will revert. That means the error on one user ops will fully reverts the other executed ops.\n\nThe `multiSend` function reverts if at least one of the transactions fails, so it is also vulnerable to such type of attacks.\n\n### Attack scenario\n\nRelayer offchain verify the batch of `UserOperation`s, convinced that they will receive fees, then send the `handleOps` transaction to the mempool. An attacker front-run the relayers transaction with another `handleOps` transaction that executes only one `UserOperation`, the last user operation from the relayers `handleOps` operations. An attacker will receive the funds for one `UserOperation`. Original relayers transaction will consume gas for the execution of all except one, user ops, but reverts at the end.\n\n### Impact\n\nGriefing attacks on the gas used for `handleOps` and `multiSend` function calls.\n\nPlease note, that while an attacker have no direct incentive to make such an attacks, they could short the token before the attack.\n\n### Recommended Mitigation Steps\n\nRemove redundant `require`-like checks from internal functions called from the `handleOps` function and add the non-atomic execution logic to the `multiSend` function.\n\n**[livingrockrises (Biconomy) acknowledged and commented](https://github.com/code-423n4/2023-01-biconomy-findings/issues/499#issuecomment-1420443493):**\n > Once public, will double check with infinitism community. Marked acknowledged for now. And for multisend non-atomic does not make sense!\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability in a function called \"handleOps\" that is used to execute an array of user operations. If one of the user operations fails, the whole transaction will revert, meaning the error of one user ops will revert all the other executed ops. This vulnerability also affects the \"multiSend\" function, which reverts if one of the transactions fails. \n\nThe attack scenario involves a relayer verifying a batch of user operations, confident that they will receive fees, and sending the \"handleOps\" transaction to the mempool. An attacker can then front-run the relayer's transaction with another \"handleOps\" transaction that only executes the last user operation. This means the attacker will receive the funds for one user operation, while the original relayer's transaction will consume gas for all the other user operations, but will revert at the end.\n\nThe impact of this vulnerability is that it can be used for griefing attacks on the gas used for \"handleOps\" and \"multiSend\" function calls. Although the attacker has no direct incentive to make such an attack, they could short the token before the attack.\n\nThe recommended mitigation steps for this vulnerability include removing redundant checks from internal functions called from the \"handleOps\" function and adding the non-atomic execution logic to the \"multiSend\" function.",
+      "report_date": {},
+      "contest_prize_txt": "$60,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2023-01-biconomy-smart-contract-wallet-contest",
+      "sponsor_name": "Biconomy",
+      "sponsor_link": "https://twitter.com/biconomy",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2023-01-biconomy",
+      "github_link": "https://github.com/code-423n4/2023-01-biconomy-findings/issues/499",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "200",
+      "slug": "m-01-griefing-attacks-on-handleops-and-multisend-logic-code4rena-biconomy-biconomy-smart-contract-wallet-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Biconomy",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Biconomy",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Account Abstraction"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6444",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "271",
+      "title": "[H-05] Paymaster ETH can be drained with malicious sender",
+      "content": "\n[contracts/smart-contract-wallet/paymasters/verifying/singleton/VerifyingSingletonPaymaster.sol#L97-L111](https://github.com/code-423n4/2023-01-biconomy/blob/53c8c3823175aeb26dee5529eeefa81240a406ba/scw-contracts/contracts/smart-contract-wallet/paymasters/verifying/singleton/VerifyingSingletonPaymaster.sol#L97-L111)\n\nPaymaster's signature can be replayed to drain their deposits.\n\n### Proof of Concept\n\nScenario :\n\n*   user A is happy with biconomy and behaves well biconomy gives some sponsored tx using verifyingPaymaster -- let's say paymaster's signature as sig X\n*   user A becomes not happy with biconomy for some reason and A wants to attack biconomy\n*   user A delegate calls to Upgrader and upgrade it's sender contract to MaliciousAccount.sol\n*   MaliciousAccount.sol does not check any nonce and everything else is same to SmartAccount(but they can also add some other details to amplify the attack, but let's just stick it this way)\n*   user A uses sig X(the one that used before) to initiate the same tx over and over\n*   user A earnes nearly nothing but paymaster will get their deposits drained\n\nfiles : Upgrader.sol, MaliciousAccount.sol, test file <br><https://gist.github.com/leekt/d8fb59f448e10aeceafbd2306aceaab2>\n\n### Tools Used\n\nhardhat test, verified with livingrock\n\n### Recommended Mitigation Steps\n\nSince `validatePaymasterUserOp` function is not limited to view function in erc4337 spec, add simple boolean data for mapping if hash is used or not\n\n    mapping(bytes32 => boolean) public usedHash\n\n        function validatePaymasterUserOp(UserOperation calldata userOp, bytes32 /*userOpHash*/, uint256 requiredPreFund)\n        external override returns (bytes memory context, uint256 deadline) {\n            (requiredPreFund);\n            bytes32 hash = getHash(userOp);\n            require(!usedHash[hash], \"used hash\");\n            usedHash[hash] = true;\n\n**[livingrockrises (Biconomy) confirmed, but commented](https://github.com/code-423n4/2023-01-biconomy-findings/issues/151#issuecomment-1423007244):**\n > Unhappy with the recommendation.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the VerifyingSingletonPaymaster.sol contract. The vulnerability can be exploited to replay the Paymaster's signature and drain their deposits. A Proof of Concept was provided in the form of an Upgrader.sol, MaliciousAccount.sol, and a test file. The vulnerability was tested using Hardhat and verified with Livingrock.\n\nThe recommended mitigation step is to add a simple boolean data for mapping if the hash is used or not. This can be done by adding the following code to the validatePaymasterUserOp function:\n\n```\nmapping(bytes32 => boolean) public usedHash\n\nfunction validatePaymasterUserOp(UserOperation calldata userOp, bytes32 /*userOpHash*/, uint256 requiredPreFund)\nexternal override returns (bytes memory context, uint256 deadline) {\n    (requiredPreFund);\n    bytes32 hash = getHash(userOp);\n    require(!usedHash[hash], \"used hash\");\n    usedHash[hash] = true;\n```\n\nThis code will check if the hash has already been used, and if it has, the code will not allow the transaction to go through. This will prevent the Paymaster's signature from being replayed and their deposits from being drained.",
+      "report_date": {},
+      "contest_prize_txt": "$60,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2023-01-biconomy-smart-contract-wallet-contest",
+      "sponsor_name": "Biconomy",
+      "sponsor_link": "https://twitter.com/biconomy",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2023-01-biconomy",
+      "github_link": "https://github.com/code-423n4/2023-01-biconomy-findings/issues/151",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "200",
+      "slug": "h-05-paymaster-eth-can-be-drained-with-malicious-sender-code4rena-biconomy-biconomy-smart-contract-wallet-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Biconomy",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Biconomy",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Account Abstraction"
+          }
+        }
+      ]
+    }
+  ]
+}

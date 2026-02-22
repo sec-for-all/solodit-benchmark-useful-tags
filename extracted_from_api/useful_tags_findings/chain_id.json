@@ -1,0 +1,95 @@
+{
+  "tag": "Chain ID",
+  "count": 1,
+  "metadata": {
+    "totalResults": 1,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 2,
+    "reset": 1771760940
+  },
+  "findings": [
+    {
+      "id": "7053",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "MEDIUM",
+      "finders_count": 3,
+      "protocol_id": "2",
+      "title": "Wormhole bridge chain IDs are different than EVM chain IDs",
+      "content": "## Medium Risk Report\n\n## Severity: Medium Risk\n\n### Context\nWormholeFacet.sol#L93\n\n### Description\nAccording to documentation, Wormhole uses different chain IDs than EVM based chain IDs. However, the code is implemented with a `block.chainid` check. LiFi is integrated with third party platforms through API. The API/UI side can implement chain ID checks, but direct interaction with the contract can lead to loss of funds.\n\n```solidity\nfunction _startBridge(WormholeData memory _wormholeData) private {\n    if (block.chainid == _wormholeData.toChainId) revert CannotBridgeToSameNetwork();\n}\n```\n\nFrom another perspective, the following line limits the recipient address to an EVM address. If a bridge would be done to a non-EVM chain (e.g., Solana, Terra, or Terra Classic), then the tokens would be lost.\n\n```solidity\nbytes32(uint256(uint160(_wormholeData.recipient)))\n```\n\n### Example Transactions\n- Chain ID 1: Solana\n- Chain ID 3: Terra Classic\n\nOn the other hand, the usage of the LiFi protocol depends largely on off-chain APIs. It takes all values, fees, limits, chain IDs, and addresses to be called from the APIs. As previously mentioned, the Wormhole destination chain IDs are different than standard EVM based chains, and the following event can be misinterpreted.\n\n```solidity\nemit LiFiTransferStarted(\n    _lifiData.transactionId,\n    \"wormhole\",\n    \"\",\n    _lifiData.integrator,\n    _lifiData.referrer,\n    _swapData[0].sendingAssetId,\n    _lifiData.receivingAssetId,\n    _wormholeData.recipient,\n    _swapData[0].fromAmount,\n    _wormholeData.toChainId, // It does not show correct chain ID which is expected by LiFi Data Analytics\n    true,\n    false\n);\n```\n\n### Recommendation\nConsider having a mapping of the EVM chain ID to the Wormhole chain ID, so a smart contract user (developer) of the LiFi protocol can always use the same chain ID. If tokens are accidentally sent to the wrong chain, they might be unrecoverable, especially if the destination is a smart contract that isn’t deployed on that chain.\n\n## LiFi\nFixed with PR #29.\n\n## Spearbit\nVerified.",
+      "summary": "\nThis bug report is about a medium risk issue with the WormholeFacet.sol#L93 code in the LiFi protocol. The code is currently implemented with a block.chainid check which is incompatible with non-EVM based chains. This could lead to funds being lost if tokens are sent to the wrong chain. The bug report also mentions that the usage of the LiFi protocol depends largely on off chain APIs, which take all values, fees, limits, chain ids and addresses to be called from the APIs. \n\nThe recommendation is to consider having a mapping of the EVM chainid to the wormhole chainid, so a smart contract user (developer) of the lifi protocol can always use the same chainid. This way, if tokens are accidentally sent to the wrong chain, they might be recoverable. The LiFi bug has been fixed with PR #29 and has been verified by Spearbit.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/LIFI-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 22,
+      "contest_id": "",
+      "slug": "wormhole-bridge-chain-ids-are-different-than-evm-chain-ids-spearbit-lifi-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "LI.FI",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "LI.FI",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Wormhole"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Chain ID"
+          }
+        }
+      ]
+    }
+  ]
+}

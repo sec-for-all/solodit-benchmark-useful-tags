@@ -1,0 +1,573 @@
+{
+  "tag": "Revert By Sending Dust",
+  "count": 7,
+  "metadata": {
+    "totalResults": 7,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 10,
+    "reset": 1771761120
+  },
+  "findings": [
+    {
+      "id": "6306",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "46",
+      "title": "M-9: [M] Incorrect Validation in `Pool.sol#transferLPs` lead to a DOS attack",
+      "content": "Source: https://github.com/sherlock-audit/2023-01-ajna-judging/issues/116 \n\n## Found by \noxcm\n\n## Summary\n\nThe code in the transferLPs function has an incorrect validation check, where it requires `allowances_` to be strictly equal to `lenderLpBalance`, instead of just `allowances_` being greater than `transferAmount`.\n\n## Vulnerability Detail\n\nIn the `transferLPs()` function, `transferAmount` is being compared to `allowances_[owner_][newOwner_][index]` and `lenderLpBalance`. If the values are not strictly equal, the function will revert with a `NoAllowance` error. \n\nDue to the requirement of `transferLPs()` that `allowances_` must equal `lenderLpBalance`, the user can only enter `lpsAmountToApprove_` as the current `lenderLpBalance` when using `approveLpOwnership()`.\n\nThis results in `transferLPs()` reverting with `NoAllowance` if `lenderLpBalance` undergoes any change, allowing attackers to design a DOS attack.\n\nHowever, this validation is not necessary as it should only require `allowances_` to be greater than `transferAmount`.\n\n## Impact\n\nAn attacker could exploit this vulnerability by transferring a small amount of LP tokens to the owner before the transfer to the new owner is initiated. This would cause the `allowances_` value to be less than `lenderLpBalance`, causing the transfer to revert and the tokens to remain in the original owner's account.\n\n## Code Snippet\n\nRelevant code snippet from transferLPs function:\n \nhttps://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/base/Pool.sol#L238-L250\n\n```solidity=238\nfunction transferLPs(\n        address owner_,\n        address newOwner_,\n        uint256[] calldata indexes_\n    ) external override nonReentrant {\n        LenderActions.transferLPs(\n            buckets,\n            _lpTokenAllowances,\n            owner_,\n            newOwner_,\n            indexes_\n        );\n    }\n```\n\n\nhttps://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/libraries/external/LenderActions.sol#L512-L558\n\n```solidity=512\nfunction transferLPs(\n        mapping(uint256 => Bucket) storage buckets_,\n        mapping(address => mapping(address => mapping(uint256 => uint256))) storage allowances_,\n        address owner_,\n        address newOwner_,\n        uint256[] calldata indexes_\n    ) external {\n        uint256 indexesLength = indexes_.length;\n\n        uint256 tokensTransferred;\n\n        for (uint256 i = 0; i < indexesLength; ) {\n            uint256 index = indexes_[i];\n            if (index > MAX_FENWICK_INDEX) revert InvalidIndex();\n\n            uint256 transferAmount = allowances_[owner_][newOwner_][index];\n\n            Bucket storage bucket = buckets_[index];\n            Lender storage lender = bucket.lenders[owner_];\n\n            uint256 lenderDepositTime = lender.depositTime;\n\n            uint256 lenderLpBalance;\n\n            if (bucket.bankruptcyTime < lenderDepositTime) lenderLpBalance = lender.lps;\n\n            if (transferAmount == 0 || transferAmount != lenderLpBalance) revert NoAllowance();\n\n            delete allowances_[owner_][newOwner_][index]; // delete allowance\n\n            // move lp tokens to the new owner address\n            Lender storage newLender = bucket.lenders[newOwner_];\n\n            newLender.lps += transferAmount;\n\n            newLender.depositTime = Maths.max(lenderDepositTime, newLender.depositTime);\n\n            // reset owner lp balance for this index\n            delete bucket.lenders[owner_];\n\n            tokensTransferred += transferAmount;\n\n            unchecked { ++i; }\n        }\n\n        emit TransferLPTokens(owner_, newOwner_, indexes_, tokensTransferred);\n    }\n```\n\n## Tool used\n\nManual Review / ChatGPT\n\n## Recommendation\n\nThe validation check in the transferLPs function should be updated to allow for allowances_ to be greater than transferAmount, rather than requiring them to be strictly equal. The updated code would look like this:\n\n```solidity\nif (transferAmount == 0 || allowances_[owner_][newOwner_][index] < transferAmount) revert NoAllowance();\n```\n\nand change  `approveLpOwnership()` to:\n\n```solidity\nfunction approveLpOwnership(\n    address allowedNewOwner_,\n    uint256 index_\n) external nonReentrant {\n    _lpTokenAllowances[msg.sender][allowedNewOwner_][index_] = type(uint256).max;\n}\n```\n\n## Discussion\n\n**grandizzy**\n\nremoving will fix, will be addressed after sherlock contest",
+      "summary": "\nThis bug report is about an incorrect validation check in the transferLPs function in the Pool.sol contract which could lead to a Denial of Service (DOS) attack. The incorrect validation check requires `allowances_` to be strictly equal to `lenderLpBalance`, instead of just `allowances_` being greater than `transferAmount`. This results in `transferLPs()` reverting with `NoAllowance` if `lenderLpBalance` undergoes any change, allowing attackers to design a DOS attack.\n\nAn attacker could exploit this vulnerability by transferring a small amount of LP tokens to the owner before the transfer to the new owner is initiated. This would cause the `allowances_` value to be less than `lenderLpBalance`, causing the transfer to revert and the tokens to remain in the original owner's account.\n\nThe code snippet from the transferLPs function and the LenderActions library show the incorrect validation check. The validation check should be updated to allow for allowances_ to be greater than transferAmount, rather than requiring them to be strictly equal. The updated code would look like this:\n\n```solidity\nif (transferAmount == 0 || allowances_[owner_][newOwner_][index] < transferAmount) revert NoAllowance();\n```\n\nand change  `approveLpOwnership()` to:\n\n```solidity\nfunction approveLpOwnership(\n    address allowedNewOwner_,\n    uint256 index_\n) external nonReentrant {\n    _lpTokenAllowances[msg.sender][allowedNewOwner_][index_] = type(uint256).max;\n}\n```\n\nThe bug was found by oxcm and will be addressed after the Sherlock contest.",
+      "report_date": {},
+      "contest_prize_txt": "75000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/32",
+      "sponsor_name": "Ajna",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-01-ajna-judging/issues/116",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "32",
+      "slug": "m-9-m-incorrect-validation-in-poolsoltransferlps-lead-to-a-dos-attack-sherlock-ajna-ajna-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Ajna",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Ajna",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "DOS"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Denial-Of-Service"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Revert By Sending Dust"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Front-Running"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7003",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "HIGH",
+      "finders_count": 4,
+      "protocol_id": "53",
+      "title": "A malicious user could DOS a vesting schedule by sending only 1 wei ofTLCto the vesting escrow address",
+      "content": "## Severity: Critical Risk\n\n## Context:\n- `ERC20VestableVotesUpgradeable.1.sol#L132-L134`\n- `ERC20VestableVotesUpgradeable.1.sol#L137-L139`\n- `ERC20VestableVotesUpgradeable.1.sol#L86-L97`\n- `ERC20VestableVotesUpgradeable.1.sol#L353`\n\n## Description:\nAn external user who owns some TLC tokens could DOS the vesting schedule of any user by sending just 1 wei of TLC to the escrow address related to the vesting schedule. By doing that:\n- The creator of the vesting schedule will not be able to revoke the vesting schedule.\n- The beneficiary of the vesting schedule will not be able to release any vested tokens until the end of the vesting schedule.\n- Any external contracts or dApps will not be able to call `computeVestingReleasableAmount`.\n\nIn practice, all the functions that internally call `_computeVestingReleasableAmount` will revert because of an underflow error when called before the vesting schedule ends. The underflow error is thrown because, when called before the schedule ends, `_computeVestingReleasableAmount` will enter the `if (_time < _vestingSchedule.end)` branch and will try to compute:\n\n```solidity\nuint256 releasedAmount = _computeVestedAmount(_vestingSchedule, _vestingSchedule.end) - balanceOf(_escrow);\n```\n\nIn this case, `_computeVestedAmount(_vestingSchedule, _vestingSchedule.end)` will always be lower than `balanceOf(_escrow)` and the contract will revert with an underflow error. When the vesting period ends, the contract will not enter the `if (_time < _vestingSchedule.end)` and the user will be able to gain the whole vested amount plus the extra amount of TLC sent to the escrow account by the malicious user.\n\n## Scenario:\n1. Bob owns 1 TLC token.\n2. Alluvial creates a vesting schedule for Alice like the following example:\n   ```solidity\n   createVestingSchedule(\n       VestingSchedule({\n           start: block.timestamp,\n           cliffDuration: 1 days,\n           lockDuration: 0,\n           duration: 10 days,\n           period: 1 days,\n           amount: 10,\n           beneficiary: alice,\n           delegatee: address(0),\n           revocable: true\n       })\n   );\n   ```\n3. Bob sends 1 TLC token to the vesting schedule escrow account of the Alice vesting schedule.\n4. After the cliff period, Alice should be able to release 1 TLC token. Because now `balanceOf(_escrow)` is 11, it will underflow as `_computeVestedAmount(_vestingSchedule, _vestingSchedule.end)` returns 10.\n\nFind below a test case showing all three different DOS scenarios:\n\n```solidity\n// SPDX-License-Identifier: MIT\npragma solidity 0.8.10;\n\nimport \"forge-std/Test.sol\";\nimport \"../src/TLC.1.sol\";\n\ncontract WrappedTLC is TLCV1 {\n    function deterministicVestingEscrow(uint256 _index) external view returns (address escrow) {\n        return _deterministicVestingEscrow(_index);\n    }\n}\n\ncontract SpearVestTest is Test {\n    WrappedTLC internal tlc;\n    address internal escrowImplem;\n    address internal initAccount;\n    address internal bob;\n    address internal alice;\n    address internal carl;\n\n    function setUp() public {\n        initAccount = makeAddr(\"init\");\n        bob = makeAddr(\"bob\");\n        alice = makeAddr(\"alice\");\n        carl = makeAddr(\"carl\");\n        tlc = new WrappedTLC();\n        tlc.initTLCV1(initAccount);\n    }\n\n    function testDOSReleaseVestingSchedule() public {\n        // send Bob 1 vote token\n        vm.prank(initAccount);\n        tlc.transfer(bob, 1);\n        // create a vesting schedule for Alice\n        vm.prank(initAccount);\n        createVestingSchedule(\n            VestingSchedule({\n                start: block.timestamp,\n                cliffDuration: 1 days,\n                lockDuration: 0,\n                duration: 10 days,\n                period: 1 days,\n                amount: 10,\n                beneficiary: alice,\n                delegatee: address(0),\n                revocable: true\n            })\n        );\n\n        address aliceEscrow = tlc.deterministicVestingEscrow(0);\n        // Bob sends one token directly to the Escrow contract of Alice\n        vm.prank(bob);\n        tlc.transfer(aliceEscrow, 1);\n        // Cliff period has passed and Alice tries to get the first batch of the vested token\n        vm.warp(block.timestamp + 1 days);\n        vm.prank(alice);\n        // The transaction will revert for UNDERFLOW because now the balance of the escrow has been\n        // increased externally\n        vm.expectRevert(stdError.arithmeticError);\n        tlc.releaseVestingSchedule(0);\n        // Warp at the vesting schedule period end\n        vm.warp(block.timestamp + 9 days);\n        // Alice is able to get the whole vesting schedule amount plus the token sent by the attacker to the escrow contract\n        vm.prank(alice);\n        tlc.releaseVestingSchedule(0);\n        assertEq(tlc.balanceOf(alice), 11);\n    }\n\n    function testDOSRevokeVestingSchedule() public {\n        // send Bob 1 vote token\n        vm.prank(initAccount);\n        tlc.transfer(bob, 1);\n        // create a vesting schedule for Alice\n        vm.prank(initAccount);\n        createVestingSchedule(\n            VestingSchedule({\n                start: block.timestamp,\n                cliffDuration: 1 days,\n                lockDuration: 0,\n                duration: 10 days,\n                period: 1 days,\n                amount: 10,\n                beneficiary: alice,\n                delegatee: address(0),\n                revocable: true\n            })\n        );\n\n        address aliceEscrow = tlc.deterministicVestingEscrow(0);\n        // Bob sends one token directly to the Escrow contract of Alice\n        vm.prank(bob);\n        tlc.transfer(aliceEscrow, 1);\n        // The creator decides to revoke the vesting schedule before the end timestamp\n        // It will throw an underflow error\n        vm.prank(initAccount);\n        vm.expectRevert(stdError.arithmeticError);\n        tlc.revokeVestingSchedule(0, uint64(block.timestamp + 1));\n    }\n\n    function testDOSComputeVestingReleasableAmount() public {\n        // send Bob 1 vote token\n        vm.prank(initAccount);\n        tlc.transfer(bob, 1);\n        // create a vesting schedule for Alice\n        vm.prank(initAccount);\n        createVestingSchedule(\n            VestingSchedule({\n                start: block.timestamp,\n                cliffDuration: 1 days,\n                lockDuration: 0,\n                duration: 10 days,\n                period: 1 days,\n                amount: 10,\n                beneficiary: alice,\n                delegatee: address(0),\n                revocable: true\n            })\n        );\n\n        address aliceEscrow = tlc.deterministicVestingEscrow(0);\n        // Bob sends one token directly to the Escrow contract of Alice\n        vm.prank(bob);\n        tlc.transfer(aliceEscrow, 1);\n        vm.expectRevert(stdError.arithmeticError);\n        uint256 releasableAmount = tlc.computeVestingReleasableAmount(0);\n        // Warp to the end of the vesting schedule\n        vm.warp(block.timestamp + 10 days);\n        releasableAmount = tlc.computeVestingReleasableAmount(0);\n        assertEq(releasableAmount, 11);\n    }\n    \n    struct VestingSchedule {\n        uint256 start;\n        uint256 cliffDuration;\n        uint256 lockDuration;\n        uint256 duration;\n        uint256 period;\n        uint256 amount;\n        address beneficiary;\n        address delegatee;\n        bool revocable;\n    }\n    \n    function createVestingSchedule(VestingSchedule memory config) internal returns (uint256) {\n        return createVestingScheduleStackOptimized(config);\n    }\n    \n    function createVestingScheduleStackOptimized(VestingSchedule memory config) internal returns (uint256) {\n        return tlc.createVestingSchedule(\n            uint64(config.start),\n            uint32(config.cliffDuration),\n            uint32(config.duration),\n            uint32(config.period),\n            uint32(config.lockDuration),\n            config.revocable,\n            config.amount,\n            config.beneficiary,\n            config.delegatee\n        );\n    }\n}\n```\n\n## Recommendation:\nConsider re-implementing how the contract accounts for the amount of released tokens of a vesting schedule to avoid this situation. In case the new implementation does not rely anymore on `balanceOf(_escrow)`, remember that tokens sent directly to the escrow account would be stuck forever.\n\n**Alluvial:** Fixed in liquid-collective/liquid-collective-protocol@7870787 by introducing a new variable inside the user vesting schedule named `releasedAmount` that tracks the already released amount and cannot be manipulated by an external attacker.  \n**Spearbit:** Fixed.",
+      "summary": "\nThis bug report is about an external user being able to DOS the vesting schedule of any user by sending just 1 wei of TLC to the escrow address related to the vesting schedule. This would prevent the creator of the vesting schedule from revoking it, the beneficiary from releasing any vested tokens until the end of the vesting schedule, and any external contracts or dApps from calling computeVestingReleasableAmount. This is due to an underflow error that is thrown when the _computeVestedAmount(_vestingSchedule, _vestingSchedule.end) is lower than balanceOf(_escrow). This can be tested with a test case where Bob sends 1 TLC token to the vesting schedule escrow account of Alice, after the cliff period Alice tries to get the first batch of vested token and the transaction reverts for UNDERFLOW due to the increased balance of the escrow.\n\nThe recommendation is to re-implement how the contract accounts for the amount of released tokens of a vesting schedule to avoid this situation. It is also important to remember that tokens sent directly to the escrow account would be stuck forever. Alluvial fixed this bug by introducing a new variable inside the user vesting schedule named releasedAmount that tracks the already released amount and cannot be manipulated by an external attacker. Spearbit also fixed this issue.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LiquidCollective2-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LiquidCollective2-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/LiquidCollective2-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 9,
+      "contest_id": "",
+      "slug": "a-malicious-user-could-dos-a-vesting-schedule-by-sending-only-1-wei-oftlcto-the-vesting-escrow-spearbit-liquid-collective-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Liquid Collective",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Liquid Collective",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 67.10914421941607
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Revert By Sending Dust"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6285",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 4,
+      "protocol_id": "54",
+      "title": "M-4: Dust amounts can cause payments to fail, leading to default",
+      "content": "Source: https://github.com/sherlock-audit/2023-01-cooler-judging/issues/218 \n\n## Found by \nkiki\\_dev, HollaDieWaldfee, IllIllI, ak1\n\n## Summary\n\nDust amounts can cause payments to fail, leading to default\n\n\n## Vulnerability Detail\n\nIn order for a loan to close, the exact right number of wei of the debt token must be sent to match the remaining loan amount. If more is sent, the balance underflows, reverting the transaction.\n\n\n## Impact\n\nAn attacker can send dust amounts right before a loan is due, front-running any payments also destined for the final block before default. If the attacker's transaction goes in first, the borrower will be unable to pay back the loan before default, and will lose thier remaining collateral. This may be the whole loan amount.\n\n\n## Code Snippet\n\nIf the repayment amount isn't exactly the remaining loan amount, and instead is more (due to the dust payment), the subtraction marked below will underflow, reverting the payment:\n```solidity\n// File: src/Cooler.sol : Cooler.repay()   #1\n\n108        function repay (uint256 loanID, uint256 repaid) external {\n109            Loan storage loan = loans[loanID];\n110    \n111            if (block.timestamp > loan.expiry) \n112                revert Default();\n113            \n114            uint256 decollateralized = loan.collateral * repaid / loan.amount;\n115    \n116           if (repaid == loan.amount) delete loans[loanID];\n117           else {\n118 @>             loan.amount -= repaid;\n119                loan.collateral -= decollateralized;\n120            }\n121    \n122            debt.transferFrom(msg.sender, loan.lender, repaid);\n123            collateral.transfer(owner, decollateralized);\n124:       }\n```\nhttps://github.com/sherlock-audit/2023-01-cooler/blob/main/src/Cooler.sol#L108-L124\n\n\n## Tool used\n\nManual Review\n\n\n## Recommendation\n\nOnly collect and subtract the minimum of the current loan balance, and the amount specified in the `repaid` variable\n\n\n## Discussion\n\n**hrishibhat**\n\nSponsor comment:\n> Good spot. Niche case.",
+      "summary": "\nThis bug report is about an issue found in the code of the Cooler.sol file of the Sherlock Audit project. The issue is that when a loan is due, if a dust amount is sent, the balance underflows and the transaction reverts, leading to default. This means that an attacker can send a dust amount right before the loan is due, front-running any payments also destined for the final block before default. If the attacker's transaction goes in first, the borrower will be unable to pay back the loan before default, and will lose their remaining collateral.\n\nThe bug was found by kiki_dev, HollaDieWaldfee, IllIllI, and ak1, and was identified using manual review. The recommendation is to only collect and subtract the minimum of the current loan balance and the amount specified in the repaid variable. Hrishibhat commented that it was a good spot. The sponsor commented that it was a niche case.",
+      "report_date": {},
+      "contest_prize_txt": "10000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/36",
+      "sponsor_name": "cooler",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-01-cooler-judging/issues/218",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "36",
+      "slug": "m-4-dust-amounts-can-cause-payments-to-fail-leading-to-default-sherlock-cooler-cooler-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Cooler",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Cooler",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Dust"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Revert By Sending Dust"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Front-Running"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Business Logic"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7008",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "HIGH",
+      "finders_count": 5,
+      "protocol_id": "53",
+      "title": "An attacker can freeze all incoming deposits and brick the oracle members' reporting system with only 1 wei",
+      "content": "## Severity: Critical Risk\n\n**Context:** SharesManager.1.sol#L195-L206\n\n**Description:** An attacker can brick or lock all deposited user funds and also prevent oracle members from reaching a quorum when there are earnings to be distributed as rewards. Consider the following scenario:\n\n1. The attacker forcefully sends 1 wei to the River contract using, e.g., `selfdestruct`. The attacker must ensure this transaction occurs before any other users deposit their funds in the contract. The attacker can observe the mempool and front-run the initial user deposit. Now, `b = _assetBalance() > 0` is at least 1 wei.\n   \n2. An allowed user tries to deposit funds into the River protocol. The call eventually ends up in `_mintShares(o, x)` and in the first line, `oldTotalAssetBalance = _assetBalance() - x`. Here, `_assetBalance()` represents the updated River balance after accounting for the user deposit `x`. So, `_assetBalance()` is now `b + x + ...` and `oldTotalAssetBalance = b + ...` where the `...` includes the beacon balance sum, deposited amounts for validators in the queue, etc. (which is probably 0 by this point). Therefore, `oldTotalAssetBalance > 0` means that the following if block is skipped:\n\n   ```javascript\n   if (oldTotalAssetBalance == 0) {\n       _mintRawShares(_owner, _underlyingAssetValue);\n       return _underlyingAssetValue;\n   }\n   ```\n\n   It goes directly to the else block for the first allowed user deposit:\n\n   ```javascript\n   else {\n       uint256 sharesToMint = (_underlyingAssetValue * _totalSupply()) / oldTotalAssetBalance;\n       _mintRawShares(_owner, sharesToMint);\n       return sharesToMint;\n   }\n   ```\n\n   But since shares have not been minted yet, `_totalSupply() == 0`, leading to `sharesToMint == 0`. Thus, we mint 0 shares for the user and return 0. Note that `_assetBalance()` keeps increasing, but `_totalSupply()` or `Shares.get()` remains 0.\n\n3. When the next allowed users deposit funds, similar to step 2, River mints them 0 shares, while `_assetBalance()` increases but `_totalSupply()` or `Shares.get()` remains 0.\n\n   Note that `_totalSupply()` or `Shares.get()` remains 0 until the oracle members reach a quorum for the beacon balance sum and the number of validators for a voting frame. The last oracle member who calls `reportBeacon` to trigger the quorum causes a call to `_pushToRiver`, which in turn calls `river.setBeaconData`. In `setBeaconData`, if we have accumulated interest, then `_onEarnings` is called. The first few lines of `_onEarnings` are:\n\n   ```javascript\n   uint256 currentTotalSupply = _totalSupply();\n   if (currentTotalSupply == 0) {\n       revert ZeroMintedShares();\n   }\n   ```\n\n   However, `_totalSupply()` is still 0, resulting in `revert ZeroMintedShares()` being called, and the revert bubbles up the stack of the call to `reportBeacon`, causing the last oracle member that can trigger a quorum to have their call to `reportBeacon` reverted. Consequently, no quorums will ever be made that have earnings, and the River protocol will remain unaware of its deposited validators on the beacon change. Any possible path to `_mintRawShares` (which could cause `Shares.get()` to increase) is also blocked, keeping `_totalSupply()` at 0.\n\n   Even after validators, oracle members, etc., become active, when an allowed user deposits, they would receive 0 shares. \n\n   Note that an attacker can turn this into a DoS attack on the River Protocol, as redeployment alone would not solve this issue. The attacker can monitor the mempool and always aim to be the first person to force deposit 1 wei into the River deployed contract.\n\n**Alluvial:** If we change the condition that checks if the old underlying asset balance is zero to check if the total shares is under a minimum amount (so we would mint 1:1 as long as we haven't reached that value), would it solve the issue? This minimum value can be `DEPOSIT_SIZE`, as the price per share should be 1:1 anyway since no revenue was generated.\n\n**Spearbit:** Yes, this would solve the issue. Alluvial can also, as part of an atomic deployment, send 1 wei and mint the corresponding share using a call to the internal function `_mintRawShares`.\n\nAlso, note that we should remove the check for `oldTotalAssetBalance == 0`, as `oldTotalAssetBalance` is used as the denominator for `sharesToMint`. There could be edge scenarios where `_totalSupply()` is positive but `oldTotalAssetBalance` is 0. Thus, if extra checks are introduced for `_totalSupply()`, we should still keep the check or a modified version for `oldTotalAssetBalance`.\n\n**Spearbit:** In PR:\n- **[SPEARBIT/4]** Add an `ethToDeposit` storage variable that accounts for incoming ETH.\n\nAlluvial introduces a `BalanceToDeposit` storage variable. This variable is essentially replacing `address(this).balance` for River in multiple places, including the `_assetBalance()` function. The `BalanceToDeposit` can only be modified when:\n\n1. An allowed user deposits into River, which will increase `BalanceToDeposit` and also total minted shares.\n2. An entity (in later commits, only the admin can call this endpoint) calls `depositToConsensusLayer`, which might reduce the `BalanceToDeposit` amount, but the net effect on `_assetBalance()` would be zero. This implies that `BalanceToDeposit` should have been non-zero to begin with.\n3. A call to `setConsensusLayerData` by the Oracle (originating from a call to `reportConsensusLayerData` by an oracle member) pulls fees from `ELFeeRecipientAddress` (in later commits, it will only pull fees if needed and up to a max amount) and would increase `BalanceToDeposit`.\n\nNote that the attack in this issue works by ensuring `_assetBalance()` is non-zero while `_totalSupply()` is zero. This means we cannot afford a call to end up at `_onEarnings` for this scheme to work. Since if `_totalSupply() == 0`, `_onEarnings` would revert. Hence, even with a malicious group of oracle members reporting wrong data, if a call ends up at `setConsensusLayerData` with `_validatorCount = 0` and `_validatorTotalBalance > 0`, `_onEarnings` would trip. Moreover, if the oracle members are not malicious and simply report `_validatorCount = 0` and `_validatorTotalBalance = 0`, but an attacker force sends 1 wei to `ELFeeRecipientAddress`, `_onEarnings` would revert again because no shares are minted yet. \n\nThis means all possible ways to have a net positive effect on `BalanceToDeposit` (and thus `_assetBalance()`) while keeping `_totalSupply()` at zero are blocked. \n\nThe relationship can be summarized as:\n\n```\n_assetBalance() = (\n    BalanceToDeposit.get() +\n    CLValidatorTotalBalance.get() +\n    (DepositedValidatorCount.get() - CLValidatorCount.get()) * ConsensusLayerDepositManagerV1.DEPOSIT_SIZE\n);\n```\n\nor \n\n```\nB = D + Bv + 32 * (Cd - Cv)\n```\n\nwhere:\n\n- **B** is `_assetBalance()`\n- **D** is `BalanceToDeposit.get()`\n- **Bv** is `CLValidatorTotalBalance.get()`\n- **Cd** is `DepositedValidatorCount.get()`\n- **Cv** is `CLValidatorCount.get()`\n\nAlso, **Cv** - **Cd** is an invariant. **Bv** and **Cv** are only set in `setConsensusLayerData` and thus can only be changed by a quorum of oracle members. **Cd** only increases and is only set in `depositToConsensusLayer`, which requires a positive **D**. After a call to `depositToConsensusLayer`, we have:\n\n```\nD = 32 * (Cd(B = 0))\n```\n\nThus, putting all this information together means that all possible points of attack to ensure **B** remains positive while keeping `_totalSupply()` at zero are blocked.\n\nA note for the future: When users are able to withdraw their investment and burn their shares, if all users withdraw and due to some rounding errors or other causes, **B** stays positive, then the next user to deposit and mint a share would receive zero shares.",
+      "summary": "\nA critical risk bug was discovered in the SharesManager.1.sol#L195-L206 code. An attacker can brick/lock all deposited user funds and prevent oracle members from coming to a quorum when there is an earning to be distributed as rewards. The attacker would force send 1 wei to the River contract before any other users deposit their funds. This would cause the _assetBalance() to be at least 1 wei and the oldTotalAssetBalance to be greater than 0. This would cause the following if block to be skipped and the else block would be executed, causing the user to receive 0 shares. This would cause the _totalSupply() or Shares.get() to remain 0 until the oracle members come to a quorum. When the last oracle member calls the reportBeacon, the _onEarnings would be called and the revert ZeroMintedShares() would be called and the revert would bubble up the stack of call to reportBeacon. This would cause no quorums to be made and the River protocol would stay unaware of its deposited validators on the beacon change. Alluvial suggested to change the condition that checks if the old underlying asset balance is 0 to checking if the total shares is under a minimum amount, which would solve the issue. Spearbit agreed and suggested to add a ethToDeposit storage var that accounts for incoming ETH. They also suggested to remove the check for oldTotalAssetBalance == 0 as oldTotalAssetBalance is used as the denominator for sharesToMint. In the future, if users are able to withdraw their investment and burn their shares and due to some rounding errors or other causes _assetBalance() stays positive, then the next user to deposit and mint a share would receive zero shares.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LiquidCollective-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4.5,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LiquidCollective-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/LiquidCollective-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 11,
+      "contest_id": "",
+      "slug": "an-attacker-can-freeze-all-incoming-deposits-and-brick-the-oracle-members-reporting-system-with-spearbit-liquid-collective-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Liquid Collective",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Liquid Collective",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 67.10914421941607
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "totalSupply() = 0"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Revert By Sending Dust"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC4626"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6038",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "97",
+      "title": "[M-01] `PirexGmx.initiateMigration` can be blocked",
+      "content": "\n`PirexGmx.initiateMigration` can be blocked so contract will not be able to migrate his funds to another contract using gmx.\n\n### Proof of Concept\n\nPirexGmx was designed with the thought that the current contract can be changed with another during migration.\n\n`PirexGmx.initiateMigration` is the first point in this long process.\n\n<https://github.com/code-423n4/2022-11-redactedcartel/blob/main/src/PirexGmx.sol#L921-L935>\n\n```solidity\n    function initiateMigration(address newContract)\n        external\n        whenPaused\n        onlyOwner\n    {\n        if (newContract == address(0)) revert ZeroAddress();\n\n\n        // Notify the reward router that the current/old contract is going to perform\n        // full account transfer to the specified new contract\n        gmxRewardRouterV2.signalTransfer(newContract);\n\n\n        migratedTo = newContract;\n\n\n        emit InitiateMigration(newContract);\n    }\n```\n\nAs you can see `gmxRewardRouterV2.signalTransfer(newContract);` is called to start migration.\n\nThis is the code of signalTransfer function\n<https://arbiscan.io/address/0xA906F338CB21815cBc4Bc87ace9e68c87eF8d8F1#code#F1#L282>\n\n```solidity\n    function signalTransfer(address _receiver) external nonReentrant {\n        require(IERC20(gmxVester).balanceOf(msg.sender) == 0, \"RewardRouter: sender has vested tokens\");\n        require(IERC20(glpVester).balanceOf(msg.sender) == 0, \"RewardRouter: sender has vested tokens\");\n\n        _validateReceiver(_receiver);\n        pendingReceivers[msg.sender] = _receiver;\n    }\n```\n\nAs you can see the main condition to start migration is that PirexGmx doesn't control any gmxVester and glpVester tokens.\n\nSo attacker can [deposit](https://arbiscan.io/address/0xa75287d2f8b217273e7fcd7e86ef07d33972042e#code#F1#L117) and receive such tokens and then just transfer tokens directly to PirexGmx.\n\nAs a result migration will never be possible as there is no possibility for PirexGmx to burn those gmxVester and glpVester tokens.\n\nAlso in the same way, the migration receiver can also be blocked.\n\n### Tools Used\n\nVS Code\n\n### Recommended Mitigation Steps\n\nThink about how to make contract ensure that he doesn't control any gmxVester and glpVester tokens before migration.\n\n**[Picodes (judge) decreased severity to Medium](https://github.com/code-423n4/2022-11-redactedcartel-findings/issues/61)**\n\n**Please note: the following comment occurred after judging and awarding were finalized.**\n\n**[kphed (Redacted Cartel) commented](https://github.com/code-423n4/2022-11-redactedcartel-findings/issues/61#issuecomment-1382029037):**\n> This issue is invalid and not possible to carry out as a non-GMX insider (if the GMX team and multisig were malicious, there would be many other ways in which they can steal value, so this specific vector would be the least of our concerns) for the following reasons:\n>\n> 1. The vester token transfer methods are overridden which removes the possibility of an attacker acquiring vGMX or vGLP and transferring it to the PirexGmx contract via those methods.\n\n> Vester.sol | Lines 246-263\n> - [vGMX](https://arbiscan.io/address/0x199070ddfd1cfb69173aa2f7e20906f26b363004#code#F1#L246)\n> - [vGLP](https://arbiscan.io/address/0xa75287d2f8b217273e7fcd7e86ef07d33972042e#code#F1#L246)\n> ```\n> // empty implementation, tokens are non-transferrable\n> function transfer(address /* recipient */, uint256 /* amount */) public override returns (bool) {\n>      revert(\"Vester: non-transferrable\");\n> }\n> \n> ...\n> \n> // empty implementation, tokens are non-transferrable\n> function transferFrom(address /* sender */, address /* recipient */, uint256 /* amount */) public virtual override returns (bool) {\n>      revert(\"Vester: non-transferrable\");\n> }\n> ```\n> \n> 2. The `depositForAccount` method can only be called by an account set by the GMX team as a \"handler\" so an attacker can't volunteer esGMX be vested on behalf of another account. Even if `depositForAccount` were to be callable by anyone, esGMX has to first be unstaked before it can be deposited for vesting, which is never the case for our contracts.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report describes a vulnerability in the PirexGmx smart contract, which is part of a larger project. The code for the contract can be found at the given link. The vulnerability allows an attacker to prevent the contract from migrating its funds to another contract by depositing and receiving gmxVester and glpVester tokens. The attacker then transfers the tokens directly to the PirexGmx contract, which prevents the contract from burning the tokens and migrating its funds. The same technique can also be used to block the migration receiver. The bug was discovered using the VsCode tool. The recommended mitigation step is to think of a way to ensure that the contract does not control any gmxVester or glpVester tokens before migration.",
+      "report_date": {},
+      "contest_prize_txt": "$90,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-11-redacted-cartel-contest",
+      "sponsor_name": "Redacted Cartel",
+      "sponsor_link": "https://twitter.com/redactedcartel",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2022-11-redactedcartel",
+      "github_link": "https://github.com/code-423n4/2022-11-redactedcartel-findings/issues/61",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "183",
+      "slug": "m-01-pirexgmxinitiatemigration-can-be-blocked-code4rena-redacted-cartel-redacted-cartel-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Redacted Cartel",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Redacted Cartel",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Revert By Sending Dust"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Initialization"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5742",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "126",
+      "title": "[M-13] Market::forceReplenish can be DoSed",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2022-10-inverse/blob/main/src/Market.sol#L562\n\n\n## Vulnerability details\n\n## Impact\nIf a user wants to completely forceReplenish a borrower with deficit, the borrower or any other malicious party can front run this with a dust amount to prevent the replenish.\n\n## Proof of Concept\n```javascript\n    function testForceReplenishFrontRun() public {\n        gibWeth(user, wethTestAmount);\n        gibDBR(user, wethTestAmount / 14);\n        uint initialReplenisherDola = DOLA.balanceOf(replenisher);\n\n        vm.startPrank(user);\n        deposit(wethTestAmount);\n        uint borrowAmount = getMaxBorrowAmount(wethTestAmount);\n        market.borrow(borrowAmount);\n        uint initialUserDebt = market.debts(user);\n        uint initialMarketDola = DOLA.balanceOf(address(market));\n        vm.stopPrank();\n\n        vm.warp(block.timestamp + 5 days);\n        uint deficitBefore = dbr.deficitOf(user);\n        vm.startPrank(replenisher);\n\n        market.forceReplenish(user,1); // front run DoS\n\n        vm.expectRevert(\"Amount > deficit\");\n        market.forceReplenish(user, deficitBefore); // fails due to amount being larger than deficit\n        \n        assertEq(DOLA.balanceOf(replenisher), initialReplenisherDola, \"DOLA balance of replenisher changed\");\n        assertEq(DOLA.balanceOf(address(market)), initialMarketDola, \"DOLA balance of market changed\");\n        assertEq(DOLA.balanceOf(replenisher) - initialReplenisherDola, initialMarketDola - DOLA.balanceOf(address(market)),\n            \"DOLA balance of market did not decrease by amount paid to replenisher\");\n        assertEq(dbr.deficitOf(user), deficitBefore-1, \"Deficit of borrower was not fully replenished\");\n\n        // debt only increased by dust\n        assertEq(market.debts(user) - initialUserDebt, 1 * replenishmentPriceBps / 10000, \"Debt of borrower did not increase by replenishment price\");\n    }\n```\nThis requires that the two txs end up in the same block. If they end up in different blocks the front run transaction will need to account for the increase in deficit between blocks. \n\n## Tools Used\nvscode, forge\n\n## Recommended Mitigation Steps\nUse `min(deficit,amount)` as amount to replenish",
+      "summary": "\nThis bug report is about a vulnerability in the code of a smart contract that can be exploited by malicious parties to prevent a replenish from happening. The malicious party can front run the replenish action with a dust amount, preventing the replenish from happening. The proof of concept code provided in the report shows how this vulnerability can be exploited. The recommended mitigation step is to use the min(deficit,amount) function as the amount to replenish, which would prevent the malicious party from being able to front run the replenish action.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-10-inverse-finance-contest",
+      "sponsor_name": "Inverse Finance",
+      "sponsor_link": "https://twitter.com/InverseFinance",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-10-inverse",
+      "github_link": "https://github.com/code-423n4/2022-10-inverse-findings/issues/443",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "175",
+      "slug": "m-13-marketforcereplenish-can-be-dosed-code4rena-inverse-finance-inverse-finance-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Inverse Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Inverse Finance",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Revert By Sending Dust"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5734",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "126",
+      "title": "[M-05] repay function can be DOSed",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2022-10-inverse/blob/main/src/Market.sol#L531\n\n\n## Vulnerability details\n\n## Impact\nIn `repay()` users can repay their debt.\n```\nfunction repay(address user, uint amount) public {\n        uint debt = debts[user];\n        require(debt >= amount, \"Insufficient debt\");\n        debts[user] -= amount;\n        totalDebt -= amount;\n        dbr.onRepay(user, amount);\n        dola.transferFrom(msg.sender, address(this), amount);\n        emit Repay(user, msg.sender, amount);\n    }\n```\n\nThere is a `require` condition, that checks if the amount provided, is greater than the debt of the user. If it is, then the function reverts. This is where the vulnerability arises.\n\n`repay` function can be frontrun by an attacker. Say an attacker pay a small amount of debt for the victim user, by frontrunning his repay transaction. Now when the victim's transaction gets executed, the `require` condition will fail, as the amount of debt is less than the amount of DOLA provided. Hence the attacker can repeat the process to DOS the victim from calling the repay function.\n\n\n## Proof of Concept\n\n1. Victim calls repay() function to pay his debt of 500 DOLA , by providing the amount as 500\n2. Now attacker saw this transaction on mempool\n3. Attacker frontruns the transaction, by calling repay() with amount provided as 1 DOLA\n4. Attacker's transaction get's executed first due to frontrunning, which reduces the debt of the victim user to 499 DOLA\n5. Now when the victim's transaction get's executed, the debt of victim has reduced to 499 DOLA, and the amount to repay provided was 500 DOLA. Now as debt is less than the amount provided, so the require function will fail, and the victim's transaction will revert.\nThis will prevent the victim from calling repay function\n\nHence an attacker can DOS the repay function for the victim user\n\n## Tools Used\nManual review\n\n## Recommended Mitigation Steps\nImplement DOS protection",
+      "summary": "\nThis bug report is about a vulnerability in the `repay()` function in the Market.sol smart contract. The function is used to repay debt of a user. There is a `require` condition, that checks if the amount provided, is greater than the debt of the user. If it is, then the function reverts. This is where the vulnerability arises. An attacker can frontrun the victim's transaction and call the repay function with a small amount of debt. When the victim's transaction gets executed, the `require` condition will fail, as the amount of debt is less than the amount of DOLA provided. This will prevent the victim from calling repay function and will lead to a Denial of Service (DOS) attack. The bug was discovered by manual review and the recommended mitigation step is to implement DOS protection.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-10-inverse-finance-contest",
+      "sponsor_name": "Inverse Finance",
+      "sponsor_link": "https://twitter.com/InverseFinance",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-10-inverse",
+      "github_link": "https://github.com/code-423n4/2022-10-inverse-findings/issues/252",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "175",
+      "slug": "m-05-repay-function-can-be-dosed-code4rena-inverse-finance-inverse-finance-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Inverse Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Inverse Finance",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Revert By Sending Dust"
+          }
+        }
+      ]
+    }
+  ]
+}

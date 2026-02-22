@@ -1,0 +1,1079 @@
+{
+  "tag": "Auction",
+  "count": 16,
+  "metadata": {
+    "totalResults": 16,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 6,
+    "reset": 1771760940
+  },
+  "findings": [
+    {
+      "id": "64886",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "16",
+      "impact": "LOW",
+      "finders_count": 1,
+      "protocol_id": "3702",
+      "title": "[L-11] New withdrawal requests can take precedence over pending withdrawals",
+      "content": "\n_Acknowledged_\n\n`requestWithdrawal()` completes the withdrawal immediately if there are sufficient funds in the vault and queues it otherwise.\n\nThe problem is that for the calculation of available USDC, only `totalClaimableWithdrawals` is considered, and not `totalPendingWithdrawals`.\n\n```solidity\n\tuint256 availableUsdc = vaultBalance > $.totalClaimableWithdrawals\n\t\t? vaultBalance - $.totalClaimableWithdrawals\n\t\t: 0;\n```\n\nThis means that when USDC is added to the contract balance by deposits or by funds returned from the strategy, new withdrawal requests may be fulfilled ahead of pending withdrawals.\n\nConsider the following scenario:\n\n1. Alice requests a withdrawal of 100 USDC, which is queued as pending because there are insufficient funds in the vault.\n2. After one day, the balance of the vault increases by 100 USDC due to a deposit or the operator transferring funds back from the strategy.\n3. Before the operator fulfills Alice's withdrawal, Bob requests a withdrawal of 100 USDC, which is completed immediately. \n4. Alice has to keep waiting until new funds are available.\n\n**Proof of Concept**\n\n```solidity\nfunction test_frontRunFulfillment() public {\n\t// User1 and User2 deposit 1,000 USDC each\n\tuint256 depositAmount = 1000e6;\n\tvm.startPrank(user1);\n\tusdc.approve(address(vault), depositAmount);\n\tuint256 sharesUser1 = vault.deposit(depositAmount, user1);\n\tvm.stopPrank();\n\n\tvm.startPrank(user2);\n\tusdc.approve(address(vault), depositAmount);\n\tuint256 sharesUser2 = vault.deposit(depositAmount, user2);\n\tvm.stopPrank();\n\n\t// USDC is moved to strategy\n\tvm.prank(operator);\n\tvault.sweepToStrategy(depositAmount * 2);\n\n\t// User1 requests withdrawal (pending)\n\tvm.prank(user1);\n\t(uint256 netAssets, bool claimed) = vault.requestWithdrawal(sharesUser1);\n\tassertFalse(claimed);\n\n\t// Operator sends funds back to vault to fulfill withdrawals\n\t// (or a new deposit from another user is made)\n\tusdc.mint(address(vault), netAssets);\n\n\t// User2 withdraws instantly before User1's pending withdrawal is fulfilled\n\tvm.prank(user2);\n\t(, claimed) = vault.requestWithdrawal(sharesUser2);\n\tassertTrue(claimed);\n\n\t// User1 withdrawal cannot be fulfilled\n\tvm.prank(operator);\n\tvm.expectRevert();\n\tvault.fulfillWithdrawal(user1, netAssets);\n}\n```\n\n**Recommendations**\n\n```diff\n    function requestWithdrawal(\n(...)\n\n-       uint256 availableUsdc = vaultBalance > $.totalClaimableWithdrawals\n+       uint256 availableUsdc = vaultBalance > $.totalClaimableWithdrawals + $.totalPendingWithdrawals\n\n-           ? vaultBalance - $.totalClaimableWithdrawals\n+           ? vaultBalance - $.totalClaimableWithdrawals - $.totalPendingWithdrawals\n            : 0;\n(...)\n    function getAvailableWithdrawalCapacity() external view returns (uint256) {\n        ShredVaultStorage storage $ = _getShredVaultStorage();\n        uint256 balance = $.usdc.balanceOf(address(this));\n\n-       return balance > $.totalClaimableWithdrawals ? balance - $.totalClaimableWithdrawals : 0;\n+       return balance > $.totalClaimableWithdrawals + $.totalPendingWithdrawals\n+           ? balance - $.totalClaimableWithdrawals - $.totalPendingWithdrawals\n+           : 0;\n```\n\n### Shred comments\n\nStatus: Acknowledged (Will Not Fix)\n\nUpdated Docs for clarity - commit: https://github.com/redshift-labs/shred_contracts/commit/f9ab1c27bd6226493ebe532ef8949bf8a637f208\n\nResponse: \n\nWe acknowledge this finding. This is an intentional design decision with the following rationale:\n\n1. UX Optimization for the Majority\nThe protocol targets instant withdrawals for ~99% of users. By allowing new withdrawals to complete instantly from available USDC (including recent deposits), we optimize UX for the majority rather than queuing everyone behind pending users.\n\n2. Pending Users Have Reduced Time Sensitivity\nWhen a withdrawal goes to pending, the UI displays an estimated fulfillment window (up to 24 hours). These users are not likely actively monitoring - e.g they'll check back once before and once after the estimation. The marginal \"early fulfillment\" benefit is outweighed by instant UX for newly withdrawing users.\n\n3. Atomic Operator Fulfillment Prevents Race Conditions\nThe vault operator can execute USDC return + batch fulfillment in a single atomic multicall transaction. The \"operator sends funds, then someone front-runs\" scenario described in the PoC doesn't occur in practice with current implementation - funds arrive and are immediately allocated to pending users atomically.\n\n4. Deposit Netting is Also Intentional\nWe also don't auto-fulfill pending withdrawals on new deposit in the SC code for the same reason - optimizing instant UX by allowing new deposits and withdrawals to net out.\n\nConclusion\nUpdated the docs to give more details on this design trade-off. The architecture optimizes for instant UX for the majority while pending users are serviced within the stated on UI 24-hour estimate through atomic operator fulfillment.\n\n\n",
+      "summary": "",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/pashov/audits/blob/master/team/md/Shred-security-review_2026-01-31.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "l-11-new-withdrawal-requests-can-take-precedence-over-pending-withdrawals-pashov-audit-group-none-shred_2026-01-31-markdown",
+      "firm_name": "Pashov Audit Group",
+      "firm_logo_square": "Pashov_square.png",
+      "protocol_name": "Shred_2026-01-31",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Pashov Audit Group",
+        "logo_square": "Pashov_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Shred_2026-01-31",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "1/64 Rule"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "AutoRoll"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Add/Subtract Match"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "51% Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "63523",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "16",
+      "impact": "LOW",
+      "finders_count": 1,
+      "protocol_id": "3569",
+      "title": "[L-04] Frontrunnable Initialization",
+      "content": "\n_Acknowledged_\n\nThe `initialize` instruction creates the global `fund_pool` PDA (`seed = b\"fund_pool\"`) and sets `initial_admin` to an arbitrary public key supplied by the caller. There is no access control restricting who may invoke this first-use initializer. An attacker can front-run deployment, initialize the pool, and seize control over all admin- and signer-gated operations for the lifetime of the program (until redeploy).\n\n**Recommendations**\n\nImplement a robust access control mechanism that ensures only a trusted entity, such as the program's deployer or a predefined address, can call the `initialize` function. This restriction can be enforced by verifying the caller's identity or using a specific signature during initialization.\n\n\n",
+      "summary": "",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://github.com/pashov/audits/blob/master/team/md/Enclave-security-review_2025-10-25.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "l-04-frontrunnable-initialization-pashov-audit-group-none-enclave_2025-10-25-markdown",
+      "firm_name": "Pashov Audit Group",
+      "firm_logo_square": "Pashov_square.png",
+      "protocol_name": "Enclave_2025-10-25",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Pashov Audit Group",
+        "logo_square": "Pashov_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Enclave_2025-10-25",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Algo-Stables"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Decentralized Stablecoin"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Gas Limit"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC4626"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Initial Deposit"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Sense"
+          }
+        }
+      ]
+    },
+    {
+      "id": "55276",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 2,
+      "protocol_id": "2066",
+      "title": "[H-03] User can bypass `MAX_EXPIRATION` when extend expiration",
+      "content": "\n\n<https://github.com/code-423n4/2025-01-initia-move/blob/a96f5136c4808f6968564a4592fe2d6ac243a233/usernames-module/sources/name_service.move# L483>\n\n### Finding Description and Impact\n\nIn the `extend_expiration` function, the validation for the duration is incorrect, allowing the user to bypass `MAX_EXPIRATION`:\n```\n\n let expiration_date = metadata::get_expiration_date(token);\n        let new_expiration_date = if (expiration_date > timestamp) {\n            expiration_date + duration\n        } else {\n            timestamp + duration\n        };\n\n        assert!(\n=>            new_expiration_date - expiration_date <= MAX_EXPIRATION,\n            error::invalid_argument(EMIN_DURATION),\n        );\n\n        metadata::update_expiration_date(token, new_expiration_date);\n```\n\nThe issue arises because the code subtracts `new_expiration_date - expiration_date` for validation.\n\nAssume a user registers a domain and the `expiration_date` is equal to `MAX_EXPIRATION` `+` timestamp. Then, the user performs `extend_expiration` with a `duration` value equal to the `MAX_EXPIRATION`, the `new_expiration_date` becomes `expiration_date + duration`.\n\nThis leads to the following verification check passing:\n```\n\nassert!(\n    new_expiration_date - expiration_date <= MAX_EXPIRATION,\n    error::invalid_argument(EMIN_DURATION),\n);\n```\n\nSince the `new_expiration_date` is calculated using `expiration_date` `+` `duration`, the subtraction `(new_expiration_date - expiration_date)` will always be less than to `MAX_EXPIRATION`.\n\nAs a result, the `update_expiration_date` function updates the expiration duration to a value far greater than `MAX_EXPIRATION`, effectively doubling it to `MAX_EXPIRATION * 2`.\n```\n\nmetadata::update_expiration_date(token, new_expiration_date);\n```\n\n### Proof of Concept\n\nAdd the code below into `name_service.move` and run the test:\n```\n\n #[test(chain = @0x1, source = @usernames, user = @0x2, lp_publisher = @0x3)]\n    fun test_bypass_max_expiration(\n        chain: signer,\n        source: signer,\n        user: signer,\n        lp_publisher: signer,\n    ) acquires CoinCapsInit, ModuleStore {\n        deploy_dex(&chain, &lp_publisher);\n\n        let addr = signer::address_of(&user);\n        init_mint_to(signer::address_of(&chain), &user, 1000000000);\n\n        initialize(\n            &source,\n            100,\n            50,\n            10,\n            1000,\n            1000,\n            string::utf8(b\"https://test.com/\"),\n            string::utf8(b\"https://test.com/\"),\n        );\n\n        std::block::set_block_info(100, 100);\n\n        // before register\n        assert!(get_name_from_address(addr) == option::none(), 0);\n        assert!(get_address_from_name(string::utf8(b\"abcd\")) == option::none(), 1);\n        assert!(get_valid_token(string::utf8(b\"abcd\")) == option::none(), 2);\n\n        register_domain(&user, string::utf8(b\"abcd\"), MAX_EXPIRATION);\n        let token = *option::borrow(&get_valid_token(string::utf8(b\"abcd\")));\n        let token_object = object::address_to_object<Metadata>(token);\n        assert!(initia_std::nft::token_id(token_object) == string::utf8(b\"abcd.init.100\"), 3);\n        set_name(&user, string::utf8(b\"abcd\"));\n        assert!(get_name_from_address(addr) == option::some(string::utf8(b\"abcd\")), 4);\n        assert!(get_address_from_name(string::utf8(b\"abcd\")) == option::some(addr), 5);\n\n        // extend duration bypass a MAX_EXPIRATION\n        extend_expiration(&user, string::utf8(b\"abcd\"), MAX_EXPIRATION);\n        let token = *option::borrow(&get_valid_token(string::utf8(b\"abcd\")));\n        let expiration_date = metadata::get_expiration_date(token);\n        assert!( expiration_date >= MAX_EXPIRATION * 2, 6);\n\n    }\n```\n\n### Recommended Mitigation Steps\n\nUpdate the validation logic to ensure the `new_expiration_date` itself does not exceed `MAX_EXPIRATION`. The code would look like this:\n```\n\nassert!(\n    new_expiration_date <= MAX_EXPIRATION,\n    error::invalid_argument(EMIN_DURATION),\n);\n```\n\n**[andrew (Initia) confirmed and commented](https://code4rena.com/audits/2025-01-initia-move/submissions/F-37?commentParent=k3sf5LjVmEJ):**\n\n> Actually, `MAX_EXPIRATION` means that you can register/extend to `current time + MAX_EXPIRATION`. And yes, current logic is not correct. So I updated those in [this commit](https://github.com/initia-labs/usernames-module/pull/3/commits/1c83be3c9904234ed88f3c24dafa654d947392e3).\n>\n> \n```\n\n>         assert!(\n>             new_expiration_date - timestamp <= MAX_EXPIRATION,\n>             error::invalid_argument(EMAX_EXPIRATION),\n>         );\n> \n```\n\n---\n\n",
+      "summary": "\nThis bug report discusses an issue with the `extend_expiration` function in the `name_service.move` file. The validation for the duration is incorrect, allowing users to bypass the `MAX_EXPIRATION` limit. This can result in the expiration duration being updated to a value far greater than `MAX_EXPIRATION`, effectively doubling it. To fix this issue, the validation logic needs to be updated to ensure that the `new_expiration_date` itself does not exceed `MAX_EXPIRATION`. ",
+      "report_date": {},
+      "contest_prize_txt": "70000",
+      "contest_link": "https://code4rena.com/reports/2025-01-initia-move",
+      "sponsor_name": "Initia",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2025-01-initia-move",
+      "github_link": "https://code4rena.com/audits/2025-01-initia-move/submissions/F-37",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "481",
+      "slug": "h-03-user-can-bypass-max_expiration-when-extend-expiration-code4rena-initia-initia-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Initia",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Initia",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        }
+      ]
+    },
+    {
+      "id": "31914",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "1333",
+      "title": "M-1: Auction fails if the 'Honorarium Rate' is 0%",
+      "content": "Source: https://github.com/sherlock-audit/2024-02-radicalxchange-judging/issues/31 \n\n## Found by \nAl-Qa-qa, sammy\n## Summary\nThe Honorarium Rate is the required percentage of a winning Auction Pitch bid that the Steward makes to the Creator Circle at the beginning of each Stewardship Cycle. \n\n`$$ Winning Bid * Honorarium Rate = Periodic Honorarium $$`\n\nTo mimic the dynamics of private ownership, the _Creator Circle_ may choose a 0% _Honorarium Rate_. However, doing so breaks the functionality of the protocol.\n## Vulnerability Detail\nTo place a bid, a user must call the [`placeBid`](https://github.com/RadicalxChange/pco-art/blob/4acd6b06840028ba616b6200439ce0d6aa1e6276/contracts/auction/facets/EnglishPeriodicAuctionFacet.sol#L153) function in `EnglishPeriodicAuctionFacet.sol` and deposit collateral(`collateralAmount`) equal to `bidAmount + feeAmount`. The `feeAmount` here represents the _Honorarium Rate_ mentioned above. \nThe `placeBid` function calls the [`_placeBid`](https://github.com/RadicalxChange/pco-art/blob/4acd6b06840028ba616b6200439ce0d6aa1e6276/contracts/auction/EnglishPeriodicAuctionInternal.sol#L286) internal function in `EnglishPeriodicAuctionInternal.sol` which calculates the  `totalCollateralAmount` as follows : \n```solidity\nuint256 totalCollateralAmount = bid.collateralAmount + collateralAmount;\n```\nHere, `bid.collateralAmount` is the cumulative collateral deposited by the bidder in previous bids during the current auction round(i.e, zero if no bids were placed), and `collateralAmount` is the collateral to be deposited to place the bid. However the `_placeBid` function requires that `totalCollateralAmount` is strictly greater than `bidAmount` if the bidder is not the current owner of the _Stewardship License_. This check fails when the `feeAmount` is zero and this causes a _Denial of Service_ to users trying to place a bid. Even if the users try to bypass this by depositing a value slightly larger than `bidAmount`, the [`_checkBidAmount`](https://github.com/RadicalxChange/pco-art/blob/4acd6b06840028ba616b6200439ce0d6aa1e6276/contracts/auction/EnglishPeriodicAuctionInternal.sol#L338) function would still revert with `'Incorrect bid amount'`\n\n## POC\nThe following test demonstrates the above-mentioned scenario :\n\n```solidity\n describe('exploit', function () {\n    it('POC', async function () {\n      // Auction start: Now + 100\n      // Auction end: Now + 400\n      const instance = await getInstance({\n        auctionLengthSeconds: 300,\n        initialPeriodStartTime: (await time.latest()) + 100,\n        licensePeriod: 1000,\n      });\n      const licenseMock = await ethers.getContractAt(\n        'NativeStewardLicenseMock',\n        instance.address,\n      );\n\n      // Mint token manually\n      const steward = bidder2.address;\n      await licenseMock.mintToken(steward, 0);\n\n      // Start auction\n      await time.increase(300);\n        \n      const bidAmount = ethers.utils.parseEther('1.0');\n      const feeAmount = await instance.calculateFeeFromBid(bidAmount);\n      const collateralAmount = feeAmount.add(bidAmount);\n\n      // Reverts when a user tries to place a bid\n      await expect( instance\n        .connect(bidder1)\n        .placeBid(0, bidAmount, { value: collateralAmount })).to.be.revertedWith('EnglishPeriodicAuction: Collateral must be greater than current bid');\n\n      \n    \n      const extraAmt = ethers.utils.parseEther('0.1');\n      const collateralAmount1 = feeAmount.add(bidAmount).add(extraAmt);\n      \n      // Also reverts when the user tries to deposit collateral slighty greater than bid amount\n      await expect( instance\n        .connect(bidder1)\n        .placeBid(0, bidAmount, { value: collateralAmount1 })).to.be.revertedWith('EnglishPeriodicAuction: Incorrect bid amount');  \n      \n      // Only accepts a bid from the current steward\n      \n      await expect( instance\n        .connect(bidder2)\n        .placeBid(0, bidAmount, { value: 0 })).to.not.be.reverted;\n\n    });\n  });\n```\nTo run the test, copy the code above to `EnglishPeriodicAuction.ts` and alter [L#68](https://github.com/RadicalxChange/pco-art/blob/4acd6b06840028ba616b6200439ce0d6aa1e6276/test/auction/EnglishPeriodicAuction.ts#L68) as follows : \n```diff\n-          [await owner.getAddress(), licensePeriod, 1, 10],\n+          [await owner.getAddress(), licensePeriod, 0, 10],\n```\nRun `yarn run hardhat test --grep 'POC'`\n## Impact\nThe protocol becomes dysfunctional in such a scenario as users as DOS'd from placing a bid.\n## Code Snippet\n\n## Tool used\n\nManual Review\nHardhat\n\n## Recommendation\nAlter [EnglishPeriodicAuctionInternal.sol::L#330](https://github.com/RadicalxChange/pco-art/blob/4acd6b06840028ba616b6200439ce0d6aa1e6276/contracts/auction/EnglishPeriodicAuctionInternal.sol#L330) as follows :\n```diff\n- totalCollateralAmount > bidAmount,\n+ totalCollateralAmount >= bidAmount, \n```\n\n\n\n\n## Discussion\n\n**sammy-tm**\n\nEscalate\nIt states in the docs that the Honorarium rate may be 0 to mimic private ownership. However, as clearly described in the issue above, this functionality fails.\nhttps://pco-art-docs.vercel.app/for-artists/pco-settings\n_**\"Lower Honorarium Rates will tend to lead to higher nominal Auction Prices: the capital commitment required of the Steward each cycle is lower given a valuation. A 0% Honorarium Rate effectively would mimic the dynamics of private ownership (with a periodic auction in which the Steward could set an arbitrarily high reserve price). The theoretically optimal rate from a Periodic Honorarium maximization perspective is equal to the probability that a new Steward emerges who values the work more than the current Steward (e.g. 1 in every 10 periods implies a 10% optimal rate), but that, of course, might not be the priority.\"**_\n\n\n**sherlock-admin2**\n\n> Escalate\n> It states in the docs that the Honorarium rate may be 0 to mimic private ownership. However, as clearly described in the issue above, this functionality fails.\n> https://pco-art-docs.vercel.app/for-artists/pco-settings\n> _**\"Lower Honorarium Rates will tend to lead to higher nominal Auction Prices: the capital commitment required of the Steward each cycle is lower given a valuation. A 0% Honorarium Rate effectively would mimic the dynamics of private ownership (with a periodic auction in which the Steward could set an arbitrarily high reserve price). The theoretically optimal rate from a Periodic Honorarium maximization perspective is equal to the probability that a new Steward emerges who values the work more than the current Steward (e.g. 1 in every 10 periods implies a 10% optimal rate), but that, of course, might not be the priority.\"**_\n> \n\nThe escalation could not be created because you are not exceeding the escalation threshold.\n\nYou can view the required number of additional valid issues/judging contest payouts in your Profile page,\nin the [Sherlock webapp](https://app.sherlock.xyz/audits/).\n\n\n**cawfree**\n\nEscalate\n\nThe amazing supporting [**documentation**](https://pco-art-docs.vercel.app/for-artists/pco-settings) for RadicalxChange states that one of the intended logical underpinnings of the fee model should be to mimic private ownership when operating using a 0% honorarium:\n<img width=\"911\" alt=\"image\" src=\"https://github.com/sherlock-audit/2024-02-radicalxchange-judging/assets/7922333/3577c537-4c76-4456-913b-fc4271162f48\">.\n\nHowever, the codebase strictly does not permit this due to emergent strict equality checks, which only arise later when actually trying to place a bid. The collection deployer finds out too late.\n\nThe counterargument to this finding is it just seems low severity given that this can be resolved by doing something like redeploy to a collection with `1 wei` (i.e. a frontend fix), or even wondering how often communities are going to do this in practicality.\n\nIt is just clear that this implementation quirk works directly against the advertised functionality (a literal feature), and that should probably play into the severity. People do like free mints after all.\n\n**sherlock-admin2**\n\n> Escalate\n> \n> The amazing supporting [**documentation**](https://pco-art-docs.vercel.app/for-artists/pco-settings) for RadicalxChange states that one of the intended logical underpinnings of the fee model should be to mimic private ownership when operating using a 0% honorarium:\n> <img width=\"911\" alt=\"image\" src=\"https://github.com/sherlock-audit/2024-02-radicalxchange-judging/assets/7922333/3577c537-4c76-4456-913b-fc4271162f48\">.\n> \n> However, the codebase strictly does not permit this due to emergent strict equality checks, which only arise later when actually trying to place a bid. The collection deployer finds out too late.\n> \n> The counterargument to this finding is it just seems low severity given that this can be resolved by doing something like redeploy to a collection with `1 wei` (i.e. a frontend fix), or even wondering how often communities are going to do this in practicality.\n> \n> It is just clear that this implementation quirk works directly against the advertised functionality (a literal feature), and that should probably play into the severity. People do like free mints after all.\n\nYou've created a valid escalation!\n\nTo remove the escalation from consideration: Delete your comment.\n\nYou may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.\n\n**Al-Qa-qa**\n\nBesides what @cawfree said, I want to add that if the Artist (Collection Admin), deployed the Collection as immutable (i.e. without an owner). No one will be able to change the fees to just make it `1 wei` (And this point I mentioned in my report `107`). This will make all the Auction processes/NFT Collection broken and insolvable.\n\n**zzykxx**\n\nThis is valid. Setting a fee of `0` is a legitimate and expected input and the core functionality of the protocol (auctions) breaks when this is the case.\n\n**Hash01011122**\n\nIt appears valid finding to me with duplicates #12 and #107 @gravenp @St4rgarden would you like to add something here??\n\n**sammy-tm**\n\nI would also like to urge the lead judge to re-evaluate the severity of this finding. \"Breaking core functionality\" might be considered High in some cases.\n\n**gravenp**\n\nThe 0% Honorarium example is the theoretical limit, but in practice, it doesn't make sense to configure it that way (the PCO system ends up being a lot of complex code for the current steward to basically hold the art as long as they want). I agree that as implemented, we allowed it, and it breaks things. Our fix will not allow the artist/admin to configure a 0% honorarium as this specific configuration isn't core to our intended functionality.\n\n**Hash01011122**\n\nI think this issue is open ended double edge sword where sponsors claiming this cannot be rectified as this is design choice but in my opinion, it suffices medium severity as this breaks protocol's functionality, let me know your thoughts @zzykxx, @gravenp, @Czar102  \n\n**gravenp**\n\nI'm fine with whatever the judges decide. Ultimately, our design choice is not to allow 0% honorarium, so the intended functionality won't include supporting this scenario.\n\n**zzykxx**\n\n> I think this issue is open ended double edge sword where sponsors claiming this cannot be rectified as this is design choice but in my opinion, it suffices medium severity as this breaks protocol's functionality, let me know your thoughts @zzykxx, @gravenp, @Czar102\n\nIn my opinion this should be a valid issue unless it was mentioned somewhere public that the 0% honorarium is not allowed/intended.\n\n**Hash01011122**\n\nAs mentioned by @zzykxx, this is a valid finding with duplicates #107 and #12\n\n**Czar102**\n\n> A 0% Honorarium Rate effectively **would mimic** the dynamics of private ownership (with a periodic auction in which the Steward could set an arbitrarily high reserve price).\n\nThe usage of \"would mimic\" instead of \"mimics\" implies that it's either know not to be possible to use such a configuration, or it is undesired for such a configuration to be used.\n\n> The 0% Honorarium example is the theoretical limit, but in practice, it doesn't make sense to configure it that way (the PCO system ends up being a lot of complex code for the current steward to basically hold the art as long as they want).\n\nIt seems that using a 0% Honorarium Rate doesn't make sense, hence it doesn't really limit the intended functionality of the implemented codebase.\n\nAm I mistaken somewhere?\n\n**sammy-tm**\n\nYou're correct; however, it doesn't expressly state that the artists are not supposed to do this. Neither does it prevent them from doing so. A naive artist may read the documentation and want to mimic an IRL auction/ private ownership for their art, so they would set the fees to 0%. But doing so visibly breaks the protocol. This needs to be handled either during configuration (as @gravenp mentioned) \n>I agree that as implemented, we allowed it, and it breaks things. Our fix will not allow the artist/admin to configure a 0% honorarium as this specific configuration isn't core to our intended functionality.\n\nor  mitigated using the recommendation in the Issue.\n\n\n**Al-Qa-qa**\n\nThe documentation did not deny setting 0 fees totally, it expresses that setting 0% is not typically advisable (Or What means this).\n\n> The 0% Honorarium example is the theoretical limit\n\nThis sentence does not exist in the docs, The docs did not explain that 0% is prevented or other, it explained that `it's like the Steward owns the thing they're managing as if it were their own property. They get all the benefits without having to pay anything for it`\n\nSo according to the documentation which was the only resource for that issue in the Auditing period, setting 0% Honorarium was not prevented totally, nor said by the Devs in the README, nor that edge case was handled in the code.\n\nI hope the issue gets reviewed according to the information that was with us (Auditors) in the Auditing period, The points that the sponsor said after the Auditing finished (In Escalation) should not be taken as proof to either validate or invalidate issues.\n\nAnd if the likelihood of the issue is LOW, its impact is so HIGH. And this is illustrated in my report, and escalation engagements.\n\n**Hash01011122**\n\nThis issue, along with its duplicates #12 and #107, should be deemed valid. It highlights the complication arising from a 0% honorarium rate, contradicting the project documentation which states this as a theoretical limit not reflected in the codebase. Moreover, the documentation does not clearly advise against its use. What are your thoughts, @Czar102?\n\n**Evert0x**\n\nI believe this issue should be valid and the main issue (12) should be assigned Medium severity. \n\n**gravenp**\n\nIt doesn't seem that #12 is the right parent issue to me. #42 and #107 appear to be the proper issues to connect here, @Hash01011122. \n\n**sammy-tm**\n\n#42 is about setting the fee denominator to 0, which is a completely different issue and is invalid.\n\n**Al-Qa-qa**\n\nI read issue `12`, and the issue is about different Root causes and Impact.\n\nCould you give another look at it @Hash01011122 , and determine your final thought about this issue, whether it is a Dup of `31` and `107` or not?\n\n**sammy-tm**\n\nWent through #12, agree with @Al-Qa-qa that the concern highlighted in the issue is completely different from #31 and #107. I think the judge has incorrectly grouped these together because the mitigation step is the same.\n\nIf you read carefully, #12 is a wrong interpretation of the codebase and focuses on user input validation (invalid according to sherlock rules)\n\nQuoting Issue #12 :\n>The root of the issue is the expectation that the fee should be paid on top of the bidAmount, which goes fully against documentation and poses many problems.\n Since the protocol has the stated requirement of 100% collateralisation, many valid bids will revert with the confusing message that you need overcollateralisation.\n_**@>\"The fee is a percentage of the bid, so there is no logical reason why the fee should be paid on top of the bid.\"**_\nEven if users are willing to overcollateralise, for every bid they need to take into account both collateral paid and fee paid and recalculate both perfectly to be within rounding error. This is prone to error.\nIn a heated auction with many competing bidders trying to take the price close to a deadline, the complexity demanded to perfectly calculate every bid is not realistic. This will lead to many valid bids being reverted due to a wei-sized deviation and the auction will close at a lower price than the highest valid bid submitted. This constitutes a loss to the creator's circle and the current holder of the license.\n\nIt talks about how it is \"confusing\" to the user to pay the fee on top of the bid and argues against the intended implementation of the codebase. It is known that the codebase is implemented in such a way that the user is **expected** to pay the fee on top of the bid. The watson has simply misinterpreted the codebase and this is further illustrated by the example scenario described by the watson in the issue.\n\nIssue #12 has nothing to do with the `Honorarium Rate` being set to 0.\n\nI urge the judges @Evert0x @Hash01011122 and the sponsor @gravenp  to go through #12 separately and remove duplication from #31 and #107 \n\n**Hash01011122**\n\n@sammy-tm thanks for providing a detailed explanation for every issue of this family, after inspecting issues thoroughly I can say #31 is valid finding with #107 as its dup @Evert0x \n\n**Evert0x**\n\nAgree with the proposed outcome here. Thanks @sammy-tm \n\nPlanning to accept escalation, make #31 a Medium issue with #107 as a duplicate.\n\n\n**Evert0x**\n\nResult:\nMedium\nHas Duplicates \n\n**sherlock-admin4**\n\nEscalations have been resolved successfully!\n\nEscalation status:\n- [cawfree](https://github.com/sherlock-audit/2024-02-radicalxchange-judging/issues/31/#issuecomment-2025282881): accepted",
+      "summary": "\nThis bug report discusses an issue with the 'Honorarium Rate' in an auction system. The 'Honorarium Rate' is the percentage of a winning bid that is given to the Steward at the beginning of each cycle. The bug occurs when the 'Honorarium Rate' is set to 0%, which is allowed by the system but breaks its functionality. This is contradictory to the documentation, which states that a 0% rate can be used to mimic private ownership. The bug is caused by an error in the code that calculates the total collateral amount, and it is recommended to either prevent the use of a 0% rate or mitigate the issue. There is some discussion about the severity of the bug and whether it should be considered a valid issue. After further review, it is determined that the bug is valid and should be classified as a medium severity issue with duplicates. The escalation is resolved successfully.",
+      "report_date": {},
+      "contest_prize_txt": "12000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/191",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 3,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2024-02-radicalxchange-judging/issues/31",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "191",
+      "slug": "m-1-auction-fails-if-the-honorarium-rate-is-0-sherlock-radicalxchange-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "RadicalxChange",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "RadicalxChange",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Denial-Of-Service"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        }
+      ]
+    },
+    {
+      "id": "29536",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 33,
+      "protocol_id": "1143",
+      "title": "[M-10] Bidder Funds Can Become Unrecoverable Due to 1 second Overlap in `participateToAuction()` and `claimAuction()`",
+      "content": "\n### Lines of code\n\n<https://github.com/code-423n4/2023-10-nextgen/blob/main/smart-contracts/AuctionDemo.sol#L57><br>\n<https://github.com/code-423n4/2023-10-nextgen/blob/main/smart-contracts/AuctionDemo.sol#L104>\n\n### Impact\n\nBidder funds may become irretrievable if the `participateToAuction()` function is executed after `claimAuction()` during a 1-second overlap.\n\n### Proof of Concept\n\nThe protocol allows bidders to use the `participateToAuction()` function up to the auction's end time.\n\n```solidity\n    function participateToAuction(uint256 _tokenid) public payable {\n      ->require(msg.value > returnHighestBid(_tokenid) && block.timestamp <= minter.getAuctionEndTime(_tokenid) && minter.getAuctionStatus(_tokenid) == true);\n        auctionInfoStru memory newBid = auctionInfoStru(msg.sender, msg.value, true);\n        auctionInfoData[_tokenid].push(newBid);\n    }\n```\n\nHowever, the issue arises when an auction winner immediately calls `claimAuction()` right after the auction concludes, creating a 1-second window during which both `claimAuction()` and `participateToAuction()` can be executed.\n\n```solidity\n    function claimAuction(uint256 _tokenid) public WinnerOrAdminRequired(_tokenid,this.claimAuction.selector){\n      ->require(block.timestamp >= minter.getAuctionEndTime(_tokenid) && auctionClaim[_tokenid] == false && minter.getAuctionStatus(_tokenid) == true);\n        auctionClaim[_tokenid] = true;\n        uint256 highestBid = returnHighestBid(_tokenid);\n        address ownerOfToken = IERC721(gencore).ownerOf(_tokenid);\n        address highestBidder = returnHighestBidder(_tokenid);\n        for (uint256 i=0; i< auctionInfoData[_tokenid].length; i ++) {\n            if (auctionInfoData[_tokenid][i].bidder == highestBidder && auctionInfoData[_tokenid][i].bid == highestBid && auctionInfoData[_tokenid][i].status == true) {\n                IERC721(gencore).safeTransferFrom(ownerOfToken, highestBidder, _tokenid);\n                (bool success, ) = payable(owner()).call{value: highestBid}(\"\");\n                emit ClaimAuction(owner(), _tokenid, success, highestBid);\n            } else if (auctionInfoData[_tokenid][i].status == true) {\n                (bool success, ) = payable(auctionInfoData[_tokenid][i].bidder).call{value: auctionInfoData[_tokenid][i].bid}(\"\");\n                emit Refund(auctionInfoData[_tokenid][i].bidder, _tokenid, success, highestBid);\n            } else {}\n        }\n    }\n```\n\nThe issue arises when `claimAuction()` is executed before `participateToAuction()` within this 1-second overlap. In such a scenario, the bidder's funds will become trapped in `AuctionDemo.sol` without any mechanism to facilitate refunds. Both `cancelBid()` and `cancelAllBids()` functions will revert after the auction's conclusion, making it impossible for bidders to recover their funds.\n\n### Recommended Mitigation Steps\n\n```solidity\n    function participateToAuction(uint256 _tokenid) public payable {\n-       require(msg.value > returnHighestBid(_tokenid) && block.timestamp <= minter.getAuctionEndTime(_tokenid) && minter.getAuctionStatus(_tokenid) == true);\n+       require(msg.value > returnHighestBid(_tokenid) && block.timestamp < minter.getAuctionEndTime(_tokenid) && minter.getAuctionStatus(_tokenid) == true);\n        auctionInfoStru memory newBid = auctionInfoStru(msg.sender, msg.value, true);\n        auctionInfoData[_tokenid].push(newBid);\n    }\n```\n\n### Assessed type\n\nContext\n\n**[a2rocket (NextGen) confirmed via duplicate issue #962](https://github.com/code-423n4/2023-10-nextgen-findings/issues/962#issuecomment-1822926107)**\n\n**[0xsomeone (judge) commented](https://github.com/code-423n4/2023-10-nextgen-findings/issues/175#issuecomment-1838613170):**\n > The Warden has clearly specified what the vulnerability is, has provided a recommended course of action that aligns with best practices, and has specified all aspects of the contract that would fail for the user if they tried to reclaim their lost funds.\n> \n> The likelihood of this exhibit manifesting in practice is relatively low (requires a `block.timestamp` that exactly matches the auction). In the post-merge PoS Ethereum that the project intends to deploy, blocks **are guaranteed to be multiples of `12` and can only be manipulated as multiples of it**. \n> \n> The impact is high, as the funds of the user are irrecoverably lost even with administrative privileges as no rescue mechanism exists, rendering this exhibit a medium severity issue.\n\n*Note: For full discussion, see [here](https://github.com/code-423n4/2023-10-nextgen-findings/issues/175).*\n\n***\n\n",
+      "summary": "\nThe bug report discusses an issue in the code of the AuctionDemo smart contract, which could result in bidder funds becoming irretrievable. The issue arises when the `participateToAuction()` function is executed after `claimAuction()` during a 1-second overlap. This can happen if an auction winner immediately calls `claimAuction()` after the auction concludes, creating a window where both functions can be executed. This would trap the bidder's funds in the contract without any mechanism for refunds. The bug report recommends a mitigation step to prevent this from happening. The type of vulnerability is confirmed by a project member and has been assessed as having a high impact. However, the likelihood of this issue occurring is relatively low. ",
+      "report_date": {},
+      "contest_prize_txt": "60500",
+      "contest_link": "https://code4rena.com/reports/2023-10-nextgen",
+      "sponsor_name": "NextGen",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-10-nextgen",
+      "github_link": "https://github.com/code-423n4/2023-10-nextgen-findings/issues/175",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "302",
+      "slug": "m-10-bidder-funds-can-become-unrecoverable-due-to-1-second-overlap-in-participatetoauction-and-claimauction-code4rena-nextgen-nextgen-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "NextGen",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "NextGen",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        }
+      ]
+    },
+    {
+      "id": "20910",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "981",
+      "title": "M-7: Malicious users can exploit the auction and make profit when the SetToken is not locked.",
+      "content": "Source: https://github.com/sherlock-audit/2023-06-Index-judging/issues/57 \n\n## Found by \nast3ros\n## Summary\n\nThe SetToken can be minted and redeemed by anyone when it is not locked during rebalancing. This can allow malicious users to front-run and back-run the bidders and manipulate the auction outcome.\n\n## Vulnerability Detail\n\nWhen rebalancing, the token manager can configure if the SetToken is locked or not. If the SetToken is not locked, anyone can mint and redeem the SetToken using BasicIssuanceModule. The token manager can also configure the pricing mechanism via the priceAdapter. There are some mechanisms:\n- ConstantPriceAdapter: the price is fixed - similar to place limit orders.\n- BoundedStepWise adapters: like Dutch Auction which the price can increase/decrease over time.\n\nLet's see an example: \n\nThe current price of WETH is 1940 USDC.\nTotal supply of the SetToken is 10.\n\nA Set Token with component WETH and current unit(1 WETH) wants to achieve target unit (0.5 WETH - 975 USDC).\n- Current unit: 1 WETH => Current notional: 10 WETH\n- Target unint: 0.5 WETH - 975 USDC => Target notional: (5 WETH - 9750 USDC)\n\nTo achieve this, it needs to sell WETH to buy USDC. The manager starts rebalancing using linear price curve: start at $2000, lower to minimum $1900, take steps of $0.1 every minute. It also chooses USDC as the quote token.\n\nAssuming when the price of WETH reaches 1950 USDC, a bidder bids for all of the available WETH for the rebalance process, which is 0.5 WETH per Set Token or 5 WETH in total for 9750 USDC (5*1950). The expected result should be that the SetToken will meet the target and the rebalancing process will finish. The end position will be:\n\n- Expected position: 0.5 WETH - 975 USDC => Expected notional (5 WETH - 9750 USDC)\n\nHowever, the module is deployed on mainnet and polygon, a malicious user can front-run the bidder and mint the SetToken to make profit and disrupt the auction. The malicious user mints 10 SetToken using 10 WETH. It increases the total supply of the SetToken to 20.\n\n- After the malicious user front-run the bidder: \n    - Current unit: 1 WETH => Current notional: 20 WETH.\n    - Target unit: 0.5 WETH - 975 USDC => Target notional: (10 WETH - 19500 USDC)\n- After bidder bids 5 WETH for 9750 USDC:\n    - Current: 0.75 WETH - 487.5 USDC => Current notional: (15 WETH - 9750 USDC)\n\nAfter that, the malicious user can back-run the bidding transaction and redeem his 10 SetToken for 7.5 ETH and 4875 USDC. Malicious user balance:\n\n- Before: 10 WETH = 19400 USDC\n- After: 7.5 WETH + 4875 USDC = 7.5 * 1940 + 4875 = 19425 USDC.\n\nThe malicious user can make a profit of 25 USDC and disrupt the auction because the auction cannot finish as it should be.\n\nHe cannot make a profit directly by bidding because the bidder may need to be whitelisted by the manager.\n\nIn conclusion, if the price of auction is above the market price and a bid is placed, a malicious user can front-run and back-run the bidder and make a profit and disrupt the auction in the unlocked rebalancing process.\n\n## Impact\n\nThe malicious user can make a profit and prevent the auction from meeting the target and finishing.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2023-06-Index/blob/main/index-protocol/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L254-L257\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nThe SetToken should be always locked when rebalancing.\n\n\n\n\n## Discussion\n\n**thangtranth**\n\nEscalate\n\nThis is not the duplication of #21 since it does not require ERC777. Please help to review.\n\n**sherlock-admin2**\n\n > Escalate\n> \n> This is not the duplication of #21 since it does not require ERC777. Please help to review.\n\nYou've created a valid escalation!\n\nTo remove the escalation from consideration: Delete your comment.\n\nYou may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.\n\n**pblivin0x**\n\n`In conclusion, if the price of auction is above the market price and a bid is placed, a malicious user can front-run and back-run the bidder and make a profit and disrupt the auction in the unlocked rebalancing process.`\n\nIf the bidder is bidding on an auction that is above market price, then yes, there is profit to be made in the system. That is by design. \n\nAn example of this would be a bidder desperate to exit a position, and willing to incur slippage to exit, just so happens that the exit is market making the SetToken auction. \n\nInvalid issue, note that we've added logic to settle remaining units as part of remediation for #41 \n\n**hrishibhat**\n\n@thangtranth \n\n**pblivin0x**\n\nFor the security purposes of this audit, it can be considered that the price set by the trusted SetToken manager is valid, and any NAV decay of the SetToken needs to be measured against these prices. \n\nBy allowing bid's, mints, and redeems there is no clear way to decay NAV as defined by the auction prices.\n\nAny arbitrage open between the auction prices and market prices is to be handled by the SetToken manager. \n\n**thangtranth**\n\nHi @pblivin0x,\n\n> If the bidder is bidding on an auction that is above market price, then yes, there is profit to be made in the system. That is by design.\n\nIn this issue, it shows that the profit goes to the malicious user who is not the current SetToken holder. He only buys SetToken when there is a profit bidding auction and sells immediately after that by back running. \n\nHe can make **risk free money** and can **prevent** the auction from getting the target. In the example above, if the bidder bids 9750 USDC, the auction should be completed, however it is not because profit is extracted by malicious user.  Actually a MEV can increase the buying and selling amount and extract most of the profit from the bidding.\n\nBecause the protocol is deployed in mainnet and polygon then it is very common to happen. Therefore it should be addressed.\n\n> An example of this would be a bidder desperate to exit a position, and willing to incur slippage to exit, just so happens that the exit is market making the SetToken auction.\n\nThere is nothing wrong with the bidder here. He gets his expected bidding price for the assets.\n\n\n\n\n\n\n**pblivin0x**\n\n> Hi @pblivin0x,\n> \n> > If the bidder is bidding on an auction that is above market price, then yes, there is profit to be made in the system. That is by design.\n> \n> In this issue, it shows that the profit goes to the malicious user who is not the current SetToken holder. He only buys SetToken when there is a profit bidding auction and sells immediately after that by back running.\n> \n> He can make **risk free money** and can **prevent** the auction from getting the target. In the example above, if the bidder bids 9750 USDC, the auction should be completed, however it is not because profit is extracted by malicious user. Actually a MEV can increase the buying and selling amount and extract most of the profit from the bidding.\n> \n> Because the protocol is deployed in mainnet and polygon then it is very common to happen. Therefore it should be addressed.\n> \n> > An example of this would be a bidder desperate to exit a position, and willing to incur slippage to exit, just so happens that the exit is market making the SetToken auction.\n> \n> There is nothing wrong with the bidder here. He gets his expected bidding price for the assets.\n\nMy current understanding is this, I would love to get more opinions.\n\n---\n\n**If**: \n+ A `bid()` is placed on a `component` sell auction\n+ The auction price is greater than the price perceived by some external actor\n\n**Then**: \n+ The external actor can sandwich attack the `bid()` by issuing a size much greater than `totalSupply`, allowing the `bid()` to go through, and redeeming the same size. The full perceived value difference can be extracted.\n+ The SetToken manager and holders do not have sufficient protections that a `bid()` will push the `positionUnit` closer to the `targetUnit` by an amount proportional to `componentAmount` and `totalSupply` before the bid. \n\n**Fix**: \n+ Apply a supply cap on `SetToken.totalSupply` when the manager calls `startRebalance()`. This will facilitate honest issuance and redemption while preventing the size needed for effective sandwich attacks. \n\n---\n\nIf there is no supply cap on an unlocked auction, then anytime a malicious actor sees a `bid()` at a price sufficiently higher than their perceived price, then the malicious actor `can make risk free money and can prevent the auction from getting the target.` - @thangtranth \n\n**FlattestWhite**\n\n```\nAfter that, the malicious user can back-run the bidding transaction and redeem his 10 SetToken for 7.5 ETH and 4875 USDC. Malicious user balance:\n\nBefore: 10 WETH = 19400 USDC\nAfter: 7.5 WETH + 4875 USDC = 7.5 * 1940 + 4875 = 19425 USDC.\n```\nWhy is Before 10 WETH = 19400 USDC? Isn't it 10 WETH = 19500 USDC\nAfter: 7.5 WETH + 4875 USDC = 7.5 * 1950 + 4875 = 19500 USDC\n\n**pblivin0x**\n\nWould a mint/redeem fee prevent the sandwich attack? @thangtranth \n\n**thangtranth**\n\n> Would a mint/redeem fee prevent the sandwich attack? @thangtranth\n\nI think it makes the attack more expensive. Then the attacker needs to consider the amount of fees that he has to pay for mint + redeem and the profit gained (the gap between bid price and current price). If we config the fees large enough then it may. However honest users will have to pay the fee as well.\n\n**thangtranth**\n\n> ```\n> After that, the malicious user can back-run the bidding transaction and redeem his 10 SetToken for 7.5 ETH and 4875 USDC. Malicious user balance:\n> \n> Before: 10 WETH = 19400 USDC\n> After: 7.5 WETH + 4875 USDC = 7.5 * 1940 + 4875 = 19425 USDC.\n> ```\n> \n> Why is Before 10 WETH = 19400 USDC? Isn't it 10 WETH = 19500 USDC After: 7.5 WETH + 4875 USDC = 7.5 * 1950 + 4875 = 19500 USDC\n\nPlease refer to the scenario: The current price of WETH is 1940 USDC.\nThe 1950 is the price of the bid from bidder.\n\n\n**0xauditsea**\n\nI don't think this is valid, when those kind of MEV is allowed, auction managers will allow tokens not being locked, but otherwise `_shouldLockSetToken` will be set to true.\n\n**thangtranth**\n\n> I don't think this is valid, when those kind of MEV is allowed, auction managers will allow tokens not being locked, but otherwise `_shouldLockSetToken` will be set to true.\n\nHi, it is already confirmed with the protocol team that this is not the intended behaviour when MEV is allowed when unlocked.\nFrom the protocol team:\n> it is concerning...it is ideal for SetToken's to actually not be locked during rebalancing bc we want users to always have access to their underlying\n\n**bizzyvinci**\n\nThe issue with this issue is that it assumes a logical bidder would trade at a loss against SetToken.\n\n\nI'll start with some axioms which I believe are True\n\n* market is DEX. market price is DEX price.\n* No logical bidder would trade at a loss. Because bidders would want to trade at a DEX instantly for profit.\n* price is how much quoteAsset you need to purchase 1 component (which is base asset).\n* Minting and burning does not manipulate unit.\n* Notional values are what's minted, burned and traded, which is equal to `unit * tokenAmount` (tokenAmount could be totalSupply).\n\n\nIf the axioms listed above are True. Then the following should be True\n* SetToken would sell component at a price lower than market/DEX. So that bidder would buy it and sell on DEX for an instant profit.\n* SetToken would buy component at a price higher than market/DEX. So that bidder would buy it cheaper on DEX and sell it for SetToken for an instant profit.\n* SetToken is trading at a discount loss compared to market.\n\nP.S: Another reason I believe SetToken is comfortable at trading at discount loss is because Auction could be used against DEX slippage or as an order book that would be executed at a future time when price reaches the limit set by manager.\n\n\nAnd\n* If totalSupply increases when SetToken is selling component, It would be provided with more component notional to sell at a loss. Because It needs more component notional to buy quoteAsset at a loss.\n* If totalSupply increases when SetToken is buying component, It would be provided with more quote notional to sell at a loss. Because It needs more quote notional to buy component at a loss.\n* The loss is distributed to all holders of SetToken\n\nP.S: quote asset must be a component for second point to be True. And I believe that's done because the contract [checks that bidded component is not quoteAsset](https://github.com/sherlock-audit/2023-06-Index/blob/main/index-protocol/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L750) to avoid attacks when quoteAsset is part of SetToken components. And most importantly, it updates both quoteAsset and bidded component position [here](https://github.com/sherlock-audit/2023-06-Index/blob/main/index-protocol/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L997-L1008).\n\nTherefore:\n* Higher notional means SetToken is provided with more tokens to trade at a loss to market/DEX.\n* Anyone sandwiching this trade by minting and burning SetToken is partaking in the loss.\n\n\nUsing numbers would be more complicated cause there are several parameters. And the proof provided by the issue is flawed because SetToken is selling component at a price higher than market/DEX. This means that bidder is taking a loss and SetToken is taking a profit. That's the source of the $25. Proof:\n* Price of 1900-2000 means USDC is quote asset while WETH is component (base asset)\n* SetToken is selling WETH for USDC\n* A bidder decides to buy it 1950 which is higher than 1940 of market price\n* The bidder bought 5 WETH, so the bidder loses $50 while the SetToken gains $50\n* Since the sandwicher owns 50% of supply, they get 50% of $50 which is $25\n\nIf the bidder is logical he would wait till price is below market price so that he'll make a profit on the trade. Therefore sandwicher would take part in the loss.\n\n\n**sinarette**\n\n> Should not be able to decay the SetToken Net-Asset-Value according to this price. with any combination of actions (bids, mints, or redeems)\n\nAccording to the contest readme it requires damage calculated according to the bid price.\nHere the stated attack scenario is just buying ETH at 1940 USDC and selling at 1950 USDC; we don't tell this kind of profitable trading stategy an 'attack'. In fact, in ETH units it's not a profit; the attacker who had 19400/1940 = 10 ETH now has 19425/1950 = 9.96 ETH.\n\n**pblivin0x**\n\nAgree with @bizzyvinci here that bidder's in the system are expected to be rationale profit seeking actors - ` If the bidder is logical he would wait till price is below market price so that he'll make a profit on the trade. Therefore sandwicher would take part in the loss.`\n\n**thangtranth**\n\nYes, I also agree with @bizzyvinci . A very good point about rationale bidder 👍\n\n**pblivin0x**\n\nThank you for all the input here @thangtranth @bizzyvinci @0xauditsea @sinarette @Oot2k \n\nAfter much consideration I'm of the following opinion\n+ When a `bid()` is placed on a component sell auction that is above market price, a malicious actor can sandwich attack the `bid()`, and prevent the `bid()` from contributing meaningfully towards the auction getting closer to target. \n+ Bidder’s are expected to be rationale profit-seeking actors, so the situation where a `bid()` is placed above market price is not expected to happen often.\n+ To prevent such a sandwich attack, a reasonable supply cap can be placed on the SetToken, such that normal user issuance and redemption is possible, but large sandwich attack issuance is not possible. \n\nIndex is prepared to take the following remediations\n+ Add a warning about sandwich attacks on unlocked rebalances to the `AuctionRebalanceModuleV1` natspec\n+ In production, utilize a supply cap on the SetToken during unlocked rebalances (e.g., 2x supply at the start of rebalance)\n\nI believe this is a Medium severity issue because\n+ While the sandwich attack requires that the bidder is acting \"irrationally\" and is not expected to happen often, part of the dutch auction mechanism is that the auctioneer benefits from poorly priced bids. This sandwich attack could take all the benefits from the auctioneer, by preventing the auction from getting any closer to target. \n+ This is exactly the edge case I wanted examined during the audit, with the addition of broader market dynamics - `Should not be able to decay the SetToken Net-Asset-Value according to this price. with any combination of actions (bids, mints, or redeems)` https://github.com/sherlock-audit/2023-06-Index#q-are-there-any-additional-protocol-roles-if-yes-please-explain-in-detail\n+ Index is taking meaningful remediations from this issue\n\n\n**Oot2k**\n\nAgree with escalation and agree that this is valid.\n\n**hrishibhat**\n\nResult:\nMedium\nUnique\nConsidering this a medium issue based on above comments \nhttps://github.com/sherlock-audit/2023-06-Index-judging/issues/57#issuecomment-1666224199\n\n**sherlock-admin2**\n\nEscalations have been resolved successfully!\n\nEscalation status:\n- [thangtranth](https://github.com/sherlock-audit/2023-06-Index-judging/issues/57/#issuecomment-1658144838): accepted\n\n**pblivin0x**\n\nThe remediation for this issue is open for review here https://github.com/IndexCoop/index-protocol/pull/25\n\nThe changes are to add warnings to use a supply cap in order to avoid large front running issuance and redemption\n+ https://github.com/IndexCoop/index-protocol/blob/839a6c699cc9217c8ee9f3b67418c64e80f0e10d/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L48-L51\n+ https://github.com/IndexCoop/index-protocol/blob/839a6c699cc9217c8ee9f3b67418c64e80f0e10d/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L239",
+      "summary": "\nA bug report has been raised regarding SetToken, a token manager that can configure the pricing mechanism in a rebalancing process. The issue is that when the SetToken is not locked, anyone can mint and redeem the SetToken using the BasicIssuanceModule, allowing malicious users to front-run and back-run bidders and manipulate the auction outcome. This can allow a malicious user to make a profit and disrupt the auction, preventing it from meeting the target and finishing. \n\nThe bug report provides an example of how a malicious user can exploit the auction. In the example, the current price of WETH is 1940 USDC, and the total supply of the SetToken is 10. A Set Token with component WETH and current unit (1 WETH) wants to achieve target unit (0.5 WETH - 975 USDC). The manager starts rebalancing using a linear price curve, and a bidder bids for all of the available WETH for the rebalance process, which is 0.5 WETH per Set Token or 5 WETH in total for 9750 USDC (5*1950). \n\nHowever, a malicious user can front-run the bidder and mint the SetToken to make a profit and disrupt the auction. The malicious user mints 10 SetToken using 10 WETH, increasing the total supply of the SetToken to 20. After the malicious user front-runs the bidder, the target notional is (10 WETH - 19500 USDC). After the bidder bids 5 WETH for 9750 USDC, the current notional is (15 WETH - 9750 USDC). After that, the malicious user can back-run the bidding transaction and redeem his 10 SetToken for 7.5 ETH and 4875 USDC. The malicious user can make a profit of 25 USDC and disrupt the auction because the auction cannot finish as it should be.\n\nThe issue has been discussed by several people, with some believing it to be invalid because it assumes a logical bidder would trade at a loss against SetToken, and others believing that the SetToken should be always locked when rebalancing. It has been agreed that a supply cap should be applied on SetToken.totalSupply when the manager calls startRebalance() to facilitate honest issuance and redemption while preventing the size needed for effective sandwich attacks.",
+      "report_date": {},
+      "contest_prize_txt": "24000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/91",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-06-Index-judging/issues/57",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "91",
+      "slug": "m-7-malicious-users-can-exploit-the-auction-and-make-profit-when-the-settoken-is-not-locked-sherlock-none-index-update-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Index Update",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Index Update",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Indexes"
+            },
+            "score": 1
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Front-Running"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        }
+      ]
+    },
+    {
+      "id": "20909",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "981",
+      "title": "M-6: Target raises can be highly damaging for dutch auctions with multiple components",
+      "content": "Source: https://github.com/sherlock-audit/2023-06-Index-judging/issues/45 \n\n## Found by \n0x52\n## Summary\n\nMulti-component dutch auctions are fundamentally incompatible with target raises and will lead to inefficient pricing causing loss to set token.\n\n## Vulnerability Detail\n\nThe AuctionRebalanceModuleV1 allows targets to be increased when all component targets have been met and there is still excess quote token. When combined with multiple components, it his highly likely that these target raises will lead to inefficient pricing which will cause loss to the set token.\n\nConsider the following a set token has the following composition that has target raises enabled:\n\n40% USDC\n30% WBTC\n30% WETH\n\nThe manager wishes to rebalance the set to the following using USDC as the quote token:\n\n20% USDC\n40% WBTC\n40% WETH\n\nAssume the WETH portion of the execute within the first hour of the auction. The WBTC on the other hand doesn't execute until 12 hours in. Assume there is excess quote so the target is increased. The issue is that now because of the change in time, the WETH auction is now well above the market price. This buys the WETH for a large loss compared to the market price of WETH.\n\n## Impact\n\nPricing after target raises will likely be heavily skewed from market prices for some components lead to set token losses\n\n## Code Snippet\n\n[AuctionRebalanceModuleV1.sol#L359-L380](https://github.com/sherlock-audit/2023-06-Index/blob/main/index-protocol/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L359-L380)\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nTarget raises should reset `rebalanceStartTime` allowing the dutch auction to restart and properly price the assets\n\n\n\n## Discussion\n\n**pblivin0x**\n\nAgree, especially since the raising of targets is onlyAllowedBidder, we should reset the pricings. \n\nIn the fix, I think we will make it such that the rebalance still ends at the same time. \n\n**bizzyvinci**\n\nEscalate\n\nThis is invalid. Let's take a look at why would we would raise target based on the [docs](https://github.com/sherlock-audit/2023-06-Index/blob/main/index-protocol/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L351)\n```solidity\n* @dev ACCESS LIMITED: Increases asset targets uniformly when all target units have been met but there is remaining quote asset.\n```\n\nraiseAssetTarget is meant for uniformly raising targets **when all target units have been met**. Everything else (such as price and ratio) can be resolved by calling `startRebalance`.\n\n**sherlock-admin2**\n\n > Escalate\n> \n> This is invalid. Let's take a look at why would we would raise target based on the [docs](https://github.com/sherlock-audit/2023-06-Index/blob/main/index-protocol/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L351)\n> ```solidity\n> * @dev ACCESS LIMITED: Increases asset targets uniformly when all target units have been met but there is remaining quote asset.\n> ```\n> \n> raiseAssetTarget is meant for uniformly raising targets **when all target units have been met**. Everything else (such as price and ratio) can be resolved by calling `startRebalance`.\n\nYou've created a valid escalation!\n\nTo remove the escalation from consideration: Delete your comment.\n\nYou may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.\n\n**hrishibhat**\n\n@bizzyvinci Could you please elaborate a bit further as to what exactly is invalid about the points raised in the issue?\n\n**bizzyvinci**\n\nFirst of all, I believe the auction buy and sell is to be used instead of trade module and this was mentioned on the [discord channel](https://discord.com/channels/812037309376495636/1127977547372703764/1128308198722523216). And the way it works is that it provides discount over market price to motivate bidder. And this discount increases linearly, exponential or logarithmically.\n\nAnd an assumption is that the discount will start low e.g 0% till a cap the manager is comfortable with e.g 5%. Whether you're buying or selling, the focus is on `discount` and that's why price would decrease during sell and price would increase during buy of quoteAsset. The price change is the discount and that's what grows or fall with the mathematical equation.\n\n\nAssuming manager/operator wants to move from 40% USDC, 30% WBTC, 30% WETH\n\nTo 20% USDC, 40% WBTC, 40% WETH using USDC\n\nIf after an hour, the ratio are 35% USDC, 30% WBTC, 35% WETH. It's safe to assume that price on WETH was too good but price on WBTC wasn't. The operator can call `startRebalance` to **update this prices**.\n\nIf the price is indeed good and the market/whale is just crazy for WBTC and it reaches 30% USDC, 30% WBTC, 40% WETH. Then no one can bid on WETH again, because of the following [requirements](https://github.com/sherlock-audit/2023-06-Index/blob/main/index-protocol/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L918-L926)\n```solidity\nrequire(currentUnit != targetUnit, \"Target already met\");\n\n// Determine whether the component is being sold (sendToken) or bought\nisSellAuction = targetNotional < currentNotional;\n\n// Calculate the max quantity of the component to be exchanged. If buying, account for the protocol fees.\nmaxComponentQty = isSellAuction\n    ? currentNotional.sub(targetNotional)\n    : targetNotional.sub(currentNotional).preciseDiv(PreciseUnitMath.preciseUnit().sub(protocolFee));\n```\n\nTherefore, the best thing to do is wait till the discount on WBTC is suitable and every WBTC is munched on. Thereby reaching the goal of `20% USDC, 40% WBTC, 40% WETH`.\n\nExcess USDC means USDC is greater than 20%. And that also means either WBTC or WETH is less than 40% or both. And it is possible to be unable to bid cause targetUnit of WBTC and WETH has been reached. However, all target unit has not been reached because of USDC. The solution is to call startRebalance again and **update targetUnits** (and maybe price too is depending on what is considered fair price).\n\n\n\n**bizzyvinci**\n\nAn example of when to use `raiseAssetTargets`.\n\nAssuming USDC is quoteAsset but not a component. And we want WETH and WBTC to be 50 and 50 respectively.\n\nIf targetUnit and hence the 50:50 is reached and there's still USDC. We could use raiseAssetTarget to uniformly raise the target unit by 10% to 55:55. And that's still a 50% ratio for each component.\n\n\n**pblivin0x**\n\nI believe this is a valid medium\n\n**bizzyvinci**\n\nI still stand by my escalation because my argument is that the manager could call `startRebalance` at any point in time during an active auction. With this function `startRebalance`, they could change price, price curve, and target unit. Therefore no matter the unfavourable price, target unit or ratio, the manager has the option to call `startRebalance` instead of `raiseAssetTarget`.\n\nThe only reason a manager would call `raiseAssetTarget` instead of `startRebalance` is when \n* All target unit have been met\n* And they want to uniformly raise all the target units\n\nAnd (though it was not explicitly stated in the [docs](https://github.com/sherlock-audit/2023-06-Index/blob/main/index-protocol/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L351))\n* manager is comfortable with the current price and direction. Cause if they are not, they could call `startRebalance` to update the price while raising all target units.\n\n\n**pblivin0x**\n\n> I still stand by my escalation because my argument is that the manager could call `startRebalance` at any point in time during an active auction. With this function `startRebalance`, they could change price, price curve, and target unit. Therefore no matter the unfavourable price, target unit or ratio, the manager has the option to call `startRebalance` instead of `raiseAssetTarget`.\n> \n> The only reason a manager would call `raiseAssetTarget` instead of `startRebalance` is when\n> \n> * All target unit have been met\n> * And they want to uniformly raise all the target units\n> \n> And (though it was not explicitly stated in the [docs](https://github.com/sherlock-audit/2023-06-Index/blob/main/index-protocol/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L351))\n> \n> * manager is comfortable with the current price and direction. Cause if they are not, they could call `startRebalance` to update the price while raising all target units.\n\nUpon further review, I actually change my opinion, and agree with this escalation. \n\nI think that the listed remediation is not satisfactory and that it is on the SetToken manager to decide whether raiseAssetTargets or a fresh startRebalance call is preferable given their price curves. \n\n---\n\nAssume fair market prices of 1850 for ETH and 29000 for WBTC. \n\nSuppose we have a rebalance with the following individual component auctions\n+ An auction that sells WETH in exchange for DAI. Auction price begins at 2200 and lowers to a price of 1800. \n+ An auction that buys WBTC with DAI. Auction price begins at 25000 and raises to a price of 30000. \n\nNow suppose that the auctions fill, there are remaining DAI units, and both auction price curves have reached their final price (1800 and 30000). \n\nIf asset targets are raised, all auctions now become buy auctions. \n\nIf we do not reset `rebalanceStartTime` when we raise asset targets, we have\n+ Good: An auction that buys WETH with DAI at a price of 1800. This is below market value, unlikely to get filled, but not a risk for SetToken holders\n+ Bad: An auction that buys WBTC with DAI at a price of 30000. This is above market value, and a risk to SetToken holders to lose NAV\n\nIf we do reset `rebalanceStartTime` when we raise asset targets, we have\n+ Bad: An auction that buys WETH with DAI at a price of 2200. This is above market value, and a risk to SetToken holders to lose NAV\n+ Good: An auction that buys WBTC with DAI at a price of 25000. This is below market value, unlikely to get filled, but not a risk for SetToken holders\n\n---\n\nIn conclusion\n+ I agree with the stated vulnerability - `Target raises can be highly damaging for dutch auctions with multiple components`\n+ I disagree with the listed remediation - resetting the `rebalanceStartTime` does not automatically lead to proper pricing of the component auctions, because sell auctions have flipped to buy auctions on the target raise. \n+ I agree with the escalation - It is on the SetToken manager to decide whether their auction price curves are appropriate for a nonzero `raiseTargetPercentage`. If it is not appropriate, then they need to call a fresh `startRebalance()`. \n\n\n\n\n**bizzyvinci**\n\n`raiseAssetTargets` is for when you are buying all components (those listed for bidding) and you want to sell `quoteAsset` till it reaches 0 or a specified limit. This was also mentioned in the [docs](https://github.com/sherlock-audit/2023-06-Index/blob/main/index-protocol/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L353) (@pblivin0x could update docs if the wordings are not clear enough for most users)\n\n> This helps in reducing tracking error and providing greater granularity in reaching an equilibrium between the excess quote asset and the components to be purchased.\n\n**hrishibhat**\n\nAdditional Sponsor comment:\n> confirming i see this as a low. manager needs to decide between proper calls (setTargetRaisePercentage or startRebalance) based on the AuctionExecutionParams they inputted\n\n\n**pblivin0x**\n\nThis issue's remediation has been removed from https://github.com/IndexCoop/index-protocol/pull/25 pending escalation resolution\n\n**IAm0x52**\n\nI disagree that this is admin's responsibility. The feature is dangerous in this scenario. There is no \"safe\" parameter that admin can use. Their only option is to not use the feature, which I don't think is a valid. It also has to be considered that the admin can't turn off rebalances after they have been enabled. I still hold this is a valid medium. #44 also provides another way this can be abused. I know that sponsor has commented that donation doesn't work but the donation occurs before the buy which causes the donated balance to be counted and to reflect in the set token balances when it updates the balances of the set token. Both this and #44 have the same root cause (not resetting the price after increase) which is why I didn't escalate that one.\n\n**hrishibhat**\n\nResult:\nMedium\nUnique\nAlthough the suggested remediation does not solve the problem the issue identified is valid. \nSponsor:\n> I agree with the stated vulnerability - Target raises can be highly damaging for dutch auctions with multiple components\n\nAdditional Sponsor comment:\n> raising asset targets is a legacy feature from the GeneralIndexModule, and as your issue correctly points out, it doesnt really make sense with dutch auctions\n\n> i am fine with any issue validity ruling here.\n\nConsidering this a valid medium based on the additional sponsor comment and the Lead Watson [comment](https://github.com/sherlock-audit/2023-06-Index-judging/issues/45#issuecomment-1672156329)\n\n\n**sherlock-admin2**\n\nEscalations have been resolved successfully!\n\nEscalation status:\n- [bizzyvinci](https://github.com/sherlock-audit/2023-06-Index-judging/issues/45/#issuecomment-1659916781): rejected",
+      "summary": "\nThis bug report is about a vulnerability found in the AuctionRebalanceModuleV1 of the Index Protocol. The vulnerability is that multi-component Dutch auctions are incompatible with target raises and can lead to inefficient pricing, causing losses to the Set Token. This is because when a target raise is enabled, it is highly likely that the pricing of some components will be heavily skewed from market prices. \n\nThe code snippet linked in the report shows the `raiseAssetTarget` function, which is meant for uniformly raising targets when all target units have been met. Other factors such as price and ratio can be resolved by calling `startRebalance`. \n\nThe discussion in the comments section provided various examples of when to use `raiseAssetTargets` and when to call `startRebalance`. For instance, if the manager wants to move from 40% USDC, 30% WBTC, 30% WETH to 20% USDC, 40% WBTC, 40% WETH using USDC, they can call `startRebalance` to update the prices and target units. \n\nThe lead Watson and sponsor agreed that the vulnerability is valid and should be considered a medium. The suggested remediation does not solve the problem, and it is up to the SetToken manager to decide whether `raiseAssetTargets` or a fresh `startRebalance` call is preferable given their price curves. The sponsor comment also noted that `raiseAssetTargets` is a legacy feature from the GeneralIndexModule and does not make sense with Dutch auctions. \n\nUltimately, the escalation was rejected, and the issue's remediation has been removed from the Index Protocol pending resolution.",
+      "report_date": {},
+      "contest_prize_txt": "24000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/91",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-06-Index-judging/issues/45",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "91",
+      "slug": "m-6-target-raises-can-be-highly-damaging-for-dutch-auctions-with-multiple-components-sherlock-none-index-update-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Index Update",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Index Update",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Indexes"
+            },
+            "score": 1
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Missing-Logic"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        }
+      ]
+    },
+    {
+      "id": "20907",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "981",
+      "title": "M-4: Full inventory asset purchases can be DOS'd via frontrunning",
+      "content": "Source: https://github.com/sherlock-audit/2023-06-Index-judging/issues/41 \n\n## Found by \n0x52, Arabadzhiev\n## Summary\n\nUsers who attempt to swap the entire component value can be frontrun with a very small bid making their transaction revert\n\n## Vulnerability Detail\n\n[AuctionRebalanceModuleV1.sol#L795-L796](https://github.com/sherlock-audit/2023-06-Index/blob/main/index-protocol/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L795-L796)\n\n        // Ensure that the component quantity in the bid does not exceed the available auction quantity.\n        require(_componentQuantity <= bidInfo.auctionQuantity, \"Bid size exceeds auction quantity\");\n\nWhen creating a bid, it enforces the above requirement. This prevents users from buying more than they should but it is also a source of an easy DOS attack. Assume a user is trying to buy the entire balance of a component, a malicious user can frontrun them buying only a tiny amount. Since they requested the entire balance, the call with fail. This is a useful technique if an attacker wants to DOS other buyers to pass the time and get a better price from the dutch auction.\n\n## Impact\n\nMalicious user can DOS legitimate users attempting to purchase the entire amount of component\n\n## Code Snippet\n\n[AuctionRebalanceModuleV1.sol#L772-L836](https://github.com/sherlock-audit/2023-06-Index/blob/main/index-protocol/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L772-L836)\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nAllow users to specify type(uint256.max) to swap the entire available balance\n\n\n\n## Discussion\n\n**pblivin0x**\n\nThe recommendation here is that we allow `componentQuantity` to be specified in excess of the auction size? so replace the current check\n\n```solidity\n// Ensure that the component quantity in the bid does not exceed the available auction quantity.\nrequire(_componentQuantity <= bidInfo.auctionQuantity, \"Bid size exceeds auction quantity\");\n```\n\nwith a enforced cap\n\n```solidity\nif (_componentQuantity > bidInfo.auctionQuantity) {\n    _componentQuantity = bidInfo.auctionQuantity;\n}\n```\n\nI was originally hesitant because of some unintuitive UX, but if this removes the potential for a DOS attack, i think it is worth implementing.\n\n**FlattestWhite**\n\nHmmm we should probably allow user to specify `maxQuantity` rather than the absolute quantity they want to buy\n\n**snake-poison**\n\n> The recommendation here is that we allow `componentQuantity` to be specified in excess of the auction size? so replace the current check\n> \n> ```solidity\n> // Ensure that the component quantity in the bid does not exceed the available auction quantity.\n> require(_componentQuantity <= bidInfo.auctionQuantity, \"Bid size exceeds auction quantity\");\n> ```\n> \n> with a enforced cap\n> \n> ```solidity\n> if (_componentQuantity > bidInfo.auctionQuantity) {\n>     _componentQuantity = bidInfo.auctionQuantity;\n> }\n> ```\n> \n> I was originally hesitant because of some unintuitive UX, but if this removes the potential for a DOS attack, i think it is worth implementing.\n\nI believe what the submitter was recommending was something more akin to keeping the :\n\n```solidity\n if (_componentQuantity == type(uint256).max) {\n     _componentQuantity = bidInfo.auctionQuantity;\n} else {\nrequire(_componentQuantity <= bidInfo.auctionQuantity, \"Bid size exceeds auction quantity\");\n}\n```\n\nnote: the difference in gas is trivial, but it isn't equivalent to your suggestion so I wanted to point it out. My examples assumes pragma > 0.7 to use the type().max syntax but the older idiomatic `uint256(-1) ` would.\n\n**sherlock-admin2**\n\n> Escalate\n> \n> Severity should not be Medium, has to be low or invalid, because there is no incentive at all for front-runners and also based on Sherlock's documentation, DOS < 1yr is not a valid one.\n\nThe escalation could not be created because you are not exceeding the escalation threshold.\n\nYou can view the required number of additional valid issues/judging contest payouts in your Profile page,\nin the [Sherlock webapp](https://app.sherlock.xyz/audits/).\n\n\n**JJtheAndroid**\n\nEscalate\n\nThis issue should be low/invalid as per Sherlock's rules https://docs.sherlock.xyz/audits/judging/judging. In addition, this is an edge case with no user funds at risk. \n\n**sherlock-admin2**\n\n > Escalate\n> \n> This issue should be low/invalid as per Sherlock's rules https://docs.sherlock.xyz/audits/judging/judging. In addition, this is an edge case with no user funds at risk. \n\nYou've created a valid escalation!\n\nTo remove the escalation from consideration: Delete your comment.\n\nYou may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.\n\n**Arabadzhiew**\n\n> Escalate\n> \n> This issue should be low/invalid as per Sherlock's rules https://docs.sherlock.xyz/audits/judging/judging. In addition, this is an edge case with no user funds at risk.\n\nCan't agree on this. This is definitely not an edge case. There is an incentive to perform such kind of a DoS - If the price of the auction decreases over time, users will probably want to prolong it as much as they can. Additionally, the DoS can very easily happen unintentionally, when a lot of bid transactions get executed in the same block.\n\n**JJtheAndroid**\n\n> > Escalate\n> > This issue should be low/invalid as per Sherlock's rules https://docs.sherlock.xyz/audits/judging/judging. In addition, this is an edge case with no user funds at risk.\n> \n> Can't agree on this. This is definitely not an edge case. There is an incentive to perform such kind of a DoS - If the price of the auction decreases over time, users will probably want to prolong it as much as they can. Additionally, the DoS can very easily happen unintentionally, when a lot of bid transactions get executed in the same block.\n\n\n\nIn your scenario, users can only prolong it as long the current price is higher than min price. Malicious front running is useless beyond that point, because the price cannot go any lower. This would be invalid as per Sherlock rules on DOS attacks.\n\n\nThe unintentional scenario is not a DOS, it is just multiple people bidding at the same time. This is by design.\n\n\nAgain, no user funds are at risk. This should not be a med\n\n**IAm0x52**\n\n> Can't agree on this. This is definitely not an edge case. There is an incentive to perform such kind of a DoS - If the price of the auction decreases over time, users will probably want to prolong it as much as they can. Additionally, the DoS can very easily happen unintentionally, when a lot of bid transactions get executed in the same block.\n\nAgreed with this. Given the nature of a dutch auction, the temporary DOS will prevent the auction from executing as expected and lead to assets being sold under market value.\n\n**pblivin0x**\n\nI agree this is a valid Medium\n\n**0xauditsea**\n\nvalid Medium? 🤔🤔🤔\n\n**0xauditsea**\n\nHere's the docs about the severity of DOS: https://docs.sherlock.xyz/audits/judging/judging\n\n![image](https://github.com/sherlock-audit/2023-06-Index-judging/assets/133329604/6df6248c-d3d7-4a2b-8e7e-67d4598d44fd)\n\nHope this helps in escalation! Thanks y'all! 👍\n\n**hrishibhat**\n\n@0xauditsea @JJtheAndroid \nThere seems to be some confusion about the rule for DOS. Funds not being accessible temporarily does not apply here. \nHere the DOS results in loss of funds which is considered to be a medium:\n> Agreed with this. Given the nature of a dutch auction, the temporary DOS will prevent the auction from executing as expected and lead to assets being sold under market value.\n\n**0xauditsea**\n\n@hrishibhat - Why is there loss of funds at all? The auction has minimum price defined which can be lower than the market value, that's totally fine for users to buy tokens with lower price, it's benefit for users, acceptable for auction manager.\n\n**hrishibhat**\n\n@pblivin0x @0xauditsea \nCorrect me if I'm wrong, assuming here it is a Dutch auction where price reduces over time. If i can DOS someone who is ready to bid for a higher price and I bid for a lesser price after some time. Isn't this an issue?\n\n\n**hrishibhat**\n\nTo add to my comment: \nthe Max min values are values that are acceptable by the manager if the users decide to bid for the value within that range. \nThat does not mean the code should unfairly allow someone to stop a higher bid and bid at a lower price. This seems like valid issue that does not allow normal functioning of dutch auction. \n\n**0xauditsea**\n\n@hrishibhat - In selling auction (users buy component), component price goes lower as time goes. So when it's front-run, the user will try again with lower price, which is fine for the user, also no problem with the auction manager.\n\n**0xauditsea**\n\nThis is basically not loss of funds.\n\n**JJtheAndroid**\n\n> To add to my comment: the Max min values are values that are acceptable by the manager if the users decide to bid for the value within that range. That does not mean the code should unfairly allow someone to stop a higher bid and bid at a lower price. This seems like valid issue that does not allow normal functioning of dutch auction.\n\nI don't want to go back and forth on this. I just want to say that your description is inaccurate. The report does not describe DOS on higher bids, it is a DOS on **full inventory** bids which is a rarer occurrence. Big difference. Also such an \"attack\" does not benefit the attacker nor does it hurt the \"victim\" because they both want to buy assets at a lower price. \n\n Finally, there is a min price bound set by the manager. So any full inventory DOS at that point is completely useless and a waste of gas. \n\nAll of this is assuming that there are only 2 actors (the attacker and the victim) bidding. In reality, there will likely be many more and not all of them will submit a full inventory bid. \n\n\nI will not comment on this further \n\n**pblivin0x**\n\n> @pblivin0x @0xauditsea Correct me if I'm wrong, assuming here it is a Dutch auction where price reduces over time. If i can DOS someone who is ready to bid for a higher price and I bid for a lesser price after some time. Isn't this an issue?\n\nWe have a 1000 ETH auction, a legitimate bidder wants to settle the full 1000 ETH auction at `PRICE_HIGH`\n\nThe malicious bidder is willing to settle the 1000 ETH auction at `PRICE_LOW`, so they frontrun the legitimate bidder with `SMALL_SIZE` bid. \n\nIf some transactions are successfully DOS'd, the legitimate bidder could submit a 1000 ETH - `SMALL_SIZE` bid, or something like a 500 ETH bid, such that the malicious bidder is not willing to front run at that size\n\n**Oot2k**\n\n> > Escalate\n> > This issue should be low/invalid as per Sherlock's rules https://docs.sherlock.xyz/audits/judging/judging. In addition, this is an edge case with no user funds at risk.\n> \n> Can't agree on this. This is definitely not an edge case. There is an incentive to perform such kind of a DoS - If the price of the auction decreases over time, users will probably want to prolong it as much as they can. Additionally, the DoS can very easily happen unintentionally, when a lot of bid transactions get executed in the same block.\n\nI think this is valid, this comment explains it well.\n\n**0xauditsea**\n\n> > @pblivin0x @0xauditsea Correct me if I'm wrong, assuming here it is a Dutch auction where price reduces over time. If i can DOS someone who is ready to bid for a higher price and I bid for a lesser price after some time. Isn't this an issue?\n> \n> We have a 1000 ETH auction, a legitimate bidder wants to settle the full 1000 ETH auction at `PRICE_HIGH`\n> \n> The malicious bidder is willing to settle the 1000 ETH auction at `PRICE_LOW`, so they frontrun the legitimate bidder with `SMALL_SIZE` bid.\n> \n> If some transactions are successfully DOS'd, the legitimate bidder could submit a 1000 ETH - `SMALL_SIZE` bid, or something like a 500 ETH bid, such that the malicious bidder is not willing to front run at that size\n\nTotally agree with this, no way front-runners would try it.\n\n**Arabadzhiew**\n\n> > @pblivin0x @0xauditsea Correct me if I'm wrong, assuming here it is a Dutch auction where price reduces over time. If i can DOS someone who is ready to bid for a higher price and I bid for a lesser price after some time. Isn't this an issue?\n> \n> We have a 1000 ETH auction, a legitimate bidder wants to settle the full 1000 ETH auction at `PRICE_HIGH`\n> \n> The malicious bidder is willing to settle the 1000 ETH auction at `PRICE_LOW`, so they frontrun the legitimate bidder with `SMALL_SIZE` bid.\n> \n> If some transactions are successfully DOS'd, the legitimate bidder could submit a 1000 ETH - `SMALL_SIZE` bid, or something like a 500 ETH bid, such that the malicious bidder is not willing to front run at that size\n\nCorrect me if I'm wrong, but even in your example, the legitimate bidder is most likely still going to end up buying the ETH at a lower price, leading to the protocol receiving less assets that it could have received. \n\nThe main issue here is that due to the current implementation, full inventory purchases are going to end up being reverted most of the time, be it due to intentional DoS attacks, or simply because there were a lot of bid transactions executed at the given time (for example, if there were 5 bid transactions sitting in the mempool with the same gas price and one of them was for a full inventory purchase, if that one does not get executed first, it will simply be reverted), leading to the component assets being sold at lower prices.\n\n**0xauditsea**\n\n@Arabadzhiew\nYou guys keep saying components are being sold at lower prices, if auction manager doesn't want them to be sold at lower prices, they should increase MIN price. When auction manager defines MIN price, it surely means that purchase at MIN price is pretty acceptable, this is pretty logical thing. Components being sold at lower price, good for buyers, acceptable for the auction manager, what is the problem here at all?\n\nRegarding the example you mentioned above, you are right that full purchase bid will be reverted when there is another bid tx is executed before it, I think that's fine, that's what the auction is for - first buyer gets what they want.\nIf you don't agree with this and let full purchase tx buy all remaining amount, it will cause an issue like, users wanted to buy whole 10WETH from the auction but they end up only buying 5WETH, do you think users will like this?\n\nOfc this issue needs to be fixed, but the severity can not be Med at all.\n\n**Arabadzhiew**\n\n> @Arabadzhiew You guys keep saying components are being sold at lower prices, if auction manager doesn't want them to be sold at lower prices, they should increase MIN price. When auction manager defines MIN price, it surely means that purchase at MIN price is pretty acceptable, this is pretty logical thing. Components being sold at lower price, good for buyers, acceptable for the auction manager, what is the problem here at all?\n> \n> Regarding the example you mentioned above, you are right that full purchase bid will be reverted when there is another bid tx is executed before it, I think that's fine, that's what the auction is for - first buyer gets what they want. If you don't agree with this and let full purchase tx buy all remaining amount, it will cause an issue like, users wanted to buy whole 10WETH from the auction but they end up only buying 5WETH, do you think users will like this?\n> \n> Ofc this issue needs to be fixed, but the severity can not be Med at all.\n\nSure, the MIN value is defined by the auction manager, but the fact that the component asset is going to be sold at a lower price is still a loss of funds for the protocol. The MIN value is there to make sure that the auction targets get reached, but I don't think the protocol team should be ok with receiving less assets, when they can receive more.\n\nAlso, regarding the mitigation recommended in this report, I think it is fine due to the fact that it is optional - users can only use the entire available balance purchase functionality if they explicitly say so, otherwise the bidding functionality should work as it currently does.\n\nI won't comment on this issue any further. Let's let the Sherlock team decide whether it is a valid medium or not.\n\n**hrishibhat**\n\nResult:\nMedium\nHas duplicates\nAfter consideration of the above comments this issue is a valid medium, DOS of a valid bid at a certain price in a Dutch auction is considered damage to how the auction functions. \n\n\n**sherlock-admin2**\n\nEscalations have been resolved successfully!\n\nEscalation status:\n- [JJtheAndroid](https://github.com/sherlock-audit/2023-06-Index-judging/issues/41/#issuecomment-1658752271): rejected\n\n**hrishibhat**\n\nAdditionally, I see that the Sherlock rules are being interpreted incorrectly, will make sure to make the necessary changes to the docs and see how best any possible confusion can be avoided. \n\n**pblivin0x**\n\nThe remediation for this issue is open for review here https://github.com/IndexCoop/index-protocol/pull/25\n\nThe changes are to allow users to specify `type(uint256.max)` to settle the remaining auction https://github.com/IndexCoop/index-protocol/blob/839a6c699cc9217c8ee9f3b67418c64e80f0e10d/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L811-L817",
+      "summary": "\nThis bug report focuses on the vulnerability in the AuctionRebalanceModuleV1.sol code that allows malicious users to frontrun full inventory asset purchases, thus preventing the transaction from executing as expected and leading to assets being sold under market value. This bug was found by 0x52 and Arabadzhiev and the code snippet was manually reviewed. \n\nThe impact of this bug is that malicious users can DOS legitimate users attempting to purchase the entire amount of component. This issue was initially marked as Medium severity, but it was later escalated to low/invalid as per Sherlock's rules.\n\nThe discussion around this bug focused on whether or not it was a valid issue and should be escalated. It was argued that there is an incentive to perform such kind of a DoS - If the price of the auction decreases over time, users will probably want to prolong it as much as they can. Additionally, the DoS can very easily happen unintentionally, when a lot of bid transactions get executed in the same block. It was also argued that the issue does not allow normal functioning of the dutch auction.\n\nThe counterargument was that there is no loss of funds at all and that users can only prolong the auction as long as the current price is higher than the min price. It was also argued that the unintentional scenario is not a DOS, it is just multiple people bidding at the same time.\n\nIn the end, it was agreed that this issue should be marked as Medium severity, as it does lead to the protocol receiving less assets than it could have received. The recommendation was to allow users to specify type(uint256.max) to swap the entire available balance.",
+      "report_date": {},
+      "contest_prize_txt": "24000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/91",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-06-Index-judging/issues/41",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "91",
+      "slug": "m-4-full-inventory-asset-purchases-can-be-dosd-via-frontrunning-sherlock-none-index-update-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Index Update",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Index Update",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Indexes"
+            },
+            "score": 1
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Front-Running"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "DOS"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Denial-Of-Service"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        }
+      ]
+    },
+    {
+      "id": "20906",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "981",
+      "title": "M-3: No check for sequencer uptime can lead to dutch auctions executing at bad prices",
+      "content": "Source: https://github.com/sherlock-audit/2023-06-Index-judging/issues/40 \n\n## Found by \n0x52\n## Summary\n\nWhen purchasing from dutch auctions on L2s there is no considering of sequencer uptime. When the sequencer is down, all transactions must originate from the L1. The issue with this is that these transactions use an aliased address. Since the set token contracts don't implement any way for these aliased addressed to interact with the protocol, no transactions can be processed during this time even with force L1 inclusion. If the sequencer goes offline during the the auction period then the auction will continue to decrease in price while the sequencer is offline. Once the sequencer comes back online, users will be able to buy tokens from these auctions at prices much lower than market price.\n\n## Vulnerability Detail\n\nSee summary.\n\n## Impact\n\nAuction will sell/buy assets at prices much lower/higher than market price leading to large losses for the set token\n\n## Code Snippet\n\n[AuctionRebalanceModuleV1.sol#L772-L836](https://github.com/sherlock-audit/2023-06-Index/blob/main/index-protocol/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L772-L836)\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nCheck sequencer uptime and invalidate the auction if the sequencer was ever down during the auction period\n\n\n\n## Discussion\n\n**pblivin0x**\n\nWhat exactly is the remediation here? To check an external uptime feed https://docs.chain.link/data-feeds/l2-sequencer-feeds ?\n\nNot sure if we will fix this issue. This may be on manager parameterizing the auction to select tight upper/lower bounds. \n\n**FlattestWhite**\n\nAgree won't fix - will look at again if we launch on an L2.\n\n**snake-poison**\n\nThe equivalent effect to this on L1 would be a reorg that would move time forward but not have had any bids on the canonical chain. The protection on this is the manager setting an appropriate floor for the auction as the \"loss\" outcome is no different than having no participants.\n\n**JJtheAndroid**\n\nEscalate \n\nThis issue should be invalid.\n\nEach auction has a min/max price\n\nAny asset price purchased within min/max bounds set by the manager, is what the manager is willing to accept in terms of asset price volatility.  These are not \"bad\" prices as described in the report. If the set token manager doesn't like the price that his/her asset is being sold for, then they simply set the min price  of the auction too low, making this an admin input error which is invalid as per Sherlock's rules.\n\n**sherlock-admin2**\n\n > Escalate \n> \n> This issue should be invalid.\n> \n> Each auction has a min/max price\n> \n> Any asset price purchased within min/max bounds set by the manager, is what the manager is willing to accept in terms of asset price volatility.  These are not \"bad\" prices as described in the report. If the set token manager doesn't like the price that his/her asset is being sold for, then they simply set the min price  of the auction too low, making this an admin input error which is invalid as per Sherlock's rules.\n\nYou've created a valid escalation!\n\nTo remove the escalation from consideration: Delete your comment.\n\nYou may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.\n\n**IAm0x52**\n\nA dutch auction price bounds are set specifically with the max price above the current market price and the min below the current market price. The expectation is that the auction will execute efficiently when the market price is the same as the auction price. I have shown a scenario where the auction is unable to execute as expected due to sequencer downtime. While the admin can lessen the potential loss of this, due to the nature of a dutch auction they cannot prevent it simply with a min/max bound on price.\n\n**pblivin0x**\n\nI am fine with whatever result for this issue. Medium or Low. \n\n**Oot2k**\n\nI think this is valid, (in past this issue has been valid and the report shows clear impact)\nTeam mentions that they plan to deploy on layer2 so even if this is a \"wont fix\" I believe its valid.\n\n**0xauditsea**\n\n@Oot2k - Where is impact at all? No loss of tokens, benefits for users.\n\n**pblivin0x**\n\n> @Oot2k - Where is impact at all? No loss of tokens, benefits for users.\n\nSuppose we have a dutch auction which starts at 10% above market price and ends at 10% below market price, if sequencer goes down, the auction never had a chance to fill at 0%, and users are hurt because the SetToken did not perform a valid L2 check on their auction\n\n**0xauditsea**\n\nNo more comments attached, hope you guys make a right decision. Needs fairness.\n\n**hrishibhat**\n\n@0xauditsea \n>  hope you guys make a right decision. Needs fairness.\n\nI think this [comment](https://github.com/sherlock-audit/2023-06-Index-judging/issues/40#issuecomment-1664743039) explains why this issue is valid and is fair to reward this.\n\n**hrishibhat**\n\nResult:\nMedium\nUnique\nConsidering this a valid medium based on the above comments\nhttps://github.com/sherlock-audit/2023-06-Index-judging/issues/40#issuecomment-1664743039\n\n**sherlock-admin2**\n\nEscalations have been resolved successfully!\n\nEscalation status:\n- [JJtheAndroid](https://github.com/sherlock-audit/2023-06-Index-judging/issues/40/#issuecomment-1658472619): rejected\n\n**pblivin0x**\n\nThis issue will not be resolved in remediations, but the following warning was added to the contract documentation https://github.com/IndexCoop/index-protocol/blob/839a6c699cc9217c8ee9f3b67418c64e80f0e10d/contracts/protocol/modules/v1/AuctionRebalanceModuleV1.sol#L53-L55",
+      "summary": "\nThis bug report is about a vulnerability in the L2 Dutch Auction process of the Index Protocol. The vulnerability is that when the sequencer goes offline, transactions must originate from the L1, which uses an aliased address. This means that no transactions can be processed during the offline period, even with force L1 inclusion. This can result in users being able to purchase tokens from these auctions at prices much lower than the market price. \n\nThe code snippet provided is from the AuctionRebalanceModuleV1.sol#L772-L836 file on Github. It was found manually. \n\nThe impact of this vulnerability is that the auction will sell/buy assets at prices much lower/higher than market price, leading to large losses for the set token.\n\nThe discussion by the team was that the issue should not be fixed, as it is more likely an admin input error. However, a warning was added to the contract documentation as a precaution. In the end, the issue was marked as a valid medium.",
+      "report_date": {},
+      "contest_prize_txt": "24000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/91",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-06-Index-judging/issues/40",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "91",
+      "slug": "m-3-no-check-for-sequencer-uptime-can-lead-to-dutch-auctions-executing-at-bad-prices-sherlock-none-index-update-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Index Update",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Index Update",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Indexes"
+            },
+            "score": 1
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "L2 Sequencer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Missing Check"
+          }
+        }
+      ]
+    },
+    {
+      "id": "20554",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "16",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "963",
+      "title": "[M-04] Auction won't work correctly with fee-on-transfer & rebasing tokens",
+      "content": "**Impact:**\nHigh, as it can lead to a loss of value\n\n**Likelihood:**\nLow, as such tokens are not so common\n\n**Description**\n\nThe code in `createAuction` does the following:\n\n```solidity\nIERC20(reserveToken).transferFrom(msg.sender, address(this), reserveAmount);\n...\n...\nstate.reserves = reserveAmount;\n```\n\nso it basically caches the expected transferred amount. This will not work if the `reserveToken` has a fee-on-transfer mechanism, since the actual received amount will be less because of the fee. It is also a problem if the token used had a rebasing mechanism, as this can mean that the contract will hold less balance than what it cached in `state.reserves` for the auction, or it will hold more, which will be stuck in the protocol.\n\n**Recommendations**\n\nYou can either explicitly document that you do not support tokens with a fee-on-transfer or rebasing mechanism or you can do the following:\n\n1. For fee-on-transfer tokens, check the balance before and after the transfer and use the difference as the actual amount received.\n2. For rebasing tokens, when they go down in value, you should have a method to update the cached `reserves` accordingly, based on the balance held. This is a complex solution.\n3. For rebasing tokens, when they go up in value, you should add a method to actually transfer the excess tokens out of the protocol.",
+      "summary": "\nThis bug report describes a problem with the code in the `createAuction` function, which caches the expected transferred amount from the `reserveToken`. This is a problem if the `reserveToken` has a fee-on-transfer mechanism, since the actual received amount will be less due to the fee, or if the token used has a rebasing mechanism, as this can mean that the contract will hold less balance than what it cached in `state.reserves` for the auction, or it will hold more, which will be stuck in the protocol.\n\nThe impact is high, as it can lead to a loss of value, and the likelihood is low, as such tokens are not so common.\n\nRecommendations are provided to address the issue. These include documenting that tokens with a fee-on-transfer or rebasing mechanism are not supported, or checking the balance before and after the transfer and using the difference as the actual amount received, or when tokens go down in value, updating the cached `reserves` accordingly based on the balance held, and when they go up in value, adding a method to transfer the excess tokens out of the protocol.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/solodit/solodit_content/blob/main/reports/Pashov/2023-03-01-Rolling Dutch Auction.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "m-04-auction-wont-work-correctly-with-fee-on-transfer-rebasing-tokens-pashov-none-rolling-dutch-auction-markdown",
+      "firm_name": "Pashov Audit Group",
+      "firm_logo_square": "Pashov_square.png",
+      "protocol_name": "Rolling Dutch Auction",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Pashov Audit Group",
+        "logo_square": "Pashov_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Rolling Dutch Auction",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Fee On Transfer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7289",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "HIGH",
+      "finders_count": 4,
+      "protocol_id": "41",
+      "title": "settleAuction() doesn't check if the auction was successful",
+      "content": "## Security Risk Report\n\n## Severity\n**High Risk**\n\n## Context\n`CollateralToken.sol#L600`\n\n## Description\nThe `settleAuction()` function is a privileged functionality called by `LienToken.payDebtViaClearingHouse()`. It is intended to be called on a successful auction, but it lacks verification to ensure this is the case. \n\nAnyone can create a fake Seaport order with one of its considerations set as the `CollateralToken`, as described in Issue 93. Another potential issue arises if the Seaport orders can be \"Restricted\" in the future. In that scenario, an authorized entity could force the execution of `settleAuction()` on `CollateralToken`, and when Seaport tries to call back on the zone to validate, it would likely fail.\n\n## Recommendation\nThe following validations can be performed:\n\n- `CollateralToken` doesn't own the underlying NFT.\n- `collateralIdToAuction[collateralId]` is active.\n\nBy implementing these checks, `settleAuction()` can only be called upon the successful completion of the Seaport auction created by the Astaria protocol.",
+      "summary": "\nThis bug report is about the function settleAuction() in CollateralToken.sol#L600. This function is a privileged functionality called by LienToken.payDebtViaClearingHouse(), and is intended to be called on a successful auction. However, it does not verify whether the auction was successful or not, which can be exploited by creating a fake Seaport order with one of its considerations set as the CollateralToken. Another potential issue is if the Seaport orders can be \"Restricted\" in future, then an authorized entity can force settleAuction on CollateralToken, and when SeaPort tries to call back on the zone to validate it would fail. \n\nTo fix this issue, the following validations can be performed: CollateralToken doesn't own the underlying NFT, and collateralIdToAuction[collateralId] is active. This way, settleAuction() can only be called on the success of the Seaport auction created by Astaria protocol.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Astaria-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Astaria-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/Astaria-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 19,
+      "contest_id": "",
+      "slug": "settleauction-doesnt-check-if-the-auction-was-successful-spearbit-astaria-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Astaria",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Astaria",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Validation"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6313",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "46",
+      "title": "M-16: Auction timers following liquidity can fall through the floor price causing pool insolvency",
+      "content": "Source: https://github.com/sherlock-audit/2023-01-ajna-judging/issues/76 \n\n## Found by \nCRYP70\n\n## Summary\nWhen a borrower cannot pay their debt in an ERC20 pool, their position is liquidated and their assets enter an auction for other users to purchase small pieces of their assets. Because of the incentive that users wish to not pay above the standard market price for a token, users will generally wait until assets on auction are as cheap as possible to purchase however, this is flawed because this guarantees a loss for all lenders participating in the protocol with each user that is liquidated.\n\n## Vulnerability Detail\nConsider a situation where a user decides to short a coin through a loan and refuses to take the loss to retain the value of their position. When the auction is kicked off using the `kick()` function on this user, as time moves forward, the price for puchasing these assets becomes increasingly cheaper. These prices can fall through the floor price of the lending pool which will allow anybody to buy tokens for only a fraction of what they were worth originally leading to a state where the pool cant cover the debt of the user who has not paid their loan back with interest. The issue lies in the `_auctionPrice()` function of the `Auctions.sol` contract which calculates the price of the auctioned assets for the taker. This function does not consider the floor price of the pool. The proof of concept below outlines this scenario:\n\n*Proof of Concept:*\n```solidity\n    function testInsolvency() public {\n        \n        // ============== Setup Scenario ==============\n        uint256 interestRateOne = 0.05 * 10**18;           // Collateral  // Quote (loaned token, short position)\n        address poolThreeAddr = erc20PoolFactory.deployPool(address(dai), address(weth), interestRateOne);\n        ERC20Pool poolThree = ERC20Pool(address(poolThreeAddr));\n        vm.label(poolThreeAddr, \"DAI / WETH Pool Three\");\n\n        // Setup scenario and send liquidity providers some tokens\n        vm.startPrank(address(daiDoner));\n        dai.transfer(address(charlie), 3200 ether);\n        vm.stopPrank();\n\n        vm.startPrank(address(wethDoner));\n        weth.transfer(address(bob), 1000 ether);\n        vm.stopPrank();\n\n        // ==============================================\n\n\n        // Note At the time (24/01/2023) of writing ETH is currently 1,625.02 DAI,\n        // so this would be a popular bucket to deposit in.\n\n        // Start Scenario\n        // The lower dowm we go the cheaper wETH becomes - At a concentrated fenwick index of 5635, 1 wETH = 1600 DAI (Approx real life price)\n        uint256 fenwick = 5635;\n\n        vm.startPrank(address(alice));\n        weth.deposit{value: 2 ether}();\n        weth.approve(address(poolThree), 2.226 ether);\n        poolThree.addQuoteToken(2 ether, fenwick); \n        vm.stopPrank();\n\n        vm.startPrank(address(bob));\n        weth.deposit{value: 9 ether}();\n        weth.approve(address(poolThree), 9 ether);\n        poolThree.addQuoteToken(9 ether, fenwick); \n        vm.stopPrank();\n\n        assertEq(weth.balanceOf(address(poolThree)), 11 ether);\n\n\n        // ======================== start testing ========================\n\n        vm.startPrank(address(bob));\n        bytes32 poolSubsetHashes = keccak256(\"ERC20_NON_SUBSET_HASH\");\n        IPositionManagerOwnerActions.MintParams memory mp = IPositionManagerOwnerActions.MintParams({\n            recipient: address(bob),\n            pool: address(poolThree),\n            poolSubsetHash: poolSubsetHashes\n        });\n        positionManager.mint(mp);\n        positionManager.setApprovalForAll(address(rewardsManager), true);\n        rewardsManager.stake(1);\n        vm.stopPrank();\n\n\n        assertEq(dai.balanceOf(address(charlie)), 3200 ether);\n        vm.startPrank(address(charlie)); // Charlie runs away with the weth tokens\n        dai.approve(address(poolThree), 3200 ether);\n        poolThree.drawDebt(address(charlie), 2 ether, fenwick, 3200 ether);\n        vm.stopPrank();\n\n        vm.warp(block.timestamp + 62 days);\n\n\n        vm.startPrank(address(bob));\n        weth.deposit{value: 0.5 ether}();\n        weth.approve(address(poolThree), 0.5 ether);\n        poolThree.kick(address(charlie)); // Kick off liquidation\n        vm.stopPrank();\n\n        vm.warp(block.timestamp + 10 hours);\n\n        assertEq(weth.balanceOf(address(poolThree)), 9020189981190878108); // 9 ether\n\n\n        vm.startPrank(address(bob));\n        // Bob Takes a (pretend) flashloan of 1000 weth to get cheap dai tokens\n        weth.approve(address(poolThree), 1000 ether);\n        poolThree.take(address(charlie), 1000 ether , address(bob), \"\");\n        weth.approve(address(poolThree), 1000 ether);\n        poolThree.take(address(charlie), 1000 ether , address(bob), \"\");\n        weth.approve(address(poolThree), 1000 ether);\n        poolThree.take(address(charlie), 1000 ether , address(bob), \"\");\n        weth.approve(address(poolThree), 1000 ether);\n        poolThree.take(address(charlie), 1000 ether, address(bob), \"\");\n        \n        poolThree.settle(address(charlie), 100);\n        vm.stopPrank();\n\n\n        assertEq(weth.balanceOf(address(poolThree)), 9152686732755985308); // Pool balance is still 9 ether instead of 11 ether - insolvency. \n        assertEq(dai.balanceOf(address(bob)), 3200 ether); // The original amount that charlie posted as deposit\n\n\n        vm.warp(block.timestamp + 2 hours);\n        // users attempt to withdraw after shaken by a liquidation\n        vm.startPrank(address(alice));\n        poolThree.removeQuoteToken(2 ether, fenwick);\n        vm.stopPrank();\n\n        vm.startPrank(address(bob));\n        poolThree.removeQuoteToken(9 ether, fenwick);\n        vm.stopPrank();\n\n        assertEq(weth.balanceOf(address(bob)), 1007664981389220443074); // 1007 ether, originally 1009 ether\n        assertEq(weth.balanceOf(address(alice)), 1626148471550317418); // 1.6 ether, originally 2 ether\n\n    }\n```\n\n## Impact\nAn increase in borrowers who cant pay their debts back will result in a loss for all lenders. \n\n## Code Snippet\n- https://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/libraries/external/Auctions.sol#L1391-L1410\n\n## Tool used\n\nManual Review\n\n## Recommendation\nIt's recommended that the price of the assets on auction consider the fenwick(s) being used when determining the price of assets on loan and do not fall below that particular index. With this fix in place, the worst case scenario is that lenders can pruchase these assets for the price they were loaned out for allowing them to recover the loss. \n\n## Discussion\n\n**grandizzy**\n\nthis is a design choice. however we're reconsidering the auction implementation to use a floor price \n\n**hrishibhat**\n\nConsidering this issue a valid medium as there is a possible risk of funds lost for lenders under certain circumstances",
+      "summary": "\nA bug report has been filed on the ERC20 pool of the AJNA protocol which can cause pool insolvency. The issue is that when a borrower cannot pay their debt in an ERC20 pool, their position is liquidated and their assets enter an auction for other users to purchase small pieces of their assets. This incentivizes users to wait until assets on auction are as cheap as possible to purchase, however this is flawed because this guarantees a loss for all lenders participating in the protocol with each user that is liquidated. This is because the `_auctionPrice()` function of the `Auctions.sol` contract which calculates the price of the auctioned assets for the taker does not consider the floor price of the pool. As a result, it is possible for the asset to be purchased for a fraction of what it was worth originally, leading to a state where the pool cannot cover the debt of the user. \n\nThe impact of this bug is that an increase in borrowers who cannot pay their debts back will result in a loss for all lenders. The code snippet for this issue can be found at https://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/libraries/external/Auctions.sol#L1391-L1410. Manual review was used to identify the bug.\n\nThe recommendation is that the price of the assets on auction should consider the fenwick(s) being used when determining the price of assets on loan and do not fall below that particular index. This will allow lenders to purchase the assets for the price they were loaned out for, allowing them to recover the loss. \n\nThe discussion on this issue included grandizzy who stated that this is a design choice, however they are reconsidering the auction implementation to use a floor price. Hrishibhat also considered this issue a valid medium as there is a possible risk of funds lost for lenders under certain circumstances.",
+      "report_date": {},
+      "contest_prize_txt": "75000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/32",
+      "sponsor_name": "Ajna",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-01-ajna-judging/issues/76",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "32",
+      "slug": "m-16-auction-timers-following-liquidity-can-fall-through-the-floor-price-causing-pool-insolvency-sherlock-ajna-ajna-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Ajna",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Ajna",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Business Logic"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Lending Pool"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6309",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "46",
+      "title": "M-12: Deposits are eliminated before currently unclaimed reserves when there is no reserve auction",
+      "content": "Source: https://github.com/sherlock-audit/2023-01-ajna-judging/issues/102 \n\n## Found by \nhyh\n\n## Summary\n\nReserves that were unclaimed during last reserve auction that's now ended are not utilized for bad debt coverage and are treated as liabilities despite it is the free reserve funds of the pool.\n\nDue to that deposits are being written off when there are still reserve funds exist and deposits' turn as a last resort liquidity source aren't came yet.\n\n## Vulnerability Detail\n\nSuppose auctioned reserves weren't taken for any reason: say no market participants were there for that particular pool in the period when reserve auction implied Ajna token price was above market. Then there is no liability, i.e. that amount is free pool funds and to be used ahead of HPB deposits to cover any deficits.\n\nCurrently that's not happening, instead unclaimed reserves are frozen and aren't used. I.e. system treats these funds as being liable (while they aren't, auction is ended), so only very last reserve funds, that weren't yet added to the reserve auctions pot, can be used to cover bad debt. When there are not enough such funds, deposits are written off.\n\n## Impact\n\nDeposit holders take a loss when the pool in fact do have reserve funds to cover bad debt. This loss isn't a part of the declared mechanics of the protocol.\n\nReserve auction can end up with not all auctioned reserves taken frequently enough due to, for example:\n- short period of time when Ajna token were overpriced in it,\n- or this period intersecting with spike of gas prices that made it unprofitable in absolute terms,\n- or low liquidity of Ajna token at that time.\n\nI.e. the reason can vary, the point is reserve auction not being sold out can be a regular outcome, while the expected sequence of funds to cover bad debt is typical and is stated in whitepaper (part 7.6, Settling, point 3 in the list), so it will be expected by the lenders that the reserves are covering bad debt first.\n\n## Code Snippet\n\nsettlePoolDebt() uses the reserves to cover bad debt:\n\nhttps://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/libraries/external/Auctions.sol#L277-L313\n\n```solidity\n        // if there's still debt and no collateral\n        if (borrower.t0Debt != 0 && borrower.collateral == 0) {\n            // settle debt from reserves -- round reserves down however\n            borrower.t0Debt -= Maths.min(borrower.t0Debt, (params_.reserves / params_.inflator) * 1e18);\n\n            // if there's still debt after settling from reserves then start to forgive amount from next HPB\n            // loop through remaining buckets if there's still debt to settle\n            while (params_.bucketDepth != 0 && borrower.t0Debt != 0) {\n                SettleLocalVars memory vars;\n\n                (vars.index, , vars.scale) = Deposits.findIndexAndSumOfSum(deposits_, 1);\n                vars.unscaledDeposit = Deposits.unscaledValueAt(deposits_, vars.index);\n                vars.depositToRemove = Maths.wmul(vars.scale, vars.unscaledDeposit);\n                vars.debt            = Maths.wmul(borrower.t0Debt, params_.inflator);\n\n                // enough deposit in bucket to settle entire debt\n                if (vars.depositToRemove >= vars.debt) {\n                    Deposits.unscaledRemove(deposits_, vars.index, Maths.wdiv(vars.debt, vars.scale));\n                    borrower.t0Debt  = 0;                                                              // no remaining debt to settle\n\n                // not enough deposit to settle entire debt, we settle only deposit amount\n                } else {\n                    borrower.t0Debt -= Maths.wdiv(vars.depositToRemove, params_.inflator);             // subtract from remaining debt the corresponding t0 amount of deposit\n\n                    Deposits.unscaledRemove(deposits_, vars.index, vars.unscaledDeposit);              // Remove all deposit from bucket\n                    Bucket storage hpbBucket = buckets_[vars.index];\n                    \n                    if (hpbBucket.collateral == 0) {                                                   // existing LPB and LP tokens for the bucket shall become unclaimable.\n                        emit BucketBankruptcy(vars.index, hpbBucket.lps);\n                        hpbBucket.lps            = 0;\n                        hpbBucket.bankruptcyTime = block.timestamp;\n                    }\n                }\n\n                --params_.bucketDepth;\n            }\n        }\n```\n\nBut this reserves do not include `reserveAuction.unclaimed`, which is treated like a liability even when there is no reserve auction:\n\nhttps://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/ERC721Pool.sol#L353-L365\n\n```solidity\n    function settle(\n        address borrowerAddress_,\n        uint256 maxDepth_\n    ) external nonReentrant override {\n        PoolState memory poolState = _accruePoolInterest();\n\n        uint256 assets = Maths.wmul(poolBalances.t0Debt, poolState.inflator) + _getPoolQuoteTokenBalance();\n        uint256 liabilities = Deposits.treeSum(deposits) + auctions.totalBondEscrowed + reserveAuction.unclaimed;\n\n        SettleParams memory params = SettleParams(\n            {\n                borrower:    borrowerAddress_,\n                reserves:    (assets > liabilities) ? (assets-liabilities) : 0,\n```\n\nhttps://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/ERC20Pool.sol#L356-L378\n\n```solidity\n    function settle(\n        address borrowerAddress_,\n        uint256 maxDepth_\n    ) external override nonReentrant {\n        PoolState memory poolState = _accruePoolInterest();\n\n        uint256 assets = Maths.wmul(poolBalances.t0Debt, poolState.inflator) + _getPoolQuoteTokenBalance();\n\n        uint256 liabilities = Deposits.treeSum(deposits) + auctions.totalBondEscrowed + reserveAuction.unclaimed;\n\n        (\n            ,\n            ,\n            uint256 collateralSettled,\n            uint256 t0DebtSettled\n        ) = Auctions.settlePoolDebt(\n            auctions,\n            buckets,\n            deposits,\n            loans,\n            SettleParams({\n                borrower:    borrowerAddress_,\n                reserves:    (assets > liabilities) ? (assets - liabilities) : 0,\n```\n\nReserve auction finishes by timer and there is no adjustments to `unclaimed` if it is not sold fully:\n\nhttps://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/libraries/external/Auctions.sol#L642-L663\n\n```solidity\n    function takeReserves(\n        ReserveAuctionState storage reserveAuction_,\n        uint256 maxAmount_\n    ) external returns (uint256 amount_, uint256 ajnaRequired_) {\n        uint256 kicked = reserveAuction_.kicked;\n\n        if (kicked != 0 && block.timestamp - kicked <= 72 hours) {\n            uint256 unclaimed = reserveAuction_.unclaimed;\n            uint256 price     = _reserveAuctionPrice(kicked);\n\n            amount_       = Maths.min(unclaimed, maxAmount_);\n            ajnaRequired_ = Maths.wmul(amount_, price);\n\n            unclaimed -= amount_;\n\n            reserveAuction_.unclaimed = unclaimed;\n\n            emit ReserveAuction(unclaimed, price);\n        } else {\n            revert NoReservesAuction();\n        }\n    }\n```\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nConsider removing currently unsettled `reserveAuction.unclaimed` if reserve auction doesn't take place now as those aren't liabilities:\n\nhttps://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/ERC721Pool.sol#L353-L382\n\n```solidity\n    function settle(\n        address borrowerAddress_,\n        uint256 maxDepth_\n    ) external nonReentrant override {\n        PoolState memory poolState = _accruePoolInterest();\n+       uint256 kicked = reserveAuction.kicked;     \n+       uint256 reservesAuctioned = (kicked != 0 && block.timestamp - kicked <= 72 hours) ? reserveAuction.unclaimed : 0;   \n\n        uint256 assets = Maths.wmul(poolBalances.t0Debt, poolState.inflator) + _getPoolQuoteTokenBalance();\n-       uint256 liabilities = Deposits.treeSum(deposits) + auctions.totalBondEscrowed + reserveAuction.unclaimed;\n+       uint256 liabilities = Deposits.treeSum(deposits) + auctions.totalBondEscrowed + reservesAuctioned;\n\n        SettleParams memory params = SettleParams(\n            {\n                borrower:    borrowerAddress_,\n                reserves:    (assets > liabilities) ? (assets-liabilities) : 0,\n                inflator:    poolState.inflator,\n                bucketDepth: maxDepth_,\n                poolType:    poolState.poolType\n            }\n        );\n        (\n            uint256 collateralRemaining,\n            uint256 t0DebtRemaining,\n            uint256 collateralSettled,\n            uint256 t0DebtSettled\n        ) = Auctions.settlePoolDebt(\n            auctions,\n            buckets,\n            deposits,\n            loans,\n+           reserveAuction,\n            params\n        );\n```\n\n\nhttps://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/ERC20Pool.sol#L356-L378\n\n```solidity\n    function settle(\n        address borrowerAddress_,\n        uint256 maxDepth_\n    ) external override nonReentrant {\n        PoolState memory poolState = _accruePoolInterest();\n+       uint256 kicked = reserveAuction.kicked;        \n+       uint256 reservesAuctioned = (kicked != 0 && block.timestamp - kicked <= 72 hours) ? reserveAuction.unclaimed : 0;\n\n        uint256 assets = Maths.wmul(poolBalances.t0Debt, poolState.inflator) + _getPoolQuoteTokenBalance();\n\n-       uint256 liabilities = Deposits.treeSum(deposits) + auctions.totalBondEscrowed + reserveAuction.unclaimed;\n+       uint256 liabilities = Deposits.treeSum(deposits) + auctions.totalBondEscrowed + reservesAuctioned;\n\n        (\n            ,\n            ,\n            uint256 collateralSettled,\n            uint256 t0DebtSettled\n        ) = Auctions.settlePoolDebt(\n            auctions,\n            buckets,\n            deposits,\n            loans,\n+           reserveAuction,\n            SettleParams({\n                borrower:    borrowerAddress_,\n                reserves:    (assets > liabilities) ? (assets - liabilities) : 0,\n```\n\nReserve auction state can be added as an argument to provide these fields: \n\nhttps://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/libraries/external/Auctions.sol#L199-L205\n\n```solidity\n    function settlePoolDebt(\n        AuctionsState storage auctions_,\n        mapping(uint256 => Bucket) storage buckets_,\n        DepositsState storage deposits_,\n        LoansState storage loans_,\n+       ReserveAuctionState storage reserveAuction_,\n        SettleParams memory params_\n    ) external returns (\n```\n\nAlso, consider accounting for the reserves that were used to cover bad debt (otherwise next reserve auction will be frozen until new income replenishes the funds used for coverage):\n\nhttps://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/libraries/external/Auctions.sol#L277-L283\n\n```solidity\n        // if there's still debt and no collateral\n        if (borrower.t0Debt != 0 && borrower.collateral == 0) {\n            // settle debt from reserves -- round reserves down however\n+           uint256 reservesUsed = Maths.min(borrower.t0Debt, (params_.reserves / params_.inflator) * 1e18);\n+           uint256 kicked       = reserveAuction_.kicked;\n-           borrower.t0Debt -= Maths.min(borrower.t0Debt, (params_.reserves / params_.inflator) * 1e18);\n+           borrower.t0Debt -= reservesUsed;\n+           if (kicked != 0 && block.timestamp - kicked <= 72 hours) reserveAuction_.unclaimed -= reservesUsed;\n\n            // if there's still debt after settling from reserves then start to forgive amount from next HPB\n            // loop through remaining buckets if there's still debt to settle\n```\n\n## Discussion\n\n**grandizzy**\n\nunclaimed auction reserves won't be available to fund a liquidation, this is an issue which we are going to document, no code change involved\n\n**hrishibhat**\n\nClassifying this issue as a medium based on the above comment.",
+      "summary": "\nThis bug report is about how reserves that are unclaimed during a reserve auction are not utilized for bad debt coverage and are treated as liabilities, despite it being the free reserve funds of the pool. As a result, deposits are being written off when there are still reserve funds exist and deposits' turn as a last resort liquidity source hasn't come yet. \n\nThe reason for the reserve auction not being sold out can vary, such as a short period of time when Ajna token were overpriced, or a spike in gas prices making it unprofitable in absolute terms, or low liquidity of Ajna token. This loss is not part of the declared mechanics of the protocol.\n\nThe code snippet provided in the report shows how the settlePoolDebt() function uses the reserves to cover bad debt, but this reserves do not include reserveAuction.unclaimed, which is treated like a liability even when there is no reserve auction. The reserve auction finishes by timer and there is no adjustment to unclaimed if it is not sold fully. \n\nThe recommendation is to consider removing currently unsettled reserveAuction.unclaimed if the reserve auction doesn't take place now, as those aren't liabilities. Additionally, consider accounting for the reserves that were used to cover bad debt, otherwise the next reserve auction will be frozen until new income replenishes the funds used for coverage. \n\nThe tool used for this report was Manual Review, and the issue has been classified as medium based on a comment by a user.",
+      "report_date": {},
+      "contest_prize_txt": "75000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/32",
+      "sponsor_name": "Ajna",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-01-ajna-judging/issues/102",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "32",
+      "slug": "m-12-deposits-are-eliminated-before-currently-unclaimed-reserves-when-there-is-no-reserve-auction-sherlock-ajna-ajna-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Ajna",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Ajna",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Business Logic"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6357",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 20,
+      "protocol_id": "82",
+      "title": "[H-03] `saleReceiver` and `feeReceiver` can steal refunds after sale has ended",
+      "content": "\n<https://github.com/code-423n4/2022-12-escher/blob/main/src/minters/LPDA.sol#L67-L68>\n\n<https://github.com/code-423n4/2022-12-escher/blob/main/src/minters/LPDA.sol#L81-L88>\n\nFirst, lets go over how a buy happens.\n\nA buyer can buy NFTs at a higher price and then once the auction ends they can use `refund()` to return the over payments. The effect is that they bought the NFTs at the lowest price (Lowest Price Dutch Auction).\n\nNow, let's move on to what happens when the sale ends:\n\nThe sale is considered ended when the last NFT is sold which triggers the payout to the seller and fee collector:\n\n```javascript\n81:        if (newId == temp.finalId) {\n82:            sale.finalPrice = uint80(price);\n83:            uint256 totalSale = price * amountSold;\n84:            uint256 fee = totalSale / 20;\n85:            ISaleFactory(factory).feeReceiver().transfer(fee);\n86:            temp.saleReceiver.transfer(totalSale - fee);\n87:            _end();\n88:        }\n```\n\nEarlier there's also a check that you cannot continue buying once the `currentId` has reached `finalId`:\n\n```javascript\n67:        uint48 newId = amount + temp.currentId;\n68:        require(newId <= temp.finalId, \"TOO MANY\");\n```\n\nHowever, it is still possible to buy `0` NFTs for whichever price you want even after the sale has ended. Triggering the \"end of sale\" snippet again, since `newId` will still equal `temp.finalId`.\n\nThe attacker, `saleReceiver` (or `feeReceiver`), buys `0` NFTs for the delta between `totalSale` and the balance still in the contract (the over payments by buyers). If there is more balance in the contract than `totalSales` this can be iterated until the contract is empty.\n\nThe attacker has then stolen the over payments from the buyers.\n\nA buyer can mitigate this by continuously calling `refund()` as the price lowers but that would incur a high gas cost.\n\n### Impact\n\n`saleReceiver` or `feeReceiver` can steal buyers over payments after the sale has ended. Who gains the most depends on circumstances in the auction.\n\n### Proof of Concept\n\nPoC test in `test/LPDA.t.sol`:\n\n```javascript\n    function test_BuyStealRefund() public {\n        sale = LPDA(lpdaSales.createLPDASale(lpdaSale));\n        edition.grantRole(edition.MINTER_ROLE(), address(sale));\n        \n        // buy most nfts at a higher price\n        sale.buy{value: 9 ether}(9);\n\n        // warp to when price is lowest\n        vm.warp(block.timestamp + 1 days);\n        uint256 price = sale.getPrice(); // 0.9 eth\n\n        // buy last nft at lowest possible price\n        sale.buy{value: price}(1);\n\n        uint256 contractBalanceAfterEnd = address(sale).balance;\n        uint256 receiverBalanceAfterEnd = address(69).balance;\n        console.log(\"Sale end\");\n        console.log(\"LPDA contract\",contractBalanceAfterEnd); // ~ 0.9 eth\n        console.log(\"saleReceiver \",receiverBalanceAfterEnd); // ~9 - fee eth\n\n        // buy 0 nfts for the totalSales price - current balance\n        // totalSales: 9 eth - contract balance 0.9 eth = ~8.1 eth\n        uint256 totalSale = price * 10;\n        uint256 delta = totalSale - contractBalanceAfterEnd;\n        sale.buy{value: delta}(0);\n\n        console.log(\"after steal\");\n        console.log(\"LPDA contract\",address(sale).balance);\n        console.log(\"saleReceiver \",address(69).balance - receiverBalanceAfterEnd - delta); // ~0.45 eth stolen by receiver, 0.45 eth to fees\n\n        // buyer supposed to get back the ~0.9 eth\n        vm.expectRevert(); // EvmError: OutOfFund\n        sale.refund(); // nothing to refund\n    }\n```\n\n### Tools Used\n\nVS Code, Forge\n\n### Recommended Mitigation Steps\n\nI can think of different options of how to mitigate this:\n\n*   Don't allow buying 0 NFTs\n*   Don't allow buying if `newId == finalId` since the sale has ended\n\n**[mehtaculous (Escher) disagreed with severity](https://github.com/code-423n4/2022-12-escher-findings/issues/16)** \n\n***\n\n \n",
+      "summary": "\nThis bug report is about a vulnerability in the Lowest Price Dutch Auction (LPDA) smart contract. The LPDA is a type of auction where buyers can purchase Non-Fungible Tokens (NFTs) at the lowest possible price. When the last NFT is sold, the sale is considered to be ended and the seller and fee collector are paid out. However, it is still possible for a buyer to purchase 0 NFTs for whatever price they want even after the sale has ended. This allows the attacker, either the sale receiver or fee receiver, to buy 0 NFTs for the difference between the total sale and the balance still in the contract, thus stealing the over payments from the buyers.\n\nThe vulnerability can be tested using the proof of concept in the test/LPDA.t.sol file. The recommended mitigation steps are to not allow buying 0 NFTs or buying if newId == finalId since the sale has ended.",
+      "report_date": {},
+      "contest_prize_txt": "$36,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-12-escher-contest",
+      "sponsor_name": "Escher",
+      "sponsor_link": "https://twitter.com/escherxyz",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-12-escher",
+      "github_link": "https://github.com/code-423n4/2022-12-escher-findings/issues/441",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "189",
+      "slug": "h-03-salereceiver-and-feereceiver-can-steal-refunds-after-sale-has-ended-code4rena-escher-escher-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Escher",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Escher",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "NFT"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3315",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "153",
+      "title": "[M-07] Attacker can force AuctionCrowdfunds to bid their entire contribution up to maxBid",
+      "content": "_Submitted by Trust, also found by cccz_\n\nAuctionCrowdfund's `bid()` allows any user to compete on an auction on the party's behalf. The code in `bid()` forbids placing a bid if party is already winning the auction:\n\n    if (market.getCurrentHighestBidder(auctionId_) == address(this)) {\n                revert AlreadyHighestBidderError();\n            }\n\nHowever, it does not account for attackers placing bids from their own wallet, and then immediately overbidding them using the party's funds. This can be used in two ways:\n\n1.  Attacker which lists an NFT, can force the party to spend all its funds up to maxBid on the auction, even if the party could have purchased the NFT for much less.\n2.  Attackers can grief random auctions, making them pay the absolute maximum for the item. Attackers can use this to drive the prices of NFT items up, profiting from this using secondary markets.\n\n### Impact\n\nParties can be stopped from buying items at a good value without any risk to the attacker.\n\n### Proof of Concept\n\n1.  Attacker places an NFT for sale, valued at X\n2.  Attacker creates an AuctionCrowdfund, with maxBid = Y such that Y = 2X\n3.  Current bid for the NFT is X - AUCTION_STEP\n4.  Users contribute to the fund, which now has 1.5X\n5.  Users call `bid()` to bid X  for the NFT\n6.  Attacker bids for the item externally for 1.5X - AUCTION_STEP\n7.  Attacker calls `bid()` to bid 1.5X for the NFT\n8.  Attacker sells his NFT for 1.5X although no one apart from the party was interested in buying it above price X\n\n### Recommended Mitigation Steps\n\nIntroduce a new option variable to AuctionCrowdfunds called speedBump. Inside the `bid()` function, calculate seconds since last bid, multiplied by the price change factor. This product must be smaller than the chosen speedBump. Using this scheme, the protocol would have resistance to sudden bid spikes. Optionally, allow a majority funder to override the speed bump.\n\n**[merklejerk (PartyDAO) acknowledged and commented](https://github.com/code-423n4/2022-09-party-findings/issues/220#issuecomment-1254406481):**\n > This is a known limitation of crowdfunds. We will allow some parties to restrict who can call `buy()` or `bid()` to hosts, which will mitigate this.\n\n**[HardlyDifficult (judge) commented](https://github.com/code-423n4/2022-09-party-findings/issues/220#issuecomment-1267209362):**\n > This is a fair concern, a form of potentially leaking value so agree with Medium risk. Not sure I agree with the recommendation here, but restricting to hosts does help mitigate by putting risk on the attacker.\n\n**[0xble (PartyDAO) confirmed and resolved](https://github.com/code-423n4/2022-09-party-findings/issues/220#issuecomment-1276604774):**\n > Mitigated by: https://github.com/PartyDAO/partybidV2/pull/140\n\n\n\n***\n\n",
+      "summary": "\nA bug has been identified in the code of AuctionCrowdfund's bid() function, which allows any user to compete on an auction on the party's behalf. Attackers can exploit this by placing bids from their own wallet, and then immediately overbidding them using the party's funds. This can be used to either force the party to spend all its funds up to maxBid on the auction, or to drive the prices of NFT items up, profiting from this using secondary markets.\n\nA proof of concept has been provided to demonstrate how the bug can be exploited. It involves the attacker placing an NFT for sale, valued at X, creating an AuctionCrowdfund with maxBid = Y such that Y = 2X, and then bidding for the NFT externally for 1.5X - AUCTION_STEP and then calling bid() to bid 1.5X for the NFT.\n\nTo mitigate this bug, it is recommended to introduce a new option variable to AuctionCrowdfunds called speedBump. This would calculate seconds since last bid, multiplied by the price change factor, and this product must be smaller than the chosen speedBump. Optionally, allow a majority funder to override the speed bump.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-09-partydao-contest",
+      "sponsor_name": "PartyDAO",
+      "sponsor_link": "https://twitter.com/prtyDAO",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-09-party",
+      "github_link": "https://github.com/code-423n4/2022-09-party-findings/issues/220",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "160",
+      "slug": "m-07-attacker-can-force-auctioncrowdfunds-to-bid-their-entire-contribution-up-to-maxbid-code4rena-partydao-partydao-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "PartyDAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "PartyDAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Payments"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Business Logic"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2995",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 13,
+      "protocol_id": "187",
+      "title": "[H-14] Fund will be stuck if a buyout is started while there are pending migration proposals",
+      "content": "_Submitted by shenwilly, also found by 0x52, codexploder, dipp, kenzo, Lambda, MEP, panprog, smiling&#95;heretic, Treasure-Seeker, TrungOre, xiaoming90, and zzzitron_\n\nFunds in migration proposals could potentially be stuck forever if a buyout auction on the same vault is started by other party.\n\nMost of the functions within `Migration.sol` can only be executed depending on the state of buyout auction in `Buyout.sol`. When there is no buyout happening, a migration proposal can be made and anyone can contribute to the proposal. However, it is possible that a buyout auction is started by another party while a pending proposal is not commited yet.\n\nWhen this scenario happens, there is no action that could be taken to interact with the pending proposal. All funds that have been contributed cannot be withdrawn. This is because the functions only check for the state of the buyout auction, instead of also considering whether the buyout auction's proposer is `Migration.sol`:\n\n    (address token, uint256 id) = IVaultRegistry(registry).vaultToToken(_vault);\n    if (id == 0) revert NotVault(_vault);\n    // Reverts if buyout state is not inactive\n    (, , State current, , , ) = IBuyout(buyout).buyoutInfo(_vault);\n    State required = State.INACTIVE;\n    if (current != required) revert IBuyout.InvalidState(required, current);\n\nProposal contributors have to wait until the buyout failed before they can withdraw their funds. In case the buyout succeeded, their funds will be stuck forever.\n\n### Proof of Concept\n\n*   Bob made a migration proposal and contributed `0.5 eth`.\n*   Alice individually started a buyout auction. Buyout state is now `ACTIVE`.\n*   Bob can't leave the proposal.\n*   Alice successfully ended the buyout auction. Buyout state is now `SUCCESS`.\n*   Bob can't withdraw the funds.\n\nBelow are the test cases that show the scenarios described above.\n\n    function testLeaveBuyoutStarted() public {\n        initializeMigration(alice, bob, TOTAL_SUPPLY, HALF_SUPPLY, true);\n        (nftReceiverSelectors, nftReceiverPlugins) = initializeNFTReceiver();\n        // Migrate to a vault with no permissions (just to test out migration)\n        address[] memory modules = new address[](1);\n        modules[0] = address(mockModule);\n        // Bob makes the proposal\n        bob.migrationModule.propose(\n            vault,\n            modules,\n            nftReceiverPlugins,\n            nftReceiverSelectors,\n            TOTAL_SUPPLY * 2,\n            1 ether\n        );\n        // Bob joins the proposal\n        bob.migrationModule.join{value: 0.5 ether}(vault, 1, HALF_SUPPLY);\n\n        // Alice started buyout\n        alice.buyoutModule.start{value: 1 ether}(vault);\n        (, , State current, , , ) = alice.buyoutModule.buyoutInfo(vault);\n        assert(current == State.LIVE);\n\n        vm.expectRevert(\n            abi.encodeWithSelector(IBuyout.InvalidState.selector, 0, 1)\n        );\n        // Bob cannot leave\n        bob.migrationModule.leave(vault, 1);\n    }\n\n    function testLeaveBuyoutSuccess() public {\n        // Send Bob a smaller amount so Alice can win the auction\n        initializeMigration(alice, bob, TOTAL_SUPPLY, HALF_SUPPLY/2, true);\n        (nftReceiverSelectors, nftReceiverPlugins) = initializeNFTReceiver();\n        // Migrate to a vault with no permissions (just to test out migration)\n        address[] memory modules = new address[](1);\n        modules[0] = address(mockModule);\n        // Bob makes the proposal\n        bob.migrationModule.propose(\n            vault,\n            modules,\n            nftReceiverPlugins,\n            nftReceiverSelectors,\n            TOTAL_SUPPLY * 2,\n            1 ether\n        );\n        // Bob joins the proposal\n        bob.migrationModule.join{value: 0.5 ether}(vault, 1, HALF_SUPPLY/2);\n\n        // Alice did a buyout\n        alice.buyoutModule.start{value: 1 ether}(vault);\n        vm.warp(rejectionPeriod + 1);\n        alice.buyoutModule.end(vault, burnProof);\n\n        (, , State current, , , ) = alice.buyoutModule.buyoutInfo(vault);\n        assert(current == State.SUCCESS);\n\n        vm.expectRevert(\n            abi.encodeWithSelector(IBuyout.InvalidState.selector, 0, 2)\n        );\n        // Bob cannot leave\n        bob.migrationModule.leave(vault, 1);\n    }\n\n### Recommended Mitigation Steps\n\nModify the checks for the following functions:\n\n*   `leave`\n*   `withdrawContribution`\n\nSo users can withdraw their funds from the proposal when the buyout auction proposer is not `Migration.sol`.\n\nIn addition, it's also possible that there are multiple ongoing proposals on the same vault and the buyout is started by one of them. To allow other proposals' contributors to withdraw their fund, consider tracking the latest `proposalId` that started the buyout on a vault:\n\n    mapping(address => uint256) public latestCommit;\n\n    function commit(address _vault, uint256 _proposalId) {\n        ...\n        if (currentPrice > proposal.targetPrice) {\n            ...\n            latestCommit[_vault] = _proposalId;\n        }\n    }\n\nFor `leave`:\n\n    (, address proposer, State current, , , ) = IBuyout(buyout).buyoutInfo(_vault);\n\n    // if buyout is started by this proposal, check that state is inactive. Else allow leaving.\n    if (proposer == address(this) && latestCommit[_vault] == _proposalId) {\n        State required = State.INACTIVE;\n        if (current != required) revert IBuyout.InvalidState(required, current);\n    }\n\nFor `withdrawContribution`:\n\n    (, address proposer, State current, , , ) = IBuyout(buyout).buyoutInfo(_vault);\n\n    // if buyout is started by this proposal, check that state is inactive. Else allow withdrawing.\n    if (proposer == address(this) && latestCommit[_vault] == _proposalId) {\n        State required = State.INACTIVE;\n        if (current != required) revert IBuyout.InvalidState(required, current);\n    }\n    if (\n        migrationInfo[_vault][_proposalId].newVault != address(0)\n    ) revert NoContributionToWithdraw();\n\n\n**[stevennevins (Fractional) confirmed](https://github.com/code-423n4/2022-07-fractional-findings/issues/123)**\n\n**[HardlyDifficult (judge) commented](https://github.com/code-423n4/2022-07-fractional-findings/issues/230#issuecomment-1212217259):**\n> Starting a buyout can cause migration funds to become stuck in the contract. Agree this is High risk.\n> \n> Selecting this submission as the primary for including POC code and including clear recs.\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the code of the Migration.sol module, which is part of a GitHub repository. The vulnerability could result in funds being stuck forever if a buyout auction on the same vault is started by another party while a pending migration proposal is not yet committed. The issue is due to the functions within Migration.sol only checking for the state of the buyout auction, instead of also considering whether the buyout auction's proposer is Migration.sol.\n\nA proof of concept was provided to demonstrate the issue, as well as two test cases to show the scenarios described. Additionally, recommended mitigation steps were provided to modify the checks for the leave and withdrawContribution functions, so users can withdraw their funds from the proposal when the buyout auction proposer is not Migration.sol. It was also suggested to track the latest proposalId that started the buyout on a vault, to allow other proposals' contributors to withdraw their funds.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-07-fractional-v2-contest",
+      "sponsor_name": "Fractional",
+      "sponsor_link": "https://twitter.com/fractional_art",
+      "quality_score": 5,
+      "general_score": 3,
+      "source_link": "https://code4rena.com/reports/2022-07-fractional",
+      "github_link": "https://github.com/code-423n4/2022-07-fractional-findings/issues/230",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "144",
+      "slug": "h-14-fund-will-be-stuck-if-a-buyout-is-started-while-there-are-pending-migration-proposals-code4rena-fractional-fractional-v2-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Fractional",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Fractional",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        }
+      ]
+    }
+  ]
+}

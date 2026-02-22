@@ -1,0 +1,300 @@
+{
+  "total_tags": 59,
+  "items": [
+    {
+      "tag": "ABI Encoding",
+      "count": 4,
+      "file": "abi_encoding.json"
+    },
+    {
+      "tag": "API Inconsistency",
+      "count": 2,
+      "file": "api_inconsistency.json"
+    },
+    {
+      "tag": "Access Control",
+      "count": 49,
+      "file": "access_control.json"
+    },
+    {
+      "tag": "Account Abstraction",
+      "count": 6,
+      "file": "account_abstraction.json"
+    },
+    {
+      "tag": "Add/Subtract Match",
+      "count": 2,
+      "file": "add_subtract_match.json"
+    },
+    {
+      "tag": "Admin",
+      "count": 36,
+      "file": "admin.json"
+    },
+    {
+      "tag": "Airdrop",
+      "count": 1,
+      "file": "airdrop.json"
+    },
+    {
+      "tag": "Allowance",
+      "count": 15,
+      "file": "allowance.json"
+    },
+    {
+      "tag": "Approve",
+      "count": 18,
+      "file": "approve.json"
+    },
+    {
+      "tag": "Array",
+      "count": 5,
+      "file": "array.json"
+    },
+    {
+      "tag": "Array Bound",
+      "count": 2,
+      "file": "array_bound.json"
+    },
+    {
+      "tag": "Array Reorder",
+      "count": 3,
+      "file": "array_reorder.json"
+    },
+    {
+      "tag": "Assembly",
+      "count": 2,
+      "file": "assembly.json"
+    },
+    {
+      "tag": "Auction",
+      "count": 16,
+      "file": "auction.json"
+    },
+    {
+      "tag": "Bridge",
+      "count": 7,
+      "file": "bridge.json"
+    },
+    {
+      "tag": "CREATE2",
+      "count": 2,
+      "file": "create2.json"
+    },
+    {
+      "tag": "Calldata",
+      "count": 1,
+      "file": "calldata.json"
+    },
+    {
+      "tag": "Chain ID",
+      "count": 1,
+      "file": "chain_id.json"
+    },
+    {
+      "tag": "Chain Reorganization Attack",
+      "count": 18,
+      "file": "chain_reorganization_attack.json"
+    },
+    {
+      "tag": "Chainlink",
+      "count": 25,
+      "file": "chainlink.json"
+    },
+    {
+      "tag": "Cross Chain Message",
+      "count": 2,
+      "file": "cross_chain_message.json"
+    },
+    {
+      "tag": "Decimals",
+      "count": 45,
+      "file": "decimals.json"
+    },
+    {
+      "tag": "Deposit/Reward tokens",
+      "count": 18,
+      "file": "deposit_reward_tokens.json"
+    },
+    {
+      "tag": "Diamond",
+      "count": 1,
+      "file": "diamond.json"
+    },
+    {
+      "tag": "Dust",
+      "count": 5,
+      "file": "dust.json"
+    },
+    {
+      "tag": "EIP-1271",
+      "count": 2,
+      "file": "eip_1271.json"
+    },
+    {
+      "tag": "EIP-150",
+      "count": 1,
+      "file": "eip_150.json"
+    },
+    {
+      "tag": "EIP-165",
+      "count": 5,
+      "file": "eip_165.json"
+    },
+    {
+      "tag": "EIP-2981",
+      "count": 2,
+      "file": "eip_2981.json"
+    },
+    {
+      "tag": "EIP-4337",
+      "count": 0,
+      "file": "eip_4337.json"
+    },
+    {
+      "tag": "EIP-4524",
+      "count": 1,
+      "file": "eip_4524.json"
+    },
+    {
+      "tag": "EIP-4626",
+      "count": 9,
+      "file": "eip_4626.json"
+    },
+    {
+      "tag": "EIP-4758",
+      "count": 0,
+      "file": "eip_4758.json"
+    },
+    {
+      "tag": "EIP-712",
+      "count": 6,
+      "file": "eip_712.json"
+    },
+    {
+      "tag": "EOA",
+      "count": 2,
+      "file": "eoa.json"
+    },
+    {
+      "tag": "ERC1155",
+      "count": 17,
+      "file": "erc1155.json"
+    },
+    {
+      "tag": "ERC20",
+      "count": 27,
+      "file": "erc20.json"
+    },
+    {
+      "tag": "ERC2981",
+      "count": 6,
+      "file": "erc2981.json"
+    },
+    {
+      "tag": "ERC4626",
+      "count": 28,
+      "file": "erc4626.json"
+    },
+    {
+      "tag": "ERC721",
+      "count": 21,
+      "file": "erc721.json"
+    },
+    {
+      "tag": "ERC721Checkpointable",
+      "count": 0,
+      "file": "erc721checkpointable.json"
+    },
+    {
+      "tag": "ERC777",
+      "count": 11,
+      "file": "erc777.json"
+    },
+    {
+      "tag": "Initialization",
+      "count": 15,
+      "file": "initialization.json"
+    },
+    {
+      "tag": "Oracle",
+      "count": 59,
+      "file": "oracle.json"
+    },
+    {
+      "tag": "Read-only Reentrancy",
+      "count": 6,
+      "file": "read_only_reentrancy.json"
+    },
+    {
+      "tag": "Rebasing Tokens",
+      "count": 4,
+      "file": "rebasing_tokens.json"
+    },
+    {
+      "tag": "Reentrancy",
+      "count": 59,
+      "file": "reentrancy.json"
+    },
+    {
+      "tag": "Refund Ether",
+      "count": 12,
+      "file": "refund_ether.json"
+    },
+    {
+      "tag": "Replay Attack",
+      "count": 14,
+      "file": "replay_attack.json"
+    },
+    {
+      "tag": "Revert By Sending Dust",
+      "count": 7,
+      "file": "revert_by_sending_dust.json"
+    },
+    {
+      "tag": "Revert Inside Hook",
+      "count": 4,
+      "file": "revert_inside_hook.json"
+    },
+    {
+      "tag": "Rounding",
+      "count": 32,
+      "file": "rounding.json"
+    },
+    {
+      "tag": "TimelockController Issue",
+      "count": 0,
+      "file": "timelockcontroller_issue.json"
+    },
+    {
+      "tag": "Timing",
+      "count": 9,
+      "file": "timing.json"
+    },
+    {
+      "tag": "Token Existence",
+      "count": 4,
+      "file": "token_existence.json"
+    },
+    {
+      "tag": "Token Order",
+      "count": 1,
+      "file": "token_order.json"
+    },
+    {
+      "tag": "Transfer Result Check",
+      "count": 3,
+      "file": "transfer_result_check.json"
+    },
+    {
+      "tag": "transferFrom vs safeTransferFrom",
+      "count": 14,
+      "file": "transferfrom_vs_safetransferfrom.json"
+    },
+    {
+      "tag": "transferFrom vs transfer",
+      "count": 0,
+      "file": "transferfrom_vs_transfer.json"
+    }
+  ]
+}

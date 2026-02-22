@@ -1,0 +1,1713 @@
+{
+  "tag": "Chainlink",
+  "count": 25,
+  "metadata": {
+    "totalResults": 25,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 0,
+    "reset": 1771760940
+  },
+  "findings": [
+    {
+      "id": "52254",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "4",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "2738",
+      "title": "Unhandled Exceptions in CCIP Message Processing Can Lead to Cross-Chain Communication Failure",
+      "content": "##### Description\n\nThe `CCIPAdapter` contract in the LucidLabs protocol uses Chainlink's Cross-Chain Interoperability Protocol (CCIP) to facilitate cross-chain communication. However, the implementation fails to handle exceptions gracefully in the receiving contracts, specifically in `VotingControllerUpgradeable` and `AssetController`.\n\n```\nfunction _ccipReceive(Client.Any2EVMMessage memory any2EvmMessage) internal override {\n    _registerMessage(bytes32ToAddress(_originSender), _callData, chainId);\n}\n```\n\n  \n\nThis function calls `registerMessage()` on `VotingControllerUpgradeable` and `AssetController`, which can revert due to various reasons:\n\n```\nfunction castCrossChainVote(...) external {\n    //E @AUDIT can revert because of state(proposalId) , timepoint is not the good\n    if ((adapter != msg.sender) || (state(proposalId) != ProposalState.Active) || (proposalSnapshot(proposalId) != timepoint) || (chainTokens[chainId] != sourceToken))\n        revert Governor_WrongParams();\n// ...\n    _countVote(proposalId, voter, support, votes, voteData, chainId);\n// ...\n}\n\nfunction _countVote(\n        uint256 proposalId,\n        address account,\n        uint8 support,\n        uint256 totalWeight,\n        bytes memory voteData, //E when called from LucidGovernor{Timelock} it is not implemented => _countVoteNominal is called\n        uint256 chainId \n    ) internal virtual {\n        \n        if (totalWeight == 0) revert GovernorCrossCountingFractionalUpgradeable_NoWeight();\n\n        if (_proposalVotersWeightCast[_getVoterKey(proposalId, account, chainId)] >= totalWeight) { revert(\"GovernorCountingFractional: all weight cast\");}\n\n        // ... // \n    }\n```\n\n```\nfunction receiveMessage(...) public override nonReentrant {\n// ...\n    uint256 _currentLimit = mintingCurrentLimitOf(msg.sender);\n    if (_currentLimit < transfer.amount) revert IXERC20_NotHighEnoughLimits();\n// ...\n}\n```\n\n  \n\nThese unhandled exceptions can cause CCIP messages to fail, potentially triggering Chainlink's manual execution mode after the 8-hour Smart Execution window. This will block subsequent messages, leading to a Denial of Service in cross-chain communication until the failed message can be executed.\n\n  \n\nThe unhandled exceptions in CCIP message processing result in a vulnerability that disrupts cross-chain operations. This issue leads to:\n\n  \n\n1. Failure in updating cross-chain voting data, compromising the integrity of the governance system.\n2. Blockage of asset transfers between chains, affecting the core functionality of the protocol.\n3. Potential permanent DoS of the CCIP pathway **until the blocked message can pass**\n\n##### BVSS\n\n[AO:A/AC:L/AX:M/C:N/I:N/A:H/D:N/Y:N/R:N/S:C (6.3)](/bvss?q=AO:A/AC:L/AX:M/C:N/I:N/A:H/D:N/Y:N/R:N/S:C)\n\n##### Recommendation\n\nIt is recommended to implement proper exception handling in the receiving contracts or to handle messages received/execution in 2 ways.\n\n##### Remediation\n\n**RISK ACCEPTED:** As the probability of this risk happening is low and even if the impact is high, the **Lucid Labs team** will leave the code as is, and will use the other adapters in case of this happening.\n\n##### References\n\n[LucidLabsFi/demos-contracts-v1/contracts/modules/chain-abstraction/adapters/ccip/CCIPAdapter.sol#L109](https://github.com/LucidLabsFi/demos-contracts-v1/blob/main/contracts/modules/chain-abstraction/adapters/ccip/CCIPAdapter.sol#L109)",
+      "summary": "\nThe LucidLabs protocol uses a contract called `CCIPAdapter` to communicate between different blockchains. However, there is a problem with how exceptions are handled in this contract, specifically in two other contracts called `VotingControllerUpgradeable` and `AssetController`. These contracts have functions that can fail due to various reasons, which can cause messages to fail and potentially block cross-chain communication. This could also lead to problems with the governance system and asset transfers. The report suggests implementing better exception handling or using alternative adapters to prevent this issue. The LucidLabs team has decided to leave the code as is for now, but may consider implementing these recommendations in the future. The specific lines of code where the issue occurs can be found in the references section. ",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://www.halborn.com/audits/lucid-labs/contracts-v1",
+      "sponsor_name": "Lucid Labs",
+      "sponsor_link": "",
+      "quality_score": 2,
+      "general_score": 2,
+      "source_link": "https://www.halborn.com/audits/lucid-labs/contracts-v1",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "unhandled-exceptions-in-ccip-message-processing-can-lead-to-cross-chain-communication-failure-halborn-lucid-labs-contracts-v1-markdown",
+      "firm_name": "Halborn",
+      "firm_logo_square": "halborn_square.png",
+      "protocol_name": "Contracts V1",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Halborn",
+        "logo_square": "halborn_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Contracts V1",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Cross Chain"
+          }
+        }
+      ]
+    },
+    {
+      "id": "38402",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 48,
+      "protocol_id": "1707",
+      "title": "H-1: Users will lock raffle prizes on the `WinnablesPrizeManager` contract by calling `WinnablesTicketManager::propagateRaffleWinner` with wrong CCIP inputs",
+      "content": "Source: https://github.com/sherlock-audit/2024-08-winnables-raffles-judging/issues/50 \n\n## Found by \n0rpse, 0x0bserver, 0x73696d616f, 0xAadi, 0xbrivan, 0xrex, CatchEmAll, DrasticWatermelon, Feder, Galturok, IMAFVCKINSTARRRRRR, KungFuPanda, Oblivionis, Offensive021, Oxsadeeq, PNS, PTolev, Paradox, Penaldo, PeterSR, S3v3ru5, SadBase, SovaSlava, Trooper, Waydou, akiro, araj, dany.armstrong90, dimulski, dinkras\\_, durov, dy, gajiknownnothing, iamnmt, irresponsible, jennifer37, joshuajee, matejdb, neko\\_nyaa, ogKapten, philmnds, rsam\\_eth, sakshamguruji, shaflow01, shikhar, tofunmi, turvec, utsav\n### Summary\n\nThe [`WinnablesTicketManager::propagateRaffleWinner`](https://github.com/sherlock-audit/2024-08-winnables-raffles/blob/main/public-contracts/contracts/WinnablesTicketManager.sol#L334) function is vulnerable to misuse, where incorrect CCIP inputs can lead to assets being permanently locked in the `WinnablesPrizeManager` contract. The function does not have input validation for the `address prizeManager` and `uint64 chainSelector` parameters. If called with incorrect values, it will fail to send the message to `WinnablesPrizeManager`, resulting in the assets not being unlocked.\n\n\n### Root Cause\n\nThe root cause of the issue lies in the design of the `propagateRaffleWinner` function:\n1. The function is responsible for sending a message to WinnablesPrizeManager to unlock the raffle assets.\n2. The function is marked as external, so anyone can call it.\n3. The function receives `address prizeManager` and `uint64 chainSelector` as inputs, which are responsible for sending the message to the `WinnablesPrizeManager` contract for it to unlock the assets previously locked for the raffle.\n4. The inputs forementioned are not validated, meaning users can call the function with wrong values.\n5. This cannot be undone, as the function [changes the state of the raffle](https://github.com/sherlock-audit/2024-08-winnables-raffles/blob/main/public-contracts/contracts/WinnablesTicketManager.sol#L337) in a way that [prevents the function from being called again](https://github.com/sherlock-audit/2024-08-winnables-raffles/blob/main/public-contracts/contracts/WinnablesTicketManager.sol#L336).\n\n\n### Internal pre-conditions\n\nA raffle must have been won by a player.\n\n\n### External pre-conditions\n\nA user must call `WinnablesTicketManager::propagateRaffleWinner` with incorrect input values.\n\n\n### Attack Path\n\n1. A user wins the raffle.\n2. Some user calls `WinnablesTicketManager::propagateRaffleWinner` and provides incorrect inputs for prizeManager and chainSelector.\n3. The propagateRaffleWinner function fails to send the correct message to WinnablesPrizeManager due to the parameter mismatch.\n4. As a result, the assets associated with the raffle remain locked and cannot be retrieved by the raffle winner.\n\n\n### Impact\n\nThis vulnerability completely disrupts the protocol, as it becomes impossible to retrieve the reward of the raffle.\n\n\n### PoC\n\nThe test below, which is an edited version of [this existing test](https://github.com/sherlock-audit/2024-08-winnables-raffles/blob/main/public-contracts/test/TicketManager.js#L786), shows that the function call will be successful with a random chainSelector\n\n```javascript\n    it('Should be able to propagate when the winner is drawn', async () => {\n@>    const { events } = await (await manager.propagateRaffleWinner(counterpartContractAddress, 9846, 1)).wait();\n      expect(events).to.have.lengthOf(3);\n      const ccipEvent = ccipRouter.interface.parseLog(events[0]);\n      expect(ccipEvent.args.receiver).to.eq('0x' + counterpartContractAddress.toLowerCase().slice(-40).padStart(64, '0'));\n      expect(ccipEvent.args.data).to.have.lengthOf(108);\n      const drawnWinner = ethers.utils.getAddress('0x' + ccipEvent.args.data.slice(-40));\n      expect(buyers.find(b => b.address === drawnWinner)).to.not.be.undefined;\n      expect(ccipEvent.args.data.slice(0, 68)).to.eq('0x010000000000000000000000000000000000000000000000000000000000000001');\n    });\n```\n\n### Mitigation\n\nImplement input validation to ensure that `prizeManager` and `chainSelector` are correct before proceeding with the propagation.\n\n\n\n## Discussion\n\n**matejdrazic**\n\nIt does not make any sense to group lack of access control on `cancelRaffle` issues with this issue. It should be grouped with #57 .\n\n**Brivan-26**\n\n@matejdrazic I believe it does make sense.\nThe same root cause (lack of the **same** inputs validation) and the same impact\n\n**matejdrazic**\n\n@Brivan-26 hey - but its 2 different functions. By following that logic you can group all same type issues into one. So if there were more access control issues on the contract they would be grouped here?\nThat is not right.\n\nAlso they do not have the same root? They have the same type of root cause and thats lack of access control.\n\n**Brivan-26**\n\n@matejdrazic \n> So if there were more access control issues on the contract they would be grouped here?\n\nActually, yes, there were many contests before that had the same access control across multiple contracts even and they are grouped into one report because submitting multiple reports about the same break across different functions is kind of redundant.\n\nConcerning this issue: \n- The root cause is a lack of input validation for `prizeManager` and `chainSelector`, not access control as anyone can call this function\n- the impact is the message will not reach the destination chain and loss of funds will occur\n\nConcerning `cancelRaffle`:\n- The root cause is the same as the previous one, lack of input validation for `prizeManager` and `chainSelector`\n- The impact is the same, the message will not reach the destination chain and loss of funds will occur\n\nIt is still kind of subjective, it can be a separate report(and I'm okay with that) but it makes sense to group two issues into one single report given the above facts. \n\n**sherlock-admin2**\n\nThe protocol team fixed this issue in the following PRs/commits:\nhttps://github.com/Winnables/public-contracts/pull/22",
+      "summary": "\nThe WinnablesTicketManager::propagateRaffleWinner function has a vulnerability where incorrect inputs can lead to assets being permanently locked in the WinnablesPrizeManager contract. This is due to a lack of input validation for the address prizeManager and uint64 chainSelector parameters. This can be exploited by a user calling the function with incorrect values, preventing the assets from being unlocked. The impact of this vulnerability is that the raffle winner will not be able to retrieve their reward. The root cause of this issue is the design of the function, which does not validate the inputs before changing the state of the raffle. To mitigate this issue, input validation should be implemented. ",
+      "report_date": {},
+      "contest_prize_txt": "13500 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/516",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2024-08-winnables-raffles-judging/issues/50",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "516",
+      "slug": "h-1-users-will-lock-raffle-prizes-on-the-winnablesprizemanager-contract-by-calling-winnablesticketmanagerpropagaterafflewinner-with-wrong-ccip-inputs-sherlock-winnables-raffles-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Winnables Raffles",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Winnables Raffles",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Cross Chain"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Validation"
+          }
+        }
+      ]
+    },
+    {
+      "id": "29740",
+      "kind": "GIT",
+      "auditfirm_id": "20",
+      "impact": "LOW",
+      "finders_count": 2,
+      "protocol_id": "1230",
+      "title": "Insufficient Gas Limit Specification for Cross-Chain Transfers in _buildCCIPMessage() method. WrappedTokenBridge.sol #210",
+      "content": "### Relevant GitHub Links\n<a data-meta=\"codehawks-github-link\" href=\"https://github.com/Cyfrin/2023-12-stake-link/blob/549b2b8c4a5b841686fceb9c311dca9ac58225df/contracts/core/ccip/WrappedTokenBridge.sol#L157\">https://github.com/Cyfrin/2023-12-stake-link/blob/549b2b8c4a5b841686fceb9c311dca9ac58225df/contracts/core/ccip/WrappedTokenBridge.sol#L157</a>\n\n<a data-meta=\"codehawks-github-link\" href=\"https://github.com/Cyfrin/2023-12-stake-link/blob/549b2b8c4a5b841686fceb9c311dca9ac58225df/contracts/core/ccip/WrappedTokenBridge.sol#L210\">https://github.com/Cyfrin/2023-12-stake-link/blob/549b2b8c4a5b841686fceb9c311dca9ac58225df/contracts/core/ccip/WrappedTokenBridge.sol#L210</a>\n\n\n## Summary\nThe _buildCCIPMessage() function in the WrappedTokenBridge contract does not specify a gasLimit for the execution of the ccipReceive() function on the destination blockchain. This omission can lead to unpredictable gas costs and potential failure of the message processing due to out-of-gas errors.\n\n## Vulnerability Details\nThe Client.EVM2AnyMessage struct created by _buildCCIPMessage() is used to define the details of a cross-chain message, including the tokens to be transferred and the receiver's address. However, the struct lacks a gasLimit field in the extraArgs, which is crucial for determining the maximum amount of gas that can be consumed when the ccipReceive() function is called on the destination chain.\n\nWithout a specified gasLimit, the default gas limit set by the CCIP router or the destination chain's infrastructure is used. This default may not align with the actual gas requirements of the ccipReceive() function, potentially leading to failed transactions or higher-than-expected fees.\n\n`\nfunction _buildCCIPMessage(\n        address _receiver,\n        uint256 _amount,\n        address _feeTokenAddress\n    ) internal view returns (Client.EVM2AnyMessage memory) {\n        Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);\n        Client.EVMTokenAmount memory tokenAmount = Client.EVMTokenAmount({token: address(wrappedToken), amount: _amount});\n        tokenAmounts[0] = tokenAmount;\n\n        Client.EVM2AnyMessage memory evm2AnyMessage = Client.EVM2AnyMessage({\n            receiver: abi.encode(_receiver),\n            data: \"\",\n            tokenAmounts: tokenAmounts,\n            extraArgs: \"0x\",\n            feeToken: _feeTokenAddress\n        });\n\n        return evm2AnyMessage;\n    }\n`\n\n## Impact\nIf the default gas limit is too low, the ccipReceive() function may run out of gas, causing the transaction to fail on the destination chain.\n\nWithout a specified gasLimit, the cost of sending a message can vary, making it difficult for users to predict the required fees.\n\n If the default gas limit is higher than necessary, users may overpay for gas that is not used, as unspent gas is not refunded.\n\n## Tools Used\nManual inspection.\n\nhttps://docs.chain.link/ccip/best-practices\n..Gas Limit\n\nCCIP Lending example. sendMessage()\nhttps://github.com/smartcontractkit/ccip-defi-lending/blob/main/contracts/Protocol.sol#170\n\n## Recommendations\n\nTo address the issue of not including a gasLimit in the _transferTokens method, we can take inspiration from the sendMessage() example and modify the _buildCCIPMessage function within the WrappedTokenBridge contract to include a gasLimit in the extraArgs field of the EVM2AnyMessage struct. This will ensure that the CCIP message sent to the destination blockchain includes a specified maximum amount of gas that can be consumed during the execution of the ccipReceive() function.\n\nfunction _buildCCIPMessage(\n    address _receiver,\n    uint256 _amount,\n    address _feeTokenAddress\n) internal view returns (Client.EVM2AnyMessage memory) {\n    Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);\n    Client.EVMTokenAmount memory tokenAmount = Client.EVMTokenAmount({\n        token: address(wrappedToken),\n        amount: _amount\n    });\n    tokenAmounts[0] = tokenAmount;\n\n    \n    \n//  // Include a gasLimit in the extraArgs \n    Client.EVM2AnyMessage memory evm2AnyMessage = Client.EVM2AnyMessage({\n        receiver: abi.encode(_receiver),\n        data: \"\",\n        tokenAmounts: tokenAmounts,\n        extraArgs:  Client._argsToBytes(\n        Client.EVMExtraArgsV1({gasLimit: 200_000, strict: false}) // Additional arguments, setting gas limit and non-strict sequency mode\n      ),\n        feeToken: _feeTokenAddress\n    });\n\n    return evm2AnyMessage;\n}\n\n\n\nIncludes a gasLimit field, which is set to 200,000 in this example. This value should be adjusted based on the expected gas consumption of the ccipReceive() function on the destination chain.\nBy including the gasLimit in the extraArgs, you ensure that the CCIP message has a specified maximum gas limit for execution, which can prevent out-of-gas errors and control the cost of the cross-chain transfer.",
+      "summary": "",
+      "report_date": {},
+      "contest_prize_txt": "27500 USDC",
+      "contest_link": "https://www.codehawks.com/contests/clqf7mgla0001yeyfah59c674",
+      "sponsor_name": "stake.link",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/Cyfrin/2023-12-stake-link",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "clqf7mgla0001yeyfah59c674",
+      "slug": "insufficient-gas-limit-specification-for-cross-chain-transfers-in-_buildccipmessage-method-wrappedtokenbridgesol-210-codehawks-stakelink-git",
+      "firm_name": "Codehawks",
+      "firm_logo_square": "codehawks_square.png",
+      "protocol_name": "stake.link",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Codehawks",
+        "logo_square": "codehawks_square.png"
+      },
+      "protocols_protocol": {
+        "name": "stake.link",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        }
+      ]
+    },
+    {
+      "id": "19115",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "15",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "851",
+      "title": "Chainlink price is used without checking validity",
+      "content": "**Severity:** Medium\n\n**Context:** [`Helper.sol#L75-L78`](https://github.com/getmetafinance/meta/blob/00bbac1613fa69e4c180ff53515451df4df9f69e/contracts/musd/Helper.sol#L75-L78)\n\n**Description:**\nThe Meta protocol relies on a Chainlink price oracle to calculate the excess income distributed to all mUSD holders.\nHowever, the current implementation lacks checks for the staleness of the price obtained from Chainlink.\n\n```solidity\nfunction getPriceOfRewardToken() external view returns (uint256) {\n(,int256 price,,,) = priceFeed.latestRoundData();//@audit chainlink price feed - stale price check is missing\nreturn (uint256(price) * Constants.PINT) / PRICE_FEED_PRECISION;\n}\n```\n\nThis omission can lead to issues if Chainlink starts a new round and struggles to establish consensus on the new value for the oracle. Without proper checks, consumers of this contract may continue using outdated, stale, or incorrect data if oracles are unable to submit and start a new round. Possible reasons for this could include Chainlink nodes abandoning the oracle, chain congestion, or vulnerabilities/attacks on the Chainlink system.\n\nAdditionally, it is important to check if the Arbitrum sequencer is active.\nPlease refer to the issue at https://github.com/sherlock-audit/2022-11-sentiment-judging/issues/3 for more information.\n\n**Impact**\nThis vulnerability is classified as MEDIUM because it affects user assets only when the Chainlink oracle is in bad status.\n\n**Recommendation:**\nTo address this issue, it is recommended to implement checks to ensure that the price returned by Chainlink is not stale. The following code snippet can be used to validate the price obtained from Chainlink:\n\n```solidity\n( roundId, rawPrice, , updateTime, answeredInRound ) = priceFeed.latestRoundData();\nrequire(rawPrice > 0, \"Chainlink price <= 0\");\nrequire(updateTime != 0, \"Incomplete round\");\nrequire(answeredInRound >= roundId, \"Stale price\");\n```\n\n**Meta Team:**\n\nFixed in the latest commit. Added the checks on the price value and also sequencer validation.\n\n```diff\n\n+    function isSequencerActive() internal view returns (bool) {\n+        (, int256 answer, uint256 startedAt,,) = sequencer.latestRoundData();\n+        if (block.timestamp - startedAt <= GRACE_PERIOD_TIME || answer == 1)\n+            return false;\n+        return true;\n+    }\n\nfunction getPriceOfRewardToken() external view returns (uint256) {\n(uint80 roundId,int256 price,,uint256 updateTime, uint80 answeredInRound) = priceFeed.latestRoundData();\n+       require(isSequencerActive(), \"HLP: Sequencer is down\");\n+       require(price > 0, \"HLP: Invalid chainlink price\");\n+       require(updateTime > 0, \"HLP: Incomplete round\");\n+       require(answeredInRound >= roundId, \"HLP: Stale price\");\nreturn (uint256(price) * Constants.PINT) / PRICE_FEED_PRECISION;\n}\n\n```\n\n**Hans:**\nVerified.",
+      "summary": "\nThe bug report is about a vulnerability in the Meta protocol that affects user assets when the Chainlink oracle is in bad status. The current implementation lacks checks for the staleness of the price obtained from Chainlink, which can lead to issues if Chainlink starts a new round and struggles to establish consensus on the new value for the oracle. It is also important to check if the Arbitrum sequencer is active.\n\nTo address this issue, it is recommended to implement checks to ensure that the price returned by Chainlink is not stale. The following code snippet can be used to validate the price obtained from Chainlink:\n\n```solidity\n( roundId, rawPrice, , updateTime, answeredInRound ) = priceFeed.latestRoundData();\nrequire(rawPrice > 0, \"Chainlink price <= 0\");\nrequire(updateTime != 0, \"Incomplete round\");\nrequire(answeredInRound >= roundId, \"Stale price\");\n```\n\nThe Meta Team fixed the issue in the latest commit by adding the checks on the price value and also sequencer validation. Hans verified the changes.\n\nThe severity of this vulnerability is classified as MEDIUM because it affects user assets only when the Chainlink oracle is in bad status.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://github.com/solodit/solodit_content/blob/main/reports/Hans/2023-07-13-Meta.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "chainlink-price-is-used-without-checking-validity-hans-none-meta-markdown_",
+      "firm_name": "Hans",
+      "firm_logo_square": "hans_square.jpg",
+      "protocol_name": "Meta",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Hans",
+        "logo_square": "hans_square.jpg"
+      },
+      "protocols_protocol": {
+        "name": "Meta",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 1
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Stale Price"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Oracle"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        }
+      ]
+    },
+    {
+      "id": "20679",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 7,
+      "protocol_id": "974",
+      "title": "M-6: The `Vault._to_usd_oracle_price()` function uses the same `ORACLE_FRESHNESS_THRESHOLD` for all token prices feeds which is incorrect",
+      "content": "Source: https://github.com/sherlock-audit/2023-06-unstoppable-judging/issues/104 \n\n## Found by \n0xbepresent, 0xpinky, TheNaubit, n33k, pengun, stopthecap, twicek\n## Summary\n\nThe same `ORACLE_FRESHNESS_THRESHOLD` is used for all the token prices feeds which can be dangerous because different pairs of tokens have different freshness intervals.\n\n## Vulnerability Detail\n\nThe [ORACLE_FRESHNESS_THRESHOLD](https://github.com/sherlock-audit/2023-06-unstoppable/blob/main/unstoppable-dex-audit/contracts/margin-dex/Vault.vy#L55) is 24 hours constant. It is used to check if the [Oracle price is fresh](https://github.com/sherlock-audit/2023-06-unstoppable/blob/main/unstoppable-dex-audit/contracts/margin-dex/Vault.vy#L580) in the 580 code line.\n\n```python\nFile: Vault.vy\n562: def _to_usd_oracle_price(_token: address) -> uint256:\n...\n...\n576:     round_id, answer, started_at, updated_at, answered_in_round = ChainlinkOracle(\n577:         self.to_usd_oracle[_token]\n578:     ).latestRoundData()\n579: \n580:     assert (block.timestamp - updated_at) < ORACLE_FRESHNESS_THRESHOLD, \"oracle not fresh\"\n...\n...\n```\n\nThe problem is that different pairs have diferrent `heartbeats`. For example the [LINK/USD](https://data.chain.link/arbitrum/mainnet/crypto-usd/link-usd) has a `heartbeat` of 3600 seconds so since the `ORACLE_FRESHNESS_THRESHOLD` is set to `24 hours`, the check for `LINK/USD` is useless since the its hearbeat is 3600 seconds. The same behaivour in [CRV/USD](https://data.chain.link/arbitrum/mainnet/crypto-usd/crv-usd) which has a heartbeat of 3600 seconds.\n\n## Impact\n\nUsing the same `ORACLE_FRESHNESS_THRESHOLD` (heartbeat) for all the price feeds is not correct becuase the freshness validation would be useless for some pairs which can return stale data.\n\n## Code Snippet\n\nThe [Vault._to_usd_oracle_price()](https://github.com/sherlock-audit/2023-06-unstoppable/blob/main/unstoppable-dex-audit/contracts/margin-dex/Vault.vy#L562) function:\n\n```python\nFile: Vault.vy\n562: def _to_usd_oracle_price(_token: address) -> uint256:\n563:     \"\"\"\n564:     @notice\n565:         Retrieves the latest Chainlink oracle price for _token.\n566:         Ensures that the Arbitrum sequencer is up and running and\n567:         that the Chainlink feed is fresh.\n568:     \"\"\"\n569:     assert self._sequencer_up(), \"sequencer down\"\n570: \n571:     round_id: uint80 = 0\n572:     answer: int256 = 0\n573:     started_at: uint256 = 0\n574:     updated_at: uint256 = 0\n575:     answered_in_round: uint80 = 0\n576:     round_id, answer, started_at, updated_at, answered_in_round = ChainlinkOracle(\n577:         self.to_usd_oracle[_token]\n578:     ).latestRoundData()\n579: \n580:     assert (block.timestamp - updated_at) < ORACLE_FRESHNESS_THRESHOLD, \"oracle not fresh\"\n581: \n582:     usd_price: uint256 = convert(answer, uint256)  # 8 dec\n583:     return usd_price\n```\n\n## Tool used\n\nManual review\n\n## Recommendation\n\nUse the corresponding heartbeat `ORACLE_FRESHNESS_THRESHOLD` for each token in the `Vault._to_usd_oracle_price()` function.\n\n\n\n\n\n## Discussion\n\n**Unstoppable-DeFi**\n\nhttps://github.com/Unstoppable-DeFi/unstoppable-dex-audit/pull/11",
+      "summary": "\nA bug was identified in the Unstoppable-DeFi project where the same `ORACLE_FRESHNESS_THRESHOLD` was used for all the token prices feeds in the `Vault._to_usd_oracle_price()` function. This can be dangerous because different pairs of tokens have different freshness intervals. The `ORACLE_FRESHNESS_THRESHOLD` is 24 hours constant and is used to check if the Oracle price is fresh in the 580 code line. For example, the LINK/USD pair has a `heartbeat` of 3600 seconds, so the check for LINK/USD is useless since the its hearbeat is 3600 seconds. This issue was identified by 0xbepresent, 0xpinky, TheNaubit, n33k, pengun, stopthecap, and twicek through manual review. \n\nUsing the same `ORACLE_FRESHNESS_THRESHOLD` (heartbeat) for all the price feeds is not correct becuase the freshness validation would be useless for some pairs which can return stale data. The recommendation is to use the corresponding heartbeat `ORACLE_FRESHNESS_THRESHOLD` for each token in the `Vault._to_usd_oracle_price()` function. This issue has been addressed in the Unstoppable-DeFi project in the https://github.com/Unstoppable-DeFi/unstoppable-dex-audit/pull/11 pull request.",
+      "report_date": {},
+      "contest_prize_txt": "24000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/95",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-06-unstoppable-judging/issues/104",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "95",
+      "slug": "m-6-the-vault_to_usd_oracle_price-function-uses-the-same-oracle_freshness_threshold-for-all-token-prices-feeds-which-is-incorrect-sherlock-none-unstoppable-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Unstoppable",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Unstoppable",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        }
+      ]
+    },
+    {
+      "id": "20687",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 28,
+      "protocol_id": "975",
+      "title": "M-2: `Chainlink.latestRoundData()` may return stale results",
+      "content": "Source: https://github.com/sherlock-audit/2023-04-hubble-exchange-judging/issues/18 \n\n## Found by \n0x3e84fa45, 0xbepresent, 0xmuxyz, 0xpinky, 0xvj, Bauer, Breeje, BugBusters, BugHunter101, Hama, Kaiziron, MohammedRizwan, PRAISE, Vagner, carrotsmuggler, crimson-rat-reach, darkart, dimulski, dirk\\_y, kutugu, lemonmon, lil.eth, minhtrng, osmanozdemir1, p-tsanev, rogue-lion-0619, shtesesamoubiq, tsvetanovv\n## Summary\n\nThe [Oracle.getUnderlyingPrice()](https://github.com/sherlock-audit/2023-04-hubble-exchange/blob/main/hubble-protocol/contracts/Oracle.sol#L24C14-L24C32) function is used to get the price of tokens, the problem is that [the function](https://github.com/sherlock-audit/2023-04-hubble-exchange/blob/main/hubble-protocol/contracts/Oracle.sol#L33) does not check for stale results.\n\n## Vulnerability Detail\n\nThe [Oracle.getUnderlyingPrice()](https://github.com/sherlock-audit/2023-04-hubble-exchange/blob/main/hubble-protocol/contracts/Oracle.sol#L24C14-L24C32) function is used in [InsuranceFund](https://github.com/sherlock-audit/2023-04-hubble-exchange/blob/main/hubble-protocol/contracts/InsuranceFund.sol), [MarginAccount](https://github.com/sherlock-audit/2023-04-hubble-exchange/blob/main/hubble-protocol/contracts/MarginAccount.sol) and [AMM](https://github.com/sherlock-audit/2023-04-hubble-exchange/blob/main/hubble-protocol/contracts/AMM.sol) contracts. The `Oracle.getUnderlyingPrice()` helps to determine the tokens prices managed in the contracts.\n\nThe problem is that there is not check for stale data. There are some [reasons](https://ethereum.stackexchange.com/questions/133242/how-future-resilient-is-a-chainlink-price-feed/133843#133843) that the price feed can become stale.\n\n## Impact\n\nSince the token prices are used in many contracts, stale data could be catastrophic for the project.\n\n## Code Snippet\n\nThe [Oracle.getUnderlyingPrice()](https://github.com/sherlock-audit/2023-04-hubble-exchange/blob/main/hubble-protocol/contracts/Oracle.sol#L24C14-L24C32) is used by the next contracts:\n\n- [InsuranceFund](https://github.com/sherlock-audit/2023-04-hubble-exchange/blob/main/hubble-protocol/contracts/InsuranceFund.sol)\n- [MarginAccount](https://github.com/sherlock-audit/2023-04-hubble-exchange/blob/main/hubble-protocol/contracts/MarginAccount.sol)\n- [AMM](https://github.com/sherlock-audit/2023-04-hubble-exchange/blob/main/hubble-protocol/contracts/AMM.sol)\n\n## Tool used\n\nManual review\n\n## Recommendation\n\nRead the [updatedAt](https://docs.chain.link/data-feeds/api-reference#latestrounddata) return value from the `Chainlink.latestRoundData()` function and verify that is not older than than specific time tolerance.\n\n```solidity\nrequire(block.timestamp - udpatedData < toleranceTime, \"stale price\");\n```\n\n\n\n## Discussion\n\n**asquare08**\n\nwill add a tolerance time equal to the max update time of the price feed.",
+      "summary": "\nThis bug report is about an issue found with the `Chainlink.latestRoundData()` function, which may return stale results. The function is used in the InsuranceFund, MarginAccount, and AMM contracts, and the problem is that there is no check for stale data. This could be catastrophic for the project, as the token prices are used in many contracts.\n\nThe bug was found by 0x3e84fa45, 0xbepresent, 0xmuxyz, 0xpinky, 0xvj, Bauer, Breeje, BugBusters, BugHunter101, Hama, Kaiziron, MohammedRizwan, PRAISE, Vagner, carrotsmuggler, crimson-rat-reach, darkart, dimulski, dirk_y, kutugu, lemonmon, lil.eth, minhtrng, osmanozdemir1, p-tsanev, rogue-lion-0619, shtesesamoubiq, and tsvetanovv. It was identified using manual review.\n\nThe recommendation is to read the updatedAt return value from the `Chainlink.latestRoundData()` function and verify that it is not older than a specific time tolerance. This can be done by adding the following code to the project:\n\n```solidity\nrequire(block.timestamp - udpatedData < toleranceTime, \"stale price\");\n```\n\nThe discussion has suggested that a tolerance time equal to the max update time of the price feed should be added.",
+      "report_date": {},
+      "contest_prize_txt": "40000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/72",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-04-hubble-exchange-judging/issues/18",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "72",
+      "slug": "m-2-chainlinklatestrounddata-may-return-stale-results-sherlock-none-hubble-exchange-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Hubble Exchange",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Hubble Exchange",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Derivatives"
+            },
+            "score": 1
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Stale Price"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        }
+      ]
+    },
+    {
+      "id": "20220",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 30,
+      "protocol_id": "947",
+      "title": "M-6: Chainlink price feed is `deprecated`, not sufficiently validated and can return `stale` prices.",
+      "content": "Source: https://github.com/sherlock-audit/2023-05-Index-judging/issues/296 \n\n## Found by \n0x007, 0x8chars, 0xGoodess, 0xStalin, Bauchibred, Bauer, Brenzee, BugBusters, Cryptor, Diana, Madalad, MohammedRizwan, Ocean\\_Sky, Oxsadeeq, Phantasmagoria, Saeedalipoor01988, ShadowForce, erictee, jasonxiale, kn0t, kutugu, lil.eth, oxchryston, rvierdiiev, saidam017, sashik\\_eth, shogoki, volodya, warRoom, whitehat\n## Summary\nThe function `_createActionInfo()` uses Chainlink's deprecated latestAnswer function, this function also does not guarantee that the price returned by the Chainlink price feed is not stale and there is no additional checks to ensure that the return values are valid.\n\n## Vulnerability Detail\n\nThe internal function `_createActionInfo()` uses calls `strategy.collateralPriceOracle.latestAnswer()` and `strategy.borrowPriceOracle.latestAnswer()` that uses Chainlink's deprecated latestAnswer() to get the latest price. However, there is no check for if the return value is a stale data.\n```solidity\n\nfunction _createActionInfo() internal view returns(ActionInfo memory) {\n        ActionInfo memory rebalanceInfo;\n\n        // Calculate prices from chainlink. Chainlink returns prices with 8 decimal places, but we need 36 - underlyingDecimals decimal places.\n        // This is so that when the underlying amount is multiplied by the received price, the collateral valuation is normalized to 36 decimals.\n        // To perform this adjustment, we multiply by 10^(36 - 8 - underlyingDecimals)\n        int256 rawCollateralPrice = strategy.collateralPriceOracle.latestAnswer();\n        rebalanceInfo.collateralPrice = rawCollateralPrice.toUint256().mul(10 ** strategy.collateralDecimalAdjustment);\n        int256 rawBorrowPrice = strategy.borrowPriceOracle.latestAnswer();\n        rebalanceInfo.borrowPrice = rawBorrowPrice.toUint256().mul(10 ** strategy.borrowDecimalAdjustment);\n// More Code....\n}\n   \n```\n\n## Impact\nThe function `_createActionInfo()` is used to return important values used throughout the contract, the staleness of the chainlinklink return values will lead to wrong calculation of the collateral and borrow prices and other unexpected behavior.\n\n## Code Snippet\nhttps://github.com/IndexCoop/index-coop-smart-contracts/blob/317dfb677e9738fc990cf69d198358065e8cb595/contracts/adapters/AaveLeverageStrategyExtension.sol#L889\n\n## Tool used\n\nManual Review\n\n## Recommendation\nThe `latestRoundData` function should be used instead of the deprecated `latestAnswer` function and add sufficient checks to ensure that the pricefeed is not stale.\n\n```solidity\n(uint80 roundId, int256 assetChainlinkPriceInt, , uint256 updatedAt, uint80 answeredInRound) = IPrice(_chainlinkFeed).latestRoundData();\n            require(answeredInRound >= roundId, \"price is stale\");\n            require(updatedAt > 0, \"round is incomplete\");\n ```          \n\n\n\n\n## Discussion\n\n**0xffff11**\n\nSponsor comments:\n```\nGood point to switch away from using the deprecated method, which we will look into.\nHowever from this issue it is not clear how / if there is any actual vulnerability resulting from the use of this method.\n--\nAgree with @ckoopmann , the proposed fix of using latestRoundData() looks reasonable to me\n--\nI switched to confirmed / disagree with severity as this issue is factually correct and will result in us changing the code, but does not seem to have any real adverse consequences.\n```\n\n**0xffff11**\n\nI do believe that this should remain as a medium. Not just for the impact stated by the watson, but also because Chainlink might simply not support it anymore in the future.\n\n**ckoopmann**\n\nSwitched to using `latestRoundData` and adding a configurable maxPriceAge that is compared against the `updatedAt` value.\nFixed in:\nhttps://github.com/IndexCoop/index-coop-smart-contracts/pull/142",
+      "summary": "\nThis bug report is about an issue found in the Index Coop's AaveLeverageStrategyExtension.sol contract. The issue is that the internal function `_createActionInfo()` uses the deprecated Chainlink latestAnswer function to get the latest price, and this function does not guarantee that the price returned is not stale. The lack of checks to ensure that the return values are valid could lead to wrong calculation of the collateral and borrow prices and other unexpected behavior.\n\nThe bug was found by the team of 0x007, 0x8chars, 0xGoodess, 0xStalin, Bauchibred, Bauer, Brenzee, BugBusters, Cryptor, Diana, Madalad, MohammedRizwan, Ocean\\_Sky, Oxsadeeq, Phantasmagoria, Saeedalipoor01988, ShadowForce, erictee, jasonxiale, kn0t, kutugu, lil.eth, oxchryston, rvierdiiev, saidam017, sashik\\_eth, shogoki, volodya, warRoom, whitehat.\n\nThe bug was fixed by switching to using the `latestRoundData` function and adding a configurable maxPriceAge that is compared against the `updatedAt` value. The source code for the fix can be found in the link https://github.com/IndexCoop/index-coop-smart-contracts/pull/142. The severity of the bug was first marked as high but was later changed to medium due to the fact that the bug does not seem to have any real adverse consequences.",
+      "report_date": {},
+      "contest_prize_txt": "87000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/81",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-05-Index-judging/issues/296",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "81",
+      "slug": "m-6-chainlink-price-feed-is-deprecated-not-sufficiently-validated-and-can-return-stale-prices-sherlock-none-index-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Index",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Index",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Stale Price"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        }
+      ]
+    },
+    {
+      "id": "19174",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 44,
+      "protocol_id": "855",
+      "title": "M-5: getPriceFromChainlink() doesn't check If Arbitrum sequencer is down in Chainlink feeds",
+      "content": "Source: https://github.com/sherlock-audit/2023-05-ironbank-judging/issues/440 \n\n## Found by \n0x52, 0xMAKEOUTHILL, Angry\\_Mustache\\_Man, Arabadzhiev, Arz, Aymen0909, BenRai, Breeje, Brenzee, BugBusters, Delvir0, HexHackers, Ignite, Jaraxxus, Kodyvim, Madalad, MohammedRizwan, Ocean\\_Sky, Proxy, R-Nemes, SovaSlava, berlin-101, bin2chen, bitsurfer, branch\\_indigo, deadrxsezzz, devScrooge, josephdara, kutugu, n1punp, n33k, ni8mare, p0wd3r, plainshift-2, rvierdiiev, santipu\\_, sashik\\_eth, shaka, simon135, sl1, toshii, tsvetanovv, turvec, vagrant\n## Summary\nWhen utilizing Chainlink in L2 chains like Arbitrum, it's important to ensure that the prices provided are not falsely perceived as fresh, even when the sequencer is down. This vulnerability could potentially be exploited by malicious actors to gain an unfair advantage.\n\n## Vulnerability Detail\nThere is no check:\ngetPriceFromChainlink\n```solidity\n    function getPriceFromChainlink(address base, address quote) internal view returns (uint256) {\n@>      (, int256 price,,,) = registry.latestRoundData(base, quote);\n        require(price > 0, \"invalid price\");\n\n        // Extend the decimals to 1e18.\n        return uint256(price) * 10 ** (18 - uint256(registry.decimals(base, quote)));\n    }\n```\n\n\n## Impact\n\ncould potentially be exploited by malicious actors to gain an unfair advantage.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2023-05-ironbank/blob/main/ib-v2/src/protocol/oracle/PriceOracle.sol#L66-L72\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\ncode example of Chainlink:\nhttps://docs.chain.link/data-feeds/l2-sequencer-feeds#example-code\n\n\n\n## Discussion\n\n**0xffff11**\n\nValid medium\n\n**ib-tycho**\n\nRegarding the mistake in the contest details mentioned in the `README`, we apologize for any confusion caused. When we stated that we would deploy on Arbitrum and Optimism, we meant that we would make the necessary modifications before deployment. This is our standard practice of maintaining contracts with different branches, same as what we did in v1: https://github.com/ibdotxyz/compound-protocol/branches\n\nWe are aware of the absence of a registry on OP and Arb, as pointed out by some individuals. We would like to inquire if it is possible to offer the minimum reward for an oracle issue on L2. Thank you.\n\n**ib-tycho**\n\nWe'll fix this when deploying on L2, but we disagree with Severity. I would consider this as Low\n\n**0xffff11**\n\nAccording to past reports and sponsor confirmed that they will fix the issue. The issue will remain as a medium.\n\n**MLON33**\n\nAssuming this issue is acknowledged by the protocol team and won’t be fixed.",
+      "summary": "\nThis bug report is about a vulnerability in the getPriceFromChainlink() function in the PriceOracle.sol code that doesn't check if the Arbitrum sequencer is down in the Chainlink feeds. This vulnerability could potentially be exploited by malicious actors to gain an unfair advantage. The code snippet for this issue can be found at https://github.com/sherlock-audit/2023-05-ironbank/blob/main/ib-v2/src/protocol/oracle/PriceOracle.sol#L66-L72 and it was discovered by 0x52, 0xMAKEOUTHILL, Angry\\_Mustache\\_Man, Arabadzhiev, Arz, Aymen0909, BenRai, Breeje, Brenzee, BugBusters, Delvir0, HexHackers, Ignite, Jaraxxus, Kodyvim, Madalad, MohammedRizwan, Ocean\\_Sky, Proxy, R-Nemes, SovaSlava, berlin-101, bin2chen, bitsurfer, branch\\_indigo, deadrxsezzz, devScrooge, josephdara, kutugu, n1punp, n33k, ni8mare, p0wd3r, plainshift-2, rvierdiiev, santipu\\_, sashik\\_eth, shaka, simon135, sl1, toshii, tsvetanovv, turvec, vagrant.\n\nThe protocol team acknowledged the issue and stated that they will fix it when deploying on L2, though the severity of the issue was disagreed with. The team also inquired if it is possible to offer the minimum reward for an oracle issue on L2. The issue has been kept as a medium severity. A code example of Chainlink can be found at https://docs.chain.link/data-feeds/l2-sequencer-feeds#example-code.",
+      "report_date": {},
+      "contest_prize_txt": "45000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/84",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-05-ironbank-judging/issues/440",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "84",
+      "slug": "m-5-getpricefromchainlink-doesnt-check-if-arbitrum-sequencer-is-down-in-chainlink-feeds-sherlock-none-iron-bank-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Iron Bank",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Iron Bank",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        }
+      ]
+    },
+    {
+      "id": "19171",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 15,
+      "protocol_id": "855",
+      "title": "M-2: PriceOracle will use the wrong price if the Chainlink registry returns price outside min/max range",
+      "content": "Source: https://github.com/sherlock-audit/2023-05-ironbank-judging/issues/25 \n\n## Found by \n0x52, 0x8chars, Angry\\_Mustache\\_Man, Bauchibred, BenRai, BugBusters, Jaraxxus, Madalad, R-Nemes, bitsurfer, branch\\_indigo, deadrxsezzz, shaka, thekmj, tsvetanovv\n## Summary\n\nChainlink aggregators have a built in circuit breaker if the price of an asset goes outside of a predetermined price band. The result is that if an asset experiences a huge drop in value (i.e. LUNA crash) the price of the oracle will continue to return the minPrice instead of the actual price of the asset. This would allow user to continue borrowing with the asset but at the wrong price. This is exactly what happened to [Venus on BSC when LUNA imploded](https://rekt.news/venus-blizz-rekt/).\n\n## Vulnerability Detail\n\nNote there is only a check for `price` to be non-negative, and not within an acceptable range.\n\n```solidity\nfunction getPriceFromChainlink(address base, address quote) internal view returns (uint256) {\n    (, int256 price,,,) = registry.latestRoundData(base, quote);\n    require(price > 0, \"invalid price\");\n\n    // Extend the decimals to 1e18.\n    return uint256(price) * 10 ** (18 - uint256(registry.decimals(base, quote)));\n}\n```\nhttps://github.com/sherlock-audit/2023-05-ironbank/blob/main/ib-v2/src/protocol/oracle/PriceOracle.sol#L66-L72\n\nA similar issue is seen [here](https://github.com/sherlock-audit/2023-02-blueberry-judging/issues/18).\n\n## Impact\n\nThe wrong price may be returned in the event of a market crash. An adversary will then be able to borrow against the wrong price and incur bad debt to the protocol.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2023-05-ironbank/blob/main/ib-v2/src/protocol/oracle/PriceOracle.sol#L66-L72\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nImplement the proper check for each asset. **It must revert in the case of bad price**.\n\n```solidity\nfunction getPriceFromChainlink(address base, address quote) internal view returns (uint256) {\n    (, int256 price,,,) = registry.latestRoundData(base, quote);\n    require(price >= minPrice && price <= maxPrice, \"invalid price\"); // @audit use the proper minPrice and maxPrice for each asset\n\n    // Extend the decimals to 1e18.\n    return uint256(price) * 10 ** (18 - uint256(registry.decimals(base, quote)));\n}\n```\n\n\n\n## Discussion\n\n**ibsunhub**\n\nIt's not practical to setup the min price and max price for individual asset. It's hard to define a reasonable range for each asset and it will make oracle configuration more complex. It's much easier to make human error.\n\nAlso, we had an off-chain backend system to monitor the price from ChainLink. If the price is off, we would intervene to pause the oracle.\n\n**0xffff11**\n\n@ibsunhub If the oracle is paused, wouldn't functions that require of that oracle response also be paused during that time? \n\n**ibsunhub**\n\nYes, functions that need to retrieve the price will revert. They are `borrow`, `redeem`, `transferIBToken`, and `liquidate`.\n\n**0xffff11**\n\nSo, I see what the watson points out. I see that you have an off-chain safeguard for this. Therefore, I would mark the issue as invalid. Though I don't think the solution should be to revert. Liquidations can be key while oracle is paused. I think the fix should be the one from https://github.com/sherlock-audit/2023-05-ironbank-judging/issues/433 (secondary oracle and a try catch)\n\n**0xffff11**\n\nInvalid, Iron has an off-chain safeguard for price deviation that would prevent this\n\n**iamjakethehuman**\n\nEscalate for 10 USDC\nThe off-chain safeguard is never mentioned. Watsons are not supposed to know it exists.\nAlso, the supposed solution imposes an even larger risk as any user would be able to enter tbe market of which the oracle reverts and avoid liquidations. Issue should be marked as valid and another solution should be proposed.\n\n**sherlock-admin**\n\n > Escalate for 10 USDC\n> The off-chain safeguard is never mentioned. Watsons are not supposed to know it exists.\n> Also, the supposed solution imposes an even larger risk as any user would be able to enter tbe market of which the oracle reverts and avoid liquidations. Issue should be marked as valid and another solution should be proposed.\n\nYou've created a valid escalation for 10 USDC!\n\nTo remove the escalation from consideration: Delete your comment.\n\nYou may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.\n\n**ADK0010**\n\nAlso the contest page doesn't talk about any off-chain safeguards.\n\n![ironbank_escalation](https://github.com/sherlock-audit/2023-05-ironbank-judging/assets/87230982/87ca067f-cbe0-44a2-b15f-956b7e0e3c5c)\n\n\n**hrishibhat**\n\nResult:\nMedium\nHas duplicates\nThis is a valid medium \n\n**sherlock-admin**\n\nEscalations have been resolved successfully!\n\nEscalation status:\n- [iamjakethehuman](https://github.com/sherlock-audit/2023-05-ironbank-judging/issues/25/#issuecomment-1606059538): accepted\n\n**ib-tycho**\n\nHow do you establish a reasonable minimum and maximum price range for each asset? \nThe incident related to Venus that you mentioned was caused by the inherent risk of the LUNA token itself. Evaluating the risk associated with an asset should always be taken into account when listing it. I disagree with relying solely on manual human input for setting the price range, as it does not address the underlying issue faced by Venus. Therefore, we will not make changes to address this matter.",
+      "summary": "\nThis bug report is about the PriceOracle in the Ironbank protocol, which is used to retrieve the price of an asset from a Chainlink registry. It was found by a team of auditors, including 0x52, 0x8chars, Angry_Mustache_Man, Bauchibred, BenRai, BugBusters, Jaraxxus, Madalad, R-Nemes, bitsurfer, branch_indigo, deadrxsezzz, shaka, thekmj, and tsvetanovv, and it was identified through manual review. \n\nThe issue is that the PriceOracle will use the wrong price if the Chainlink registry returns a price outside of the predetermined minimum and maximum range. This could allow an adversary to borrow against the wrong price and incur bad debt to the protocol. This was seen in the case of Venus on BSC when LUNA imploded. \n\nThe code snippet that was identified as the source of the issue is located at https://github.com/sherlock-audit/2023-05-ironbank/blob/main/ib-v2/src/protocol/oracle/PriceOracle.sol#L66-L72. The recommendation to address this issue is to implement the proper check for each asset and revert in the case of bad price. \n\nThe discussion around the issue involved the implementation of an off-chain safeguard to monitor the price from ChainLink and intervene to pause the oracle if the price is off. It was also discussed that it is not practical to setup the min price and max price for individual asset, as it is hard to define a reasonable range for each asset and it will make oracle configuration more complex. \n\nThe result of the discussion was that the issue was marked as invalid, as Ironbank had an off-chain safeguard for price deviation that would prevent this. However, it was also suggested that another solution should be proposed, such as the one from https://github.com/sherlock-audit/2023-05-ironbank-judging/issues/433, which involves a secondary oracle and a try catch. \n\nFinally, the escalation was accepted and the issue was marked as a valid medium. The resolution is that Ironbank will not make any changes to address this matter, as evaluating the risk associated with an asset should always",
+      "report_date": {},
+      "contest_prize_txt": "45000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/84",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-05-ironbank-judging/issues/25",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "84",
+      "slug": "m-2-priceoracle-will-use-the-wrong-price-if-the-chainlink-registry-returns-price-outside-minmax-range-sherlock-none-iron-bank-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Iron Bank",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Iron Bank",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Oracle"
+          }
+        }
+      ]
+    },
+    {
+      "id": "20187",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 25,
+      "protocol_id": "928",
+      "title": "[M-14] Chainlink's `latestRoundData` may return a stale or incorrect result",
+      "content": "\n<https://github.com/code-423n4/2023-06-stader/blob/main/contracts/StaderOracle.sol#L646> <br><https://github.com/code-423n4/2023-06-stader/blob/main/contracts/StaderOracle.sol#L648>\n\nChainlink's `latestRoundData` is used here to retrieve price feed data; however, there is insufficient protection against price staleness.\n\nReturn arguments other than `int256 answer` are necessary to determine the validity of the returned price, as it is possible for an outdated price to be received. See [here](https://ethereum.stackexchange.com/questions/133242/how-future-resilient-is-a-chainlink-price-feed/133843#133843) for reasons why a price feed might stop updating.\n\nThe return value `updatedAt` contains the timestamp at which the received price was last updated, and can be used to ensure that the price is not outdated. See more information about `latestRoundID` in the [Chainlink docs](https://docs.chain.link/data-feeds/api-reference#latestrounddata). Inaccurate price data can lead to functions not working as expected and/or loss of funds.\n\n### Proof of Concept\n\n```solidity\n    function getPORFeedData()\n        internal\n        view\n        returns (\n            uint256,\n            uint256,\n            uint256\n        )\n    {\n        (, int256 totalETHBalanceInInt, , , ) = AggregatorV3Interface(staderConfig.getETHBalancePORFeedProxy())\n            .latestRoundData();\n        (, int256 totalETHXSupplyInInt, , , ) = AggregatorV3Interface(staderConfig.getETHXSupplyPORFeedProxy())\n            .latestRoundData();\n        return (uint256(totalETHBalanceInInt), uint256(totalETHXSupplyInInt), block.number);\n    }\n```\n\n### Recommended Mitigation Steps\n\nAdd a check for the `updatedAt` returned value from `latestRoundData`.\n\n```diff\n    function getPORFeedData()\n        internal\n        view\n        returns (\n            uint256,\n            uint256,\n            uint256\n        )\n    {\n-       (, int256 totalETHBalanceInInt, , , ) = AggregatorV3Interface(staderConfig.getETHBalancePORFeedProxy())\n+       (, int256 totalETHBalanceInInt, , uint256 balanceUpdatedAt, ) = AggregatorV3Interface(staderConfig.getETHBalancePORFeedProxy())\n            .latestRoundData();\n+       require(block.timestamp - balanceUpdatedAt <= MAX_DELAY, \"stale price\");\n\n-       (, int256 totalETHXSupplyInInt, , , ) = AggregatorV3Interface(staderConfig.getETHXSupplyPORFeedProxy())\n+       (, int256 totalETHXSupplyInInt, , uint256 supplyUpdatedAt, ) = AggregatorV3Interface(staderConfig.getETHXSupplyPORFeedProxy())\n            .latestRoundData();\n+       require(block.timestamp - supplyUpdatedAt <= MAX_DELAY, \"stale price\");\n\n        return (uint256(totalETHBalanceInInt), uint256(totalETHXSupplyInInt), block.number);\n    }\n```\n\n### Assessed type\n\nOracle\n\n**[manoj9april (Stader) acknowledged and commented](https://github.com/code-423n4/2022-06-stader-findings/issues/15#issuecomment-1596573683):**\n > Solution with chainlink is not finalized.\n\n***\n\n",
+      "summary": "\nThis bug report is about the StaderOracle.sol smart contract. It is used to retrieve price feed data from Chainlink's `latestRoundData` but there is insufficient protection against price staleness. This can lead to inaccurate price data that can cause functions not working as expected and/or loss of funds. To mitigate this, a check for the `updatedAt` returned value from `latestRoundData` should be added. This is an Oracle bug and has been acknowledged and commented on by manoj9april (Stader).",
+      "report_date": {},
+      "contest_prize_txt": "$100,000 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-06-stader",
+      "sponsor_name": "Stader Labs",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-06-stader",
+      "github_link": "https://github.com/code-423n4/2022-06-stader-findings/issues/15",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "249",
+      "slug": "m-14-chainlinks-latestrounddata-may-return-a-stale-or-incorrect-result-code4rena-stader-labs-stader-labs-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Stader Labs",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Stader Labs",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Stale Price"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        }
+      ]
+    },
+    {
+      "id": "18479",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "823",
+      "title": "M-12: chainlinkAdaptor uses the same heartbeat for both feeds which is highly dangerous",
+      "content": "Source: https://github.com/sherlock-audit/2023-04-jojo-judging/issues/449 \n\n## Found by \n0x52, ast3ros\n## Summary\nchainlinkAdaptor uses the same heartbeat for both feeds when checking if the data feed is fresh. The issue with this is that the [USDC/USD](https://data.chain.link/ethereum/mainnet/stablecoins/usdc-usd) oracle has a 24 hour heartbeat, whereas the [average](https://data.chain.link/ethereum/mainnet/crypto-usd/eth-usd) has a heartbeat of 1 hour. Since they use the same heartbeat the heartbeat needs to be slower of the two or else the contract would be nonfunctional most of the time. The issue is that it would allow the consumption of potentially very stale data from the non-USDC feed.\n\n## Vulnerability Detail\n\nSee summary\n\n## Impact\n\nEither near constant downtime or insufficient staleness checks\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2023-04-jojo/blob/main/smart-contract-EVM/contracts/adaptor/chainlinkAdaptor.sol#L43-L55\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nUse two separate heartbeat periods\n\n\n\n## Discussion\n\n**JoscelynFarr**\n\nThe contract are trying to get the latest price in here:https://github.com/sherlock-audit/2023-04-jojo/blob/main/smart-contract-EVM/contracts/adaptor/chainlinkAdaptor.sol#LL47C1-L47C1\n\nAnd the heartbeat is trying to prevent chainlink stop updating. It is the same as chainlink's heartbeat.\nhttps://docs.chain.link/data-feeds/price-feeds/addresses/?network=arbitrum#Arbitrum%20Mainnet\n\n**iamjakethehuman**\n\nEscalate for 10 USDC\nI don’t think the sponsor properly understood the issue. On Arbitrum, as well as pretty much any other network, different token pairs have different heartbeats. If the oracle gets the latest price for two pairs with different heartbeats, using the same heartbeat variable for validation would cause either one of the following:\n1. Oracle will be down (will revert) most of the time.\n2. Oracle will allow for stale prices\n\nWhen validating prices for two different token pairs, two different heartbeats must be used.\n\n**sherlock-admin**\n\n > Escalate for 10 USDC\n> I don’t think the sponsor properly understood the issue. On Arbitrum, as well as pretty much any other network, different token pairs have different heartbeats. If the oracle gets the latest price for two pairs with different heartbeats, using the same heartbeat variable for validation would cause either one of the following:\n> 1. Oracle will be down (will revert) most of the time.\n> 2. Oracle will allow for stale prices\n> \n> When validating prices for two different token pairs, two different heartbeats must be used.\n\nYou've created a valid escalation for 10 USDC!\n\nTo remove the escalation from consideration: Delete your comment.\n\nYou may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.\n\n**JoscelynFarr**\n\nhttps://github.com/JOJOexchange/smart-contract-EVM/commit/c4270e0dc4da0db56173e39d8b6318e47999a07d\nhttps://github.com/JOJOexchange/JUSDV1/commit/f1699ae81e81eb190914d1c2ae491a825389daac\nfix \n\n**hrishibhat**\n\nResult:\nMedium\nHas duplicates\nGiven that the code uses the same heartbeat to validate both assets, when both assets can have different heartbeats, considering this issue a valid medium\n\nSponsor comment:\n> got it, we will accept this issue\n\n\n**sherlock-admin**\n\nEscalations have been resolved successfully!\n\nEscalation status:\n- [iamjakethehuman](https://github.com/sherlock-audit/2023-04-jojo-judging/issues/449/#issuecomment-1568436039): accepted\n\n**IAm0x52**\n\nFix looks good. Contract now uses separate heartbeats for asset and USDC",
+      "summary": "\nIssue M-12 is a bug found by 0x52 and ast3ros in the chainlinkAdaptor contract, which uses the same heartbeat for both feeds when checking if the data feed is fresh. This is highly dangerous as the USDC/USD oracle has a 24 hour heartbeat, whereas the average has a heartbeat of 1 hour. This means that the heartbeat needs to be slower of the two or else the contract would be nonfunctional most of the time, and would allow the consumption of potentially very stale data from the non-USDC feed. \n\nThe code snippet can be found at https://github.com/sherlock-audit/2023-04-jojo/blob/main/smart-contract-EVM/contracts/adaptor/chainlinkAdaptor.sol#L43-L55, and the impact of this bug is either near constant downtime or insufficient staleness checks. The recommendation is to use two separate heartbeat periods. \n\nThe bug was discussed and escalated for 10 USDC, with iamjakethehuman noting that the oracle will be down or allow for stale prices if the same heartbeat is used for both token pairs. This was accepted by the sponsor, and the fix was implemented with a commit at https://github.com/JOJOexchange/smart-contract-EVM/commit/c4270e0dc4da0db56173e39d8b6318e47999a07d and https://github.com/JOJOexchange/JUSDV1/commit/f1699ae81e81eb190914d1c2ae491a825389daac. The fix looks good, and the contract now uses separate heartbeats for asset and USDC.",
+      "report_date": {},
+      "contest_prize_txt": "52000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/70",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-04-jojo-judging/issues/449",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "70",
+      "slug": "m-12-chainlinkadaptor-uses-the-same-heartbeat-for-both-feeds-which-is-highly-dangerous-sherlock-none-jojo-exchange-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "JOJO Exchange",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "JOJO Exchange",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Lending"
+            },
+            "score": 1
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Oracle"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        }
+      ]
+    },
+    {
+      "id": "18538",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 19,
+      "protocol_id": "613",
+      "title": "M-1: ControllerPeggedAssetV2: outdated price may be used which can lead to wrong depeg events",
+      "content": "Source: https://github.com/sherlock-audit/2023-03-Y2K-judging/issues/70 \n\n## Found by \n0xRobocop, 0xnirlin, ABA, Ch\\_301, Delvir0, Saeedalipoor01988, ShadowForce, TrungOre, ast3ros, bin2chen, carrot, evan, kaysoft, lemonmon, martin, minhtrng, p0wd3r, peanuts, roguereddwarf\n\n## Summary\nThe `updatedAt` timestamp in the price feed response is not checked. So outdated prices may be used.\n\n## Vulnerability Detail\nThe following checks are performed for the chainlink price feed:\nhttps://github.com/sherlock-audit/2023-03-Y2K/blob/main/Earthquake/src/v2/Controllers/ControllerPeggedAssetV2.sol#L299-L315\n\nAs you can see the `updatedAt` timestamp is not checked.\nSo the price may be outdated.\n\n## Impact\nThe price that is used by the Controller can be outdated. This means that a depeg event may be caused due to an outdated price which is incorrect. Only current prices must be used to check for a depeg event.\n\n## Code Snippet\nhttps://github.com/sherlock-audit/2023-03-Y2K/blob/main/Earthquake/src/v2/Controllers/ControllerPeggedAssetV2.sol#L273-L318\n\n## Tool used\nManual Review\n\n## Recommendation\nIntroduce a reasonable limit for how old the price can be and revert if the price is older:\n```diff\niff --git a/Earthquake/src/v2/Controllers/ControllerPeggedAssetV2.sol b/Earthquake/src/v2/Controllers/ControllerPeggedAssetV2.sol\nindex 0587c86..cf2dcf5 100644\n--- a/Earthquake/src/v2/Controllers/ControllerPeggedAssetV2.sol\n+++ b/Earthquake/src/v2/Controllers/ControllerPeggedAssetV2.sol\n@@ -275,8 +275,8 @@ contract ControllerPeggedAssetV2 {\n             ,\n             /*uint80 roundId*/\n             int256 answer,\n-            uint256 startedAt, /*uint256 updatedAt*/ /*uint80 answeredInRound*/\n-            ,\n+            uint256 startedAt, \n+            uint256 updatedAt, /*uint80 answeredInRound*/\n \n         ) = sequencerUptimeFeed.latestRoundData();\n \n@@ -314,6 +314,8 @@ contract ControllerPeggedAssetV2 {\n \n         if (answeredInRound < roundID) revert RoundIDOutdated();\n \n+        if (updatedAt < block.timestamp - LIMIT) revert PriceOutdated();\n+\n         return price;\n     }\n```\n\n\n\n## Discussion\n\n**3xHarry**\n\nconsidering this\n\n**3xHarry**\n\nfix PR: https://github.com/Y2K-Finance/Earthquake/pull/141\n\n**IAm0x52**\n\nFix looks good. Controller will now revert if price is stale",
+      "summary": "\nThis bug report is about the issue M-1 in the ControllerPeggedAssetV2 of the Y2K-Finance project. It was found by 0xRobocop, 0xnirlin, ABA, Ch\\_301, Delvir0, Saeedalipoor01988, ShadowForce, TrungOre, ast3ros, bin2chen, carrot, evan, kaysoft, lemonmon, martin, minhtrng, p0wd3r, peanuts, roguereddwarf and was identified using manual review.\n\nThe issue is that the `updatedAt` timestamp in the price feed response is not checked. This means that outdated prices may be used, which can lead to wrong depeg events. This is because the price used by the Controller can be outdated and only current prices must be used to check for a depeg event.\n\nThe code snippet of the ControllerPeggedAssetV2.sol can be found at https://github.com/sherlock-audit/2023-03-Y2K/blob/main/Earthquake/src/v2/Controllers/ControllerPeggedAssetV2.sol#L273-L318.\n\nThe recommendation is to introduce a reasonable limit for how old the price can be and revert if the price is older. A fix PR was created which can be found at https://github.com/Y2K-Finance/Earthquake/pull/141 and it was accepted by IAm0x52. The fix looks good and the Controller will now revert if the price is stale.",
+      "report_date": {},
+      "contest_prize_txt": "50000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/57",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-03-Y2K-judging/issues/70",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "57",
+      "slug": "m-1-controllerpeggedassetv2-outdated-price-may-be-used-which-can-lead-to-wrong-depeg-events-sherlock-none-y2k-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Y2K",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Y2K",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Stale Price"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Oracle"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6689",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "13",
+      "title": "M-3: _validateAndGetPrice() doesn't check If Arbitrum sequencer is down in Chainlink feeds",
+      "content": "Source: https://github.com/sherlock-audit/2023-02-bond-judging/issues/1 \n\n## Found by \nAvci\n\n## Summary\nWhen utilizing Chainlink in L2 chains like Arbitrum, it's important to ensure that the prices provided are not falsely perceived as fresh, even when the sequencer is down. This vulnerability could potentially be exploited by malicious actors to gain an unfair advantage.\n\n## Vulnerability Detail\nThere is no check: \n```soldity\nsolidity function _validateAndGetPrice(AggregatorV2V3Interface feed_, uint48 updateThreshold_)\n        internal\n        view\n        returns (uint256)\n    {\n        // Get latest round data from feed\n        (uint80 roundId, int256 priceInt, , uint256 updatedAt, uint80 answeredInRound) = feed_\n            .latestRoundData();\n        // @audit check if Arbitrum L2 sequencer is down in Chainlink feeds: medium\n        // Validate chainlink price feed data\n        // 1. Answer should be greater than zero\n        // 2. Updated at timestamp should be within the update threshold\n        // 3. Answered in round ID should be the same as the round ID\n        if (\n            priceInt <= 0 ||\n            updatedAt < block.timestamp - uint256(updateThreshold_) ||\n            answeredInRound != roundId\n        ) revert BondOracle_BadFeed(address(feed_));\n        return uint256(priceInt);\n    }\n```\n## Impact\ncould potentially be exploited by malicious actors to gain an unfair advantage.\n## Code Snippet\nhttps://github.com/sherlock-audit/2023-02-bond-0xdanial/blob/0d6f979c9f361bc1101f429b3bb09264577b9a71/bonds/src/BondChainlinkOracle.sol#L129\n## Tool used\n\nManual Review\n\n## Recommendation\ncode example of Chainlink:\nhttps://docs.chain.link/data-feeds/l2-sequencer-feeds#example-code \n\n\n## Discussion\n\n**Oighty**\n\nAgree this should be fixed for using the Chainlink Oracle Contract on L2s. I think the best way to handle is to have a mainnet version of the contract (as is) and L2 version of the contract which implements the sequencer feed check.\n\n**UsmannK**\n\nEscalate for 10 USDC.\n\nWatson states that the arbitrum sequencer may temporarily go down and cause stale prices to be read from the oracle. This is incorrect; the arbitrum sequencer going down cannot result in stale prices to be accepted. \n\nStale prices will have an old `updatedAt` timestamp and be rejected by the following code:\nhttps://github.com/sherlock-audit/2023-02-bond/blob/8a326a4b39fdaf9eaf5911cfd3e9676a83c24a58/bonds/src/BondChainlinkOracle.sol#L141-L146\n\n```solidity\n        // Validate chainlink price feed data\n        // 1. Answer should be greater than zero\n        // 2. Updated at timestamp should be within the update threshold\n        // 3. Answered in round ID should be the same as the round ID\n        if (\n            priceInt <= 0 ||\n            updatedAt < block.timestamp - uint256(updateThreshold_) ||\n            answeredInRound != roundId\n        ) revert BondOracle_BadFeed(address(feed_));\n```\n\nThe watson's link (https://docs.chain.link/data-feeds/l2-sequencer-feeds#arbitrum) is actually a metadata feed about historical uptime/downtime data that is not related to the supposed issue.\n\n**sherlock-admin**\n\n > Escalate for 10 USDC.\n> \n> Watson states that the arbitrum sequencer may temporarily go down and cause stale prices to be read from the oracle. This is incorrect; the arbitrum sequencer going down cannot result in stale prices to be accepted. \n> \n> Stale prices will have an old `updatedAt` timestamp and be rejected by the following code:\n> https://github.com/sherlock-audit/2023-02-bond/blob/8a326a4b39fdaf9eaf5911cfd3e9676a83c24a58/bonds/src/BondChainlinkOracle.sol#L141-L146\n> \n> ```solidity\n>         // Validate chainlink price feed data\n>         // 1. Answer should be greater than zero\n>         // 2. Updated at timestamp should be within the update threshold\n>         // 3. Answered in round ID should be the same as the round ID\n>         if (\n>             priceInt <= 0 ||\n>             updatedAt < block.timestamp - uint256(updateThreshold_) ||\n>             answeredInRound != roundId\n>         ) revert BondOracle_BadFeed(address(feed_));\n> ```\n> \n> The watson's link (https://docs.chain.link/data-feeds/l2-sequencer-feeds#arbitrum) is actually a metadata feed about historical uptime/downtime data that is not related to the supposed issue.\n\nYou've created a valid escalation for 10 USDC!\n\nTo remove the escalation from consideration: Delete your comment.\n\nYou may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.\n\n**Oighty**\n\nIssue fixed here: https://github.com/Bond-Protocol/bonds/pull/53\n\n**xiaoming9090**\n\nFixed in https://github.com/Bond-Protocol/bonds/pull/53\n\n**hrishibhat**\n\nEscalation rejected\n\nUpdating the escalation resolution.  \nConsidering this issue as a valid medium, additional sponsor comments:\n> If it updates again within the update threshold. The feeds typically can update several times within a threshold period if the price is moving a lot\nwhen the sequencer is down, the new price won't be reported to the chain. the feed on the L2 will return the value it had when it went down\n\n\n**sherlock-admin**\n\n> Escalation rejected\n> \n> Updating the escalation resolution.  \n> Considering this issue as a valid medium, additional sponsor comments:\n> > If it updates again within the update threshold. The feeds typically can update several times within a threshold period if the price is moving a lot\n> when the sequencer is down, the new price won't be reported to the chain. the feed on the L2 will return the value it had when it went down\n> \n\nThis issue's escalations have been rejected!\n\nWatsons who escalated this issue will have their escalation amount deducted from their next payout.",
+      "summary": "\nThis bug report is about a vulnerability found in the BondChainlinkOracle.sol smart contract. The vulnerability exists in the _validateAndGetPrice() function, which does not check if the Arbitrum sequencer is down in Chainlink feeds. This means that stale prices can be accepted, which malicious actors could potentially exploit to gain an unfair advantage. The code snippet for this function can be found at https://github.com/sherlock-audit/2023-02-bond-0xdanial/blob/0d6f979c9f361bc1101f429b3bb09264577b9a71/bonds/src/BondChainlinkOracle.sol#L129.\n\nThe vulnerability was found by Avci and manually reviewed. The recommendation is to implement a check for the sequencer in the L2 version of the contract, and a code example of Chainlink can be found at https://docs.chain.link/data-feeds/l2-sequencer-feeds#example-code.\n\nThe issue was discussed by Oighty, UsmannK, and sherlock-admin. Oighty suggested having a mainnet version of the contract and an L2 version of the contract which implements the sequencer feed check. UsmannK suggested escalating the issue for 10 USDC, but sherlock-admin rejected the escalation after further discussion. Watson's link (https://docs.chain.link/data-feeds/l2-sequencer-feeds#arbitrum) was actually a metadata feed about historical uptime/downtime data that is not related to the supposed issue.\n\nThe issue was fixed in https://github.com/Bond-Protocol/bonds/pull/53, and the escalation was rejected. Watsons who escalated this issue will have their escalation amount deducted from their next payout.",
+      "report_date": {},
+      "contest_prize_txt": "25000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/53",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-02-bond-judging/issues/1",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "53",
+      "slug": "m-3-_validateandgetprice-doesnt-check-if-arbitrum-sequencer-is-down-in-chainlink-feeds-sherlock-bond-protocol-update-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Bond Protocol Update",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Bond Protocol Update",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Insurance"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "L2 Sequencer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Oracle"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6663",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "32",
+      "title": "M-16: ChainlinkAdapterOracle will return the wrong price for asset if underlying aggregator hits minAnswer",
+      "content": "Source: https://github.com/sherlock-audit/2023-02-blueberry-judging/issues/18 \n\n## Found by \n0x52\n\n## Summary\n\nChainlink aggregators have a built in circuit breaker if the price of an asset goes outside of a predetermined price band. The result is that if an asset experiences a huge drop in value (i.e. LUNA crash) the price of the oracle will continue to return the minPrice instead of the actual price of the asset. This would allow user to continue borrowing with the asset but at the wrong price. This is exactly what happened to [Venus on BSC when LUNA imploded](https://rekt.news/venus-blizz-rekt/). \n\n## Vulnerability Detail\n\nChainlinkAdapterOracle uses the [ChainlinkFeedRegistry](https://etherscan.io/address/0x47Fb2585D2C56Fe188D0E6ec628a38b74fCeeeDf) to obtain the price of the requested tokens.\n\n    function latestRoundData(\n      address base,\n      address quote\n    )\n      external\n      view\n      override\n      checkPairAccess()\n      returns (\n        uint80 roundId,\n        int256 answer,\n        uint256 startedAt,\n        uint256 updatedAt,\n        uint80 answeredInRound\n      )\n    {\n      uint16 currentPhaseId = s_currentPhaseId[base][quote];\n      //@audit this pulls the Aggregator for the requested pair\n      AggregatorV2V3Interface aggregator = _getFeed(base, quote);\n      require(address(aggregator) != address(0), \"Feed not found\");\n      (\n        roundId,\n        answer,\n        startedAt,\n        updatedAt,\n        answeredInRound\n      ) = aggregator.latestRoundData();\n      return _addPhaseIds(roundId, answer, startedAt, updatedAt, answeredInRound, currentPhaseId);\n    }\n\nChainlinkFeedRegistry#latestRoundData pulls the associated aggregator and requests round data from it. ChainlinkAggregators have minPrice and maxPrice circuit breakers built into them. This means that if the price of the asset drops below the minPrice, the protocol will continue to value the token at minPrice instead of it's actual value. This will allow users to take out huge amounts of bad debt and bankrupt the protocol.\n\nExample:\nTokenA has a minPrice of $1. The price of TokenA drops to $0.10. The aggregator still returns $1 allowing the user to borrow against TokenA as if it is $1 which is 10x it's actual value.\n\nNote:\nChainlink oracles are used a just one piece of the OracleAggregator system and it is assumed that using a combination of other oracles, a scenario like this can be avoided. However this is not the case because the other oracles also have their flaws that can still allow this to be exploited. As an example if the chainlink oracle is being used with a UniswapV3Oracle which uses a long TWAP then this will be exploitable when the TWAP is near the minPrice on the way down. In a scenario like that it wouldn't matter what the third oracle was because it would be bypassed with the two matching oracles prices. If secondary oracles like Band are used a malicious user could DDOS relayers to prevent update pricing. Once the price becomes stale the chainlink oracle would be the only oracle left and it's price would be used.\n\n## Impact\n\nIn the event that an asset crashes (i.e. LUNA) the protocol can be manipulated to give out loans at an inflated price\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2023-02-blueberry/blob/main/contracts/oracle/ChainlinkAdapterOracle.sol#L66-L84\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nChainlinkAdapterOracle should check the returned answer against the minPrice/maxPrice and revert if the answer is outside of the bounds:\n\n        (, int256 answer, , uint256 updatedAt, ) = registry.latestRoundData(\n            token,\n            USD\n        );\n        \n    +   if (answer >= maxPrice or answer <= minPrice) revert();\n    \n    \n\n## Discussion\n\n**Gornutz**\n\nThe aggregator is responding with answers from the multiple of oracle sources\n\n**IAm0x52**\n\nEscalate for 50 USDC\n\nThis is not a dupe of #94\n\n```The aggregator is responding with answers from the multiple of oracle sources```\n\nThis comment is true but in my submission I address this exact issue and why it's still an issue even if the aggregator has multiple sources:\n\n> Note:\n> Chainlink oracles are used a just one piece of the OracleAggregator system and it is assumed that using a combination of other oracles, a scenario like this can be avoided. However this is not the case because the other oracles also have their flaws that can still allow this to be exploited. As an example if the chainlink oracle is being used with a UniswapV3Oracle which uses a long TWAP then this will be exploitable when the TWAP is near the minPrice on the way down. In a scenario like that it wouldn't matter what the third oracle was because it would be bypassed with the two matching oracles prices. If secondary oracles like Band are used a malicious user could DDOS relayers to prevent update pricing. Once the price becomes stale the chainlink oracle would be the only oracle left and it's price would be used.```\n\nEven with the structure of aggregator there are still lots of scenarios where this could cause an issue. The chainlink oracle needs to revert at min/max answer because otherwise it risk returning the wrong price and causing the collateral to be overvalued leading to huge amounts of abuse.\n\n**sherlock-admin**\n\n > Escalate for 50 USDC\n> \n> This is not a dupe of #94\n> \n> ```The aggregator is responding with answers from the multiple of oracle sources```\n> \n> This comment is true but in my submission I address this exact issue and why it's still an issue even if the aggregator has multiple sources:\n> \n> > Note:\n> > Chainlink oracles are used a just one piece of the OracleAggregator system and it is assumed that using a combination of other oracles, a scenario like this can be avoided. However this is not the case because the other oracles also have their flaws that can still allow this to be exploited. As an example if the chainlink oracle is being used with a UniswapV3Oracle which uses a long TWAP then this will be exploitable when the TWAP is near the minPrice on the way down. In a scenario like that it wouldn't matter what the third oracle was because it would be bypassed with the two matching oracles prices. If secondary oracles like Band are used a malicious user could DDOS relayers to prevent update pricing. Once the price becomes stale the chainlink oracle would be the only oracle left and it's price would be used.```\n> \n> Even with the structure of aggregator there are still lots of scenarios where this could cause an issue. The chainlink oracle needs to revert at min/max answer because otherwise it risk returning the wrong price and causing the collateral to be overvalued leading to huge amounts of abuse.\n\nYou've created a valid escalation for 50 USDC!\n\nTo remove the escalation from consideration: Delete your comment.\nTo change the amount you've staked on this escalation: Edit your comment **(do not create a new comment)**.\n\nYou may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.\n\n**Gornutz**\n\nGiven the multi-aggregator setup we will use, once price hits Chainlink's oracles will at their min value. The other oracles will respond with a price well below that min value and will have a large enough deviation to cause a revert. Since the assets will be pooling from Chainlink / Band / Twap. Think setting a min / max inside of the chainlink oracle directly will potentially cause additional attack vectors to be created.\n\n**hrishibhat**\n\nEscalation accepted\n\nNot a duplicate of #94 \nThis issue is a valid medium\nGiven the unlikely edge case of Chainlink hitting minimum value as a result of a serious price movement and resulting in undercollateralized borrowing. \n\n**sherlock-admin**\n\n> Escalation accepted\n> \n> This issue is a valid medium\n> Given the unlikely edge case of Chainlink hitting minimum value as a result of a serious price movement and resulting in undercollateralized borrowing. \n\nThis issue's escalations have been accepted!\n\nContestants' payouts and scores will be updated according to the changes made on this issue.",
+      "summary": "\nThis bug report is about an issue found in the ChainlinkAdapterOracle which could return the wrong price for an asset if the underlying aggregator hits minAnswer. The issue was found by 0x52 and is related to the ChainlinkFeedRegistry which pulls the associated aggregator and requests round data from it. The aggregator has minPrice and maxPrice circuit breakers built into them, so if the price of the asset drops below the minPrice, the protocol will continue to value the token at minPrice instead of its actual value. This would allow users to take out huge amounts of bad debt and bankrupt the protocol. \n\nThe code snippet for this issue can be found at https://github.com/sherlock-audit/2023-02-blueberry/blob/main/contracts/oracle/ChainlinkAdapterOracle.sol#L66-L84. The impact of this issue is that in the event that an asset crashes (i.e. LUNA), the protocol can be manipulated to give out loans at an inflated price. \n\nThe recommendation is that ChainlinkAdapterOracle should check the returned answer against the minPrice/maxPrice and revert if the answer is outside of the bounds. There was discussion about how this issue could still be exploitable even with the multi-aggregator setup and the use of other oracles. The issue was accepted and the contestants' payouts and scores will be updated according to the changes made on this issue.",
+      "report_date": {},
+      "contest_prize_txt": "50000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/41",
+      "sponsor_name": "Blueberry",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-02-blueberry-judging/issues/18",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "41",
+      "slug": "m-16-chainlinkadapteroracle-will-return-the-wrong-price-for-asset-if-underlying-aggregator-hits-minanswer-sherlock-blueberry-blueberry-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Blueberry",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Blueberry",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Oracle"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6354",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 18,
+      "protocol_id": "78",
+      "title": "[M-24] Chainlink price feed is not sufficiently validated and can return stale price",
+      "content": "\nAs mentioned by <https://docs.tigris.trade/protocol/oracle>, \"Prices provided by the oracle network are also compared to Chainlink's public price feeds for additional security. If prices have more than a 2% difference the transaction is reverted.\" The Chainlink price verification logic in the following `TradingLibrary.verifyPrice` function serves this purpose. However, besides that `IPrice(_chainlinkFeed).latestAnswer()` uses Chainlink's deprecated `latestAnswer` function, this function also does not guarantee that the price returned by the Chainlink price feed is not stale. When `assetChainlinkPriceInt != 0` is `true`, it is still possible that `assetChainlinkPriceInt` is stale in which the Chainlink price verification would compare the off-chain price against a stale price returned by the Chainlink price feed. For a off-chain price that has more than a 2% difference when comparing to a more current price returned by the Chainlink price feed, this off-chain price can be incorrectly considered to have less than a 2% difference when comparing to a stale price returned by the Chainlink price feed. As a result, a trading transaction that should revert can go through, which makes the price verification much less secure.\n\n<https://github.com/code-423n4/2022-12-tigris/blob/main/contracts/utils/TradingLibrary.sol#L91-L122>\n\n```solidity\n    function verifyPrice(\n        uint256 _validSignatureTimer,\n        uint256 _asset,\n        bool _chainlinkEnabled,\n        address _chainlinkFeed,\n        PriceData calldata _priceData,\n        bytes calldata _signature,\n        mapping(address => bool) storage _isNode\n    )\n        external view\n    {\n        ...\n        if (_chainlinkEnabled && _chainlinkFeed != address(0)) {\n            int256 assetChainlinkPriceInt = IPrice(_chainlinkFeed).latestAnswer();\n            if (assetChainlinkPriceInt != 0) {\n                uint256 assetChainlinkPrice = uint256(assetChainlinkPriceInt) * 10**(18 - IPrice(_chainlinkFeed).decimals());\n                require(\n                    _priceData.price < assetChainlinkPrice+assetChainlinkPrice*2/100 &&\n                    _priceData.price > assetChainlinkPrice-assetChainlinkPrice*2/100, \"!chainlinkPrice\"\n                );\n            }\n        }\n    }\n```\n\nBased on <https://docs.chain.link/docs/historical-price-data>, the following can be done to avoid using a stale price returned by the Chainlink price feed.\n\n1.  The `latestRoundData` function can be used instead of the deprecated `latestAnswer` function.\n2.  `roundId` and `answeredInRound` are also returned. \"You can check `answeredInRound` against the current `roundId`. If `answeredInRound` is less than `roundId`, the answer is being carried over. If `answeredInRound` is equal to `roundId`, then the answer is fresh.\"\n3.  \"A read can revert if the caller is requesting the details of a round that was invalid or has not yet been answered. If you are deriving a round ID without having observed it before, the round might not be complete. To check the round, validate that the timestamp on that round is not 0.\"\n\n### Proof of Concept\n\nThe following steps can occur for the described scenario.\n\n1.  Alice calls the `Trading.initiateMarketOrder` function, which eventually calls the `TradingLibrary.verifyPrice` function, to initiate a market order.\n2.  When the `TradingLibrary.verifyPrice` function is called, the off-chain price is compared to the price returned by the Chainlink price feed for the position asset.\n3.  The price returned by the Chainlink price feed is stale, and the off-chain price has less than a 2% difference when comparing to this stale price.\n4.  Alice's `Trading.initiateMarketOrder` transaction goes through. However, this transaction should revert because the off-chain price has more than a 2% difference if comparing to a more current price returned by the Chainlink price feed.\n\n### Tools Used\n\nVS Code\n\n### Recommended Mitigation Steps\n\n<https://github.com/code-423n4/2022-12-tigris/blob/main/contracts/utils/TradingLibrary.sol#L113> can be updated to the following code.\n\n```solidity\n            (uint80 roundId, int256 assetChainlinkPriceInt, , uint256 updatedAt, uint80 answeredInRound) = IPrice(_chainlinkFeed).latestRoundData();\n            require(answeredInRound >= roundId, \"price is stale\");\n            require(updatedAt > 0, \"round is incomplete\");\n```\n\n**[GainsGoblin (Tigris Trade) acknowledged and commented](https://github.com/code-423n4/2022-12-tigris-findings/issues/655#issuecomment-1377551479):**\n > We don't want a trader's trade to revert just because the chainlink feed is a round behind.\n\n**[Alex the Entreprenerd (judge) commented](https://github.com/code-423n4/2022-12-tigris-findings/issues/655#issuecomment-1383083924):**\n > The Warden has pointed out to a possible risk related to the price oracle returning stale data.\n> \n> Alternatively to checking for latest round, a check for `updatedAt` to not be too far in the past should also help mitigate the risk of offering an incorrect price which can lead to value extraction or unintended behaviour.\n> \n> Because of the risk, I do agree with Medium Severity.\n\n**[GainsGoblin (Tigris Trade) confirmed and commented](https://github.com/code-423n4/2022-12-tigris-findings/issues/655#issuecomment-1407824582):**\n > Mitigation: https://github.com/code-423n4/2022-12-tigris/pull/2#issuecomment-1419177187 \n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the `TradingLibrary.verifyPrice` function of the code-423n4/2022-12-tigris repository. This function is used to compare an off-chain price to a price returned by a Chainlink price feed. The problem is that the function uses Chainlink's deprecated `latestAnswer` function, which does not guarantee that the price returned by the Chainlink price feed is not stale. This means that if the off-chain price has more than a 2% difference when comparing to a more current price returned by the Chainlink price feed, this off-chain price can be incorrectly considered to have less than a 2% difference when comparing to a stale price returned by the Chainlink price feed. As a result, a trading transaction that should revert can go through, making the price verification much less secure. \n\nTo avoid using a stale price returned by the Chainlink price feed, the `latestRoundData` function can be used instead of the deprecated `latestAnswer` function. Additionally, `roundId` and `answeredInRound` are also returned, and can be checked against the current `roundId`. Finally, the timestamp on the round can be validated to make sure the round is complete.\n\nThe recommended mitigation step is to update the `TradingLibrary.verifyPrice` function to the code provided in the report. This code uses the `latestRoundData` function, checks the `roundId` and `answeredInRound` against the current `roundId`, and validates the timestamp on the round.",
+      "report_date": {},
+      "contest_prize_txt": "$90,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-12-tigris-trade-contest",
+      "sponsor_name": "Tigris Trade",
+      "sponsor_link": "https://twitter.com/TigrisTrades",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2022-12-tigris",
+      "github_link": "https://github.com/code-423n4/2022-12-tigris-findings/issues/655",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "192",
+      "slug": "m-24-chainlink-price-feed-is-not-sufficiently-validated-and-can-return-stale-price-code4rena-tigris-trade-tigris-trade-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Tigris Trade",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Tigris Trade",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Derivatives"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Algo-Stables"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Stale Price"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Oracle"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        }
+      ]
+    },
+    {
+      "id": "15995",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 24,
+      "protocol_id": "94",
+      "title": "[M-12] During oracle outages or feeder outages/disagreement, the ParaSpaceFallbackOracle is not used",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2022-11-paraspace/blob/c6820a279c64a299a783955749fdc977de8f0449/paraspace-core/contracts/misc/ParaSpaceOracle.sol#L114-L136\n\n\n## Vulnerability details\n\n## Impact\nIf the feeders haven't updated their prices within the default six-hour time window, the floor oracle will revert when requests are made to get the current price, and these reverts are not caught by the wrapper oracle which handles the fallback oracle, so rather than using the fallback oracle in these cases, the calls will revert, leading to liquidations to fail (see my other submission for the full chain from the floor oracle to the liquidation function).\n\nAdditionally, the code uses the deprecated chainlink `latestAnswer()` API for its token requests, which may revert once it is no longer supported\n\n## Proof of Concept\n`getPrice()` will fail if the values are stale:\n```solidity\nFile: /paraspace-core/contracts/misc/NFTFloorOracle.sol   #1\n\n236      function getPrice(address _asset)\n237          external\n238          view\n239          override\n240          returns (uint256 price)\n241      {\n242 @>       uint256 updatedAt = assetPriceMap[_asset].updatedAt;\n243          require(\n244              (block.number - updatedAt) <= config.expirationPeriod,\n245 @>           \"NFTOracle: asset price expired\"\n246          );\n247          return assetPriceMap[_asset].twap;\n248:     }\n```\nhttps://github.com/code-423n4/2022-11-paraspace/blob/c6820a279c64a299a783955749fdc977de8f0449/paraspace-core/contracts/misc/NFTFloorOracle.sol#L236-L248\n\nThey can be stale due to too much price skew, or the feeders being down, e.g. due to another bug:\n```solidity\nFile: /paraspace-core/contracts/misc/NFTFloorOracle.sol   #2\n\n369          // config maxPriceDeviation as multiple directly(not percent) for simplicity\n370          if (priceDeviation >= config.maxPriceDeviation) {\n371              return false;\n372:         }\n```\nhttps://github.com/code-423n4/2022-11-paraspace/blob/c6820a279c64a299a783955749fdc977de8f0449/paraspace-core/contracts/misc/NFTFloorOracle.sol#L369-L372\n\n```solidity\nFile: /paraspace-core/contracts/misc/NFTFloorOracle.sol   #3\n\n376      function _finalizePrice(address _asset, uint256 _twap) internal {\n377          PriceInformation storage assetPriceMapEntry = assetPriceMap[_asset];\n378          assetPriceMapEntry.twap = _twap;\n379 @>       assetPriceMapEntry.updatedAt = block.number;\n380          assetPriceMapEntry.updatedTimestamp = block.timestamp;\n381          emit AssetDataSet(\n382              _asset,\n383              assetPriceMapEntry.twap,\n384              assetPriceMapEntry.updatedAt\n385          );\n386:     }\n```\nhttps://github.com/code-423n4/2022-11-paraspace/blob/c6820a279c64a299a783955749fdc977de8f0449/paraspace-core/contracts/misc/NFTFloorOracle.sol#L376-L386\n\nThe wrapper oracle does not use a try-catch, so it can't swallow these reverts and allow the fallback oracle to be used:\n```solidity\nFile: /paraspace-core/contracts/misc/ParaSpaceOracle.sol   #4\n\n114      /// @inheritdoc IPriceOracleGetter\n115      function getAssetPrice(address asset)\n116          public\n117          view\n118          override\n119          returns (uint256)\n120      {\n121          if (asset == BASE_CURRENCY) {\n122              return BASE_CURRENCY_UNIT;\n123          }\n124  \n125          uint256 price = 0;\n126          IEACAggregatorProxy source = IEACAggregatorProxy(assetsSources[asset]);\n127          if (address(source) != address(0)) {\n128 @>           price = uint256(source.latestAnswer());\n129          }\n130          if (price == 0 && address(_fallbackOracle) != address(0)) {\n131 @>           price = _fallbackOracle.getAssetPrice(asset);\n132          }\n133  \n134          require(price != 0, Errors.ORACLE_PRICE_NOT_READY);\n135          return price;\n136:     }\n```\nhttps://github.com/code-423n4/2022-11-paraspace/blob/c6820a279c64a299a783955749fdc977de8f0449/paraspace-core/contracts/misc/ParaSpaceOracle.sol#L114-L136\n\n\n## Tools Used\nCode inspection\n\n## Recommended Mitigation Steps\nUse a try-catch when fetching the normal `latestAnswer()`, and use the fallback if it failed",
+      "summary": "\nThis bug report is about the ParaSpaceOracle.sol contract. It is a smart contract that is used to fetch asset prices from a feeder oracle and a fallback oracle. If the feeders haven't updated their prices within the default six-hour time window, the floor oracle will revert when requests are made to get the current price. These reverts are not caught by the wrapper oracle which handles the fallback oracle, so rather than using the fallback oracle in these cases, the calls will revert, leading to liquidations to fail. Additionally, the code uses the deprecated chainlink `latestAnswer()` API for its token requests, which may revert once it is no longer supported.\n\nThe bug can be reproduced by calling the `getPrice()` function, which will fail if the values are stale. This can be caused by too much price skew, or the feeders being down. The wrapper oracle does not use a try-catch, so it can't swallow these reverts and allow the fallback oracle to be used.\n\nThe recommended mitigation step is to use a try-catch when fetching the normal `latestAnswer()`, and use the fallback if it failed.",
+      "report_date": {},
+      "contest_prize_txt": "$192,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-11-paraspace-contest",
+      "sponsor_name": "ParaSpace",
+      "sponsor_link": "https://twitter.com/ParaSpace_NFT",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2022-11-paraspace",
+      "github_link": "https://github.com/code-423n4/2022-11-paraspace-findings/issues/420",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "186",
+      "slug": "m-12-during-oracle-outages-or-feeder-outagesdisagreement-the-paraspacefallbackoracle-is-not-used-code4rena-paraspace-paraspace-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "ParaSpace",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "ParaSpace",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Indexes"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Oracle"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5671",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "110",
+      "title": "M-2: An update gap in Chainlink's feed can malfunction the whole market",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-float-capital-judging/issues/42 \n\n## Found by \nWATCHPUG\n\n## Summary\n\nThe `roundId` that is used for settling the price change and pushing the `latestExecutedEpochIndex` forward is strictly limited to be in a precise period of time. When there is no such `roundId`, the system will freeze and lock everyone out.\n\n## Vulnerability Detail\n\nThe check at L127 makes it impossible to use a roundId that was created at a later time than `relevantEpochStartTimestampWithMEWT + EPOCH_LENGTH`.\n\nHowever, when the `EPOCH_LENGTH` is larger than the Chainlink feed's heartbeat length, or Chainlink failed to post a feed within the expected heartbeat for whatever reason, then it would be impossible to find a suitable roundId (as it does not exist) to push the epoch forward due to the rather strict limitation for the roundId.\n\n## Impact\n\nAs a result, the whole system will malfunction and no one can enter or exit the market.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2022-11-float-capital/blob/main/contracts/market/template/MarketCore.sol#L188-L195\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nConsider allowing the `roundId` not to falls into the epoch, and use the previous roundId's price when that's the case:\n\n```diff\n    for (uint32 i = 0; i < lengthOfEpochsToExecute; i++) {\n      // Get correct data\n      (, int256 currentOraclePrice, uint256 currentOracleUpdateTimestamp, , ) = chainlinkOracle.getRoundData(oracleRoundIdsToExecute[i]);\n\n      // Get Previous round data to validate correctness.\n-      (, , uint256 previousOracleUpdateTimestamp, , ) = chainlinkOracle.getRoundData(oracleRoundIdsToExecute[i] - 1);\n+      (, int256 previousOraclePrice, uint256 previousOracleUpdateTimestamp, , ) = chainlinkOracle.getRoundData(oracleRoundIdsToExecute[i] - 1);\n\n      // Check if there was a 'phase change' AND the `_currentOraclePrice` is zero.\n      if ((oracleRoundIdsToExecute[i] >> 64) > (latestExecutedOracleRoundId >> 64) && previousOracleUpdateTimestamp == 0) {\n        // NOTE: if the phase changes, then we want to correct the phase of the update.\n        //       There is no guarantee that the phaseID won't increase multiple times in a short period of time (hence the while loop).\n        //       But chainlink does promise that it will be sequential.\n        // View how phase changes happen here: https://github.com/smartcontractkit/chainlink/blob/develop/contracts/src/v0.7/dev/AggregatorProxy.sol#L335\n        while (previousOracleUpdateTimestamp == 0) {\n          // NOTE: re-using this variable to keep gas costs low for this edge case.\n          latestExecutedOracleRoundId = (((latestExecutedOracleRoundId >> 64) + 1) << 64) | uint64(oracleRoundIdsToExecute[i] - 1);\n\n          (, , previousOracleUpdateTimestamp, , ) = chainlinkOracle.getRoundData(latestExecutedOracleRoundId);\n        }\n      }\n\n      // This checks the price given is valid and falls within the correct window.\n      // see https://app.excalidraw.com/l/2big5WYTyfh/4PhAp1a28s1\n      if (\n        previousOracleUpdateTimestamp >= relevantEpochStartTimestampWithMEWT ||\n        currentOracleUpdateTimestamp < relevantEpochStartTimestampWithMEWT\n-        currentOracleUpdateTimestamp >= relevantEpochStartTimestampWithMEWT + EPOCH_LENGTH\n      ) revert InvalidOracleExecutionRoundId({oracleRoundId: oracleRoundIdsToExecute[i]});\n\n+      // If the new roundId does not falls into the epoch, use the prev roundId then\n+      if (currentOracleUpdateTimestamp >= relevantEpochStartTimestampWithMEWT + EPOCH_LENGTH) {\n+        currentOraclePrice = previousOraclePrice;\n+      }\n\n      if (currentOraclePrice <= 0) revert InvalidOraclePrice({oraclePrice: currentOraclePrice});\n\n      missedEpochPriceUpdates[i] = currentOraclePrice;\n\n      relevantEpochStartTimestampWithMEWT += EPOCH_LENGTH;\n    }\n```\n\n## Discussion\n\n**JasoonS**\n\nThanks - we had a long internal debate discussion about this.\n\nWe decided that it is best to make the parameters (such as epoch length) long enough such that this is extremely unlikely to happen.\n\nWe have done some extensive latency and heartbeat analysis on chainlink oracles - as well as had an in-details discussion about how gas price spikes can cause delays to prices being pushed on chain (a side note - this is why a large mewt/minimumExecutionWatingTime is required - otherwise a gas price spike/griefing attack would be more feasible). I'll link some of that to this issue in a bit if that is interesting to you.\n\nAnyway - getting back to this issue - we believe it is better to leave the market paused if such an anomaly happens and give us time to analyse what happened. It is a sort of risk protection mechanism. Either we upgrade market for a fix (which will be under timelock), or we deprecate the market.\n\nI think our users will appreciate our prudence.\n\nOne thing to consider is that withdrawals also won't be processed in this edge case (maybe a good think?). I'll have another chat with the team on that.\n\nAgree that your solution is pretty benign too since there will just be no price change.\n\n**moose-code**\n\n@WooSungD would be useful if you could post that graph of chainlink prices on the analysis we did. \n\n**moose-code**\n\nFor more context, a few weeks ago we had detailed disscussion with the chainlink team, as you can't even rely on the hearbeat with certainty. \n\nE.g. the heartbeat of 27sec on polygon still showed outliers where we waited for up to 180 seconds in some cases for a new price because of big gas spikes. This is why we conducted the analysis so carefully, we want to make sure that we don't miss a chainlink price.\n\nHowever if we do miss a price, the auto deprecation means the system fails very gracefully, the markets are paused and everyone can simply withdraw after a cooldown period. \n\n**WooSungD**\n\nHere are some graphs showing the distribution of heartbeat (in seconds) for ETH-USD price feed on Chainlink Polygon.\n\n<img width=\"1641\" alt=\"image\" src=\"https://user-images.githubusercontent.com/88306711/202707461-cb8107d9-436f-44aa-af73-e9801c12aae3.png\">\n\n\n<img width=\"1654\" alt=\"image\" src=\"https://user-images.githubusercontent.com/88306711/202707525-b0dbb6d1-fd10-4aaa-bd93-b30dae6ef8cb.png\">\n\n\nThe outliers for the heartbeat mean that our MEWT needs to be longer (longer than max outlier necessarily) to prevent front-running.\n\nThe causes of outliers ito heartbeat were network congestion and gas spikes, according to the Chainlink team\n\n**moose-code**\n\nAfter chatting with the chainlink team more on this, the one potential attack vector (that seems unrealistic) that I can point out is spamming the polygon chain to the point where it delays the chainlink price update from being mined until the point where no valid price exists.\n\nThis would be extremely expensive and simply cause the market to deprecate (no financial gain). \n\n**Evert0x**\n\nWe still think this is a high severity issue as it can make the protocol malfunction\n\n**Evert0x**\n\nDowngrading to medium severity as it's clear to the judges a large part of the protocol is specifically engineered to handle this case.",
+      "summary": "\nThis bug report is about an update gap in Chainlink's feed which can malfunction the whole market. The issue was found by WATCHPUG and it is caused by a check at L127 which makes it impossible to use a roundId that was created at a later time than `relevantEpochStartTimestampWithMEWT + EPOCH_LENGTH`. As a result, the whole system will malfunction and no one can enter or exit the market. The code snippet and tool used for the audit is provided in the report. \n\nThe recommendation is to consider allowing the `roundId` not to fall into the epoch, and use the previous roundId's price when that's the case. After a discussion with the team, it was decided that it is best to make the parameters (such as epoch length) long enough such that this is extremely unlikely to happen. It was also noted that withdrawals also won't be processed in this edge case. The issue was downgraded to medium severity as it's clear to the judges a large part of the protocol is specifically engineered to handle this case.",
+      "report_date": {},
+      "contest_prize_txt": "25000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/15",
+      "sponsor_name": "Float Capital",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-float-capital-judging/issues/42",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "15",
+      "slug": "m-2-an-update-gap-in-chainlinks-feed-can-malfunction-the-whole-market-sherlock-float-capital-float-capital-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Float Capital",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Float Capital",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Derivatives"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3508",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "110",
+      "title": "H-1: An update gap in Chainlink's feed can malfunction the whole market",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-float-capital-judging/issues/42 \n\n## Found by \nWATCHPUG\n\n## Summary\n\nThe `roundId` that is used for settling the price change and pushing the `latestExecutedEpochIndex` forward is strictly limited to be in a precise period of time. When there is no such `roundId`, the system will freeze and lock everyone out.\n\n## Vulnerability Detail\n\nThe check at L127 makes it impossible to use a roundId that was created at a later time than `relevantEpochStartTimestampWithMEWT + EPOCH_LENGTH`.\n\nHowever, when the `EPOCH_LENGTH` is larger than the Chainlink feed's heartbeat length, or Chainlink failed to post a feed within the expected heartbeat for whatever reason, then it would be impossible to find a suitable roundId (as it does not exist) to push the epoch forward due to the rather strict limitation for the roundId.\n\n## Impact\n\nAs a result, the whole system will malfunction and no one can enter or exit the market.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2022-11-float-capital/blob/main/contracts/market/template/MarketCore.sol#L188-L195\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nConsider allowing the `roundId` not to falls into the epoch, and use the previous roundId's price when that's the case:\n\n```diff\n    for (uint32 i = 0; i < lengthOfEpochsToExecute; i++) {\n      // Get correct data\n      (, int256 currentOraclePrice, uint256 currentOracleUpdateTimestamp, , ) = chainlinkOracle.getRoundData(oracleRoundIdsToExecute[i]);\n\n      // Get Previous round data to validate correctness.\n-      (, , uint256 previousOracleUpdateTimestamp, , ) = chainlinkOracle.getRoundData(oracleRoundIdsToExecute[i] - 1);\n+      (, int256 previousOraclePrice, uint256 previousOracleUpdateTimestamp, , ) = chainlinkOracle.getRoundData(oracleRoundIdsToExecute[i] - 1);\n\n      // Check if there was a 'phase change' AND the `_currentOraclePrice` is zero.\n      if ((oracleRoundIdsToExecute[i] >> 64) > (latestExecutedOracleRoundId >> 64) && previousOracleUpdateTimestamp == 0) {\n        // NOTE: if the phase changes, then we want to correct the phase of the update.\n        //       There is no guarantee that the phaseID won't increase multiple times in a short period of time (hence the while loop).\n        //       But chainlink does promise that it will be sequential.\n        // View how phase changes happen here: https://github.com/smartcontractkit/chainlink/blob/develop/contracts/src/v0.7/dev/AggregatorProxy.sol#L335\n        while (previousOracleUpdateTimestamp == 0) {\n          // NOTE: re-using this variable to keep gas costs low for this edge case.\n          latestExecutedOracleRoundId = (((latestExecutedOracleRoundId >> 64) + 1) << 64) | uint64(oracleRoundIdsToExecute[i] - 1);\n\n          (, , previousOracleUpdateTimestamp, , ) = chainlinkOracle.getRoundData(latestExecutedOracleRoundId);\n        }\n      }\n\n      // This checks the price given is valid and falls within the correct window.\n      // see https://app.excalidraw.com/l/2big5WYTyfh/4PhAp1a28s1\n      if (\n        previousOracleUpdateTimestamp >= relevantEpochStartTimestampWithMEWT ||\n        currentOracleUpdateTimestamp < relevantEpochStartTimestampWithMEWT\n-        currentOracleUpdateTimestamp >= relevantEpochStartTimestampWithMEWT + EPOCH_LENGTH\n      ) revert InvalidOracleExecutionRoundId({oracleRoundId: oracleRoundIdsToExecute[i]});\n\n+      // If the new roundId does not falls into the epoch, use the prev roundId then\n+      if (currentOracleUpdateTimestamp >= relevantEpochStartTimestampWithMEWT + EPOCH_LENGTH) {\n+        currentOraclePrice = previousOraclePrice;\n+      }\n\n      if (currentOraclePrice <= 0) revert InvalidOraclePrice({oraclePrice: currentOraclePrice});\n\n      missedEpochPriceUpdates[i] = currentOraclePrice;\n\n      relevantEpochStartTimestampWithMEWT += EPOCH_LENGTH;\n    }\n```\n\n## Discussion\n\n**JasoonS**\n\nThanks - we had a long internal debate discussion about this.\n\nWe decided that it is best to make the parameters (such as epoch length) long enough such that this is extremely unlikely to happen.\n\nWe have done some extensive latency and heartbeat analysis on chainlink oracles - as well as had an in-details discussion about how gas price spikes can cause delays to prices being pushed on chain (a side note - this is why a large mewt/minimumExecutionWatingTime is required - otherwise a gas price spike/griefing attack would be more feasible). I'll link some of that to this issue in a bit if that is interesting to you.\n\nAnyway - getting back to this issue - we believe it is better to leave the market paused if such an anomaly happens and give us time to analyse what happened. It is a sort of risk protection mechanism. Either we upgrade market for a fix (which will be under timelock), or we deprecate the market.\n\nI think our users will appreciate our prudence.\n\nOne thing to consider is that withdrawals also won't be processed in this edge case (maybe a good think?). I'll have another chat with the team on that.\n\nAgree that your solution is pretty benign too since there will just be no price change.\n\n**moose-code**\n\n@WooSungD would be useful if you could post that graph of chainlink prices on the analysis we did. \n\n**moose-code**\n\nFor more context, a few weeks ago we had detailed disscussion with the chainlink team, as you can't even rely on the hearbeat with certainty. \n\nE.g. the heartbeat of 27sec on polygon still showed outliers where we waited for up to 180 seconds in some cases for a new price because of big gas spikes. This is why we conducted the analysis so carefully, we want to make sure that we don't miss a chainlink price.\n\nHowever if we do miss a price, the auto deprecation means the system fails very gracefully, the markets are paused and everyone can simply withdraw after a cooldown period. \n\n**WooSungD**\n\nHere are some graphs showing the distribution of heartbeat (in seconds) for ETH-USD price feed on Chainlink Polygon.\n\n<img width=\"1641\" alt=\"image\" src=\"https://user-images.githubusercontent.com/88306711/202707461-cb8107d9-436f-44aa-af73-e9801c12aae3.png\">\n\n\n<img width=\"1654\" alt=\"image\" src=\"https://user-images.githubusercontent.com/88306711/202707525-b0dbb6d1-fd10-4aaa-bd93-b30dae6ef8cb.png\">\n\n\nThe outliers for the heartbeat mean that our MEWT needs to be longer (longer than max outlier necessarily) to prevent front-running.\n\nThe causes of outliers ito heartbeat were network congestion and gas spikes, according to the Chainlink team\n\n**moose-code**\n\nAfter chatting with the chainlink team more on this, the one potential attack vector (that seems unrealistic) that I can point out is spamming the polygon chain to the point where it delays the chainlink price update from being mined until the point where no valid price exists.\n\nThis would be extremely expensive and simply cause the market to deprecate (no financial gain). \n\n**Evert0x**\n\nWe still think this is a high severity issue as it can make the protocol malfunction",
+      "summary": "\nThis bug report is about an update gap in Chainlink's feed which can malfunction the whole market. The check at L127 makes it impossible to use a roundId that was created at a later time than `relevantEpochStartTimestampWithMEWT + EPOCH_LENGTH`. When the `EPOCH_LENGTH` is larger than the Chainlink feed's heartbeat length, or Chainlink failed to post a feed within the expected heartbeat for whatever reason, then it would be impossible to find a suitable roundId (as it does not exist) to push the epoch forward due to the rather strict limitation for the roundId. As a result, the whole system will malfunction and no one can enter or exit the market.\n\nThe bug was found by WATCHPUG and the code snippet can be viewed at https://github.com/sherlock-audit/2022-11-float-capital/blob/main/contracts/market/template/MarketCore.sol#L188-L195. The tool used was Manual Review.\n\nThe recommendation was to consider allowing the `roundId` not to falls into the epoch, and use the previous roundId's price when that's the case. This was discussed further by team members, who decided that it is best to make the parameters (such as epoch length) long enough such that this is extremely unlikely to happen. They also found that withdrawals will not be processed in this edge case, which is a good thing. The team also noted that the attack vector of spamming the polygon chain to the point where it delays the chainlink price update from being mined until the point where no valid price exists is extremely expensive and simply cause the market to deprecate (no financial gain).\n\nDespite this, the team still considers this to be a high severity issue as it can make the protocol malfunction.",
+      "report_date": {},
+      "contest_prize_txt": "25000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/15",
+      "sponsor_name": "Float Capital",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-float-capital-judging/issues/42",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "15",
+      "slug": "h-1-an-update-gap-in-chainlinks-feed-can-malfunction-the-whole-market-sherlock-float-capital-float-capital-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Float Capital",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Float Capital",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Derivatives"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Oracle"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3545",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "117",
+      "title": "M-4: No check for active Arbitrum Sequencer in WSTETH Oracle",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-sentiment-judging/issues/3 \n\n## Found by \npashov, obront\n\n## Summary\n\nChainlink recommends that all Optimistic L2 oracles consult the Sequencer Uptime Feed to ensure that the sequencer is live before trusting the data returned by the oracle. This check is implemented in ArbiChainlinkOracle.sol, but is skipped in WSTETHOracle.sol.\n\n## Vulnerability Detail\n\nIf the Arbitrum Sequencer goes down, oracle data will not be kept up to date, and thus could become stale. However, users are able to continue to interact with the protocol directly through the L1 optimistic rollup contract. You can review Chainlink docs on [L2 Sequencer Uptime Feeds](https://docs.chain.link/docs/data-feeds/l2-sequencer-feeds/) for more details on this.\n\nAs a result, users may be able to use the protocol while oracle feeds are stale. This could cause many problems, but as a simple example:\n- A user has an account with 100 tokens, valued at 1 ETH each, and no borrows\n- The Arbitrum sequencer goes down temporarily\n- While it's down, the price of the token falls to 0.5 ETH each\n- The current value of the user's account is 50 ETH, so they should be able to borrow a maximum of 200 ETH to keep account healthy (`(200 + 50) / 200 = 1.2`)\n- Because of the stale price, the protocol lets them borrow 400 ETH (`(400 + 100) / 400 = 1.2`)\n\n## Impact\n\nIf the Arbitrum sequencer goes down, the protocol will allow users to continue to operate at the previous (stale) rates.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2022-11-sentiment/blob/main/oracle-merged/src/wsteth/WSTETHOracle.sol#L45-L57\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nAdd the same check to WSTETHOracle.sol that exists in ArbiChainlinkOracle.sol:\n\n```solidity\nfunction getPrice(address token) external view override returns (uint) {\n    if (!isSequencerActive()) revert Errors.L2SequencerUnavailable();\n    ...\n}\n```\n\n```solidity\nfunction isSequencerActive() internal view returns (bool) {\n    (, int256 answer, uint256 startedAt,,) = sequencer.latestRoundData();\n    if (block.timestamp - startedAt <= GRACE_PERIOD_TIME || answer == 1)\n        return false;\n    return true;\n}\n```\n\n## Discussion\n\n**r0ohafza**\n\nFix PR: https://github.com/sentimentxyz/oracle/pull/46\n\n**zobront**\n\nPR confirmed.",
+      "summary": "\nThis bug report is about the WSTETH Oracle, which is a part of the Sentiment protocol. The bug is that the WSTETH Oracle does not have a check to make sure that the Arbitrum Sequencer is active before trusting the data returned by the oracle. This means that if the Arbitrum Sequencer goes down, then the data returned by the oracle will become stale, and users will be able to continue to interact with the protocol directly through the L1 optimistic rollup contract. This could lead to users being able to borrow more than they should be able to, as the protocol would be relying on stale data. \n\nThe bug was found by pashov and obront, and was confirmed by zobront. The code snippet and recommendation are included in the report. The recommended fix is to add the same check to WSTETHOracle.sol that exists in ArbiChainlinkOracle.sol, which is a check to ensure that the Sequencer Uptime Feed is live before trusting the data returned by the oracle. A fix PR has also been provided.",
+      "report_date": {},
+      "contest_prize_txt": "10000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/17",
+      "sponsor_name": "Sentiment",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-sentiment-judging/issues/3",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "17",
+      "slug": "m-4-no-check-for-active-arbitrum-sequencer-in-wsteth-oracle-sherlock-sentiment-sentiment-update-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Sentiment Update",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Sentiment Update",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "L2 Sequencer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Arbitrum"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3389",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 18,
+      "protocol_id": "136",
+      "title": "M-2: Chainlink's `latestRoundData` might return stale or incorrect results",
+      "content": "Source: https://github.com/sherlock-audit/2022-09-knox-judging/issues/137 \n\n## Found by \nJeiwan, csanuragjain, berndartmueller, jayphbee, joestakey, Olivierdem, Ruhum, GalloDaSballo, \\_\\_141345\\_\\_, Trumpero, ArbitraryExecution, hansfriese, ali\\_shehab, cccz, 0xNazgul, ak1, ctf\\_sec, minhquanym\n\n## Summary\n\nChainlink's `latestRoundData()` is used but there is no check if the return value indicates stale data. This could lead to stale prices according to the Chainlink documentation:\n\n- https://docs.chain.link/docs/historical-price-data/#historical-rounds\n\n## Vulnerability Detail\n\nThe `PricerInternal._latestAnswer64x64` function uses Chainlink's `latestRoundData()` to get the latest price. However, there is no check if the return value indicates stale data.\n\n## Impact\n\nThe `PricerInternal` could return stale price data for the underlying asset.\n\n## Code Snippet\n\n[PricerInternal.\\_latestAnswer64x64](https://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/pricer/PricerInternal.sol#L50-L52)\n\n```solidity\n/**\n  * @notice gets the latest price of the underlying denominated in the base\n  * @return price of underlying asset as 64x64 fixed point number\n  */\nfunction _latestAnswer64x64() internal view returns (int128) {\n    (, int256 basePrice, , , ) = BaseSpotOracle.latestRoundData();\n    (, int256 underlyingPrice, , , ) =\n        UnderlyingSpotOracle.latestRoundData();\n\n    return ABDKMath64x64.divi(underlyingPrice, basePrice);\n}\n```\n\n## Tool Used\n\nManual review\n\n## Recommendation\n\nConsider adding checks for stale data. e.g\n\n```solidity\n(uint80 roundId, int256 basePrice, , uint256 updatedAt, uint80 answeredInRound) = BaseSpotOracle.latestRoundData();\n\nrequire(answeredInRound >= roundId, \"Price stale\");\nrequire(block.timestamp - updatedAt < PRICE_ORACLE_STALE_THRESHOLD, \"Price round incomplete\");\n```",
+      "summary": "\nThis bug report is about Chainlink's `latestRoundData()` function which could return stale or incorrect results. It was found by Jeiwan, csanuragjain, berndartmueller, jayphbee, joestakey, Olivierdem, Ruhum, GalloDaSballo, \\_\\_141345\\_\\_, Trumpero, ArbitraryExecution, hansfriese, ali\\_shehab, cccz, 0xNazgul, ak1, ctf\\_sec, minhquanym and reported on Github. The function `PricerInternal._latestAnswer64x64` uses Chainlink's `latestRoundData()` to get the latest price but there is no check if the return value indicates stale data. This could lead to stale prices according to the Chainlink documentation. The impact of this bug is that the `PricerInternal` could return stale price data for the underlying asset. Manual review was used to detect the bug and the recommendation is to consider adding checks for stale data.",
+      "report_date": {},
+      "contest_prize_txt": "50000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/4",
+      "sponsor_name": "Knox",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-09-knox-judging/issues/137",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "4",
+      "slug": "m-2-chainlinks-latestrounddata-might-return-stale-or-incorrect-results-sherlock-knox-knox-finance-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Knox Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Knox Finance",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Indexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Stale Price"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3338",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "137",
+      "title": "M-13: Rely On Balancer Oracle Which Is Not Updated Frequently",
+      "content": "Source: https://github.com/sherlock-audit/2022-09-notional-judging/issues/67 \n\n## Found by \nxiaoming90\n\n## Summary\n\nThe vault relies on Balancer Oracle which is not updated frequently.\n\n## Vulnerability Detail\n\n> Note: This issue affects the MetaStable2 balancer leverage vault\n\nWithin the `TwoTokenPoolUtils._getOraclePairPrice` function, it compute the pair price from the Balancer Oracle by calling the `BalancerUtils._getTimeWeightedOraclePrice` function which will in turn call the `IPriceOracle(pool).getTimeWeightedAverage` function to get the  time-weighted average pair prices (e.g. stETH/ETH). The Balancer pool that will be polled for the pair price can be found at https://etherscan.io/address/0x32296969Ef14EB0c6d29669C550D4a0449130230.\n\nThe issue is that this pool only handled ~1.5 transactions per day based on the last 5 days' data. In terms of average, the price will only be updated once every 16 hours. There are also many days that there is only 1 transaction. The following shows the number of transactions for each day within the audit period.\n\n- 5 Oct 2022 - 3 transactions\n- 4 Oct 2022 - 1 transaction\n- 3 Oct 2022 - 1 transaction\n- 2 Oct 2022 - 2 transactions\n- 1 Oct 2022 - 1 transaction\n\nNote that the price will only be updated whenever a transaction (e.g. swap) within the Balancer pool is triggered. Due to the lack of updates, the price provided by Balancer Oracle will not reflect the true value of the assets. Considering the stETH/ETH Balancer pool, the price of the stETH or ETH provided will not reflect the true value in the market.\n\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/contracts/vaults/balancer/internal/pool/TwoTokenPoolUtils.sol#L66\n\n```solidity\nFile: TwoTokenPoolUtils.sol\n066:     /// @notice Gets the oracle price pair price between two tokens using a weighted\n067:     /// average between a chainlink oracle and the balancer TWAP oracle.\n068:     /// @param poolContext oracle context variables\n069:     /// @param oracleContext oracle context variables\n070:     /// @param tradingModule address of the trading module\n071:     /// @return oraclePairPrice oracle price for the pair in 18 decimals\n072:     function _getOraclePairPrice(\n073:         TwoTokenPoolContext memory poolContext,\n074:         OracleContext memory oracleContext, \n075:         ITradingModule tradingModule\n076:     ) internal view returns (uint256 oraclePairPrice) {\n077:         // NOTE: this balancer price is denominated in 18 decimal places\n078:         uint256 balancerWeightedPrice;\n079:         if (oracleContext.balancerOracleWeight > 0) {\n080:             uint256 balancerPrice = BalancerUtils._getTimeWeightedOraclePrice(\n081:                 address(poolContext.basePool.pool),\n082:                 IPriceOracle.Variable.PAIR_PRICE,\n083:                 oracleContext.oracleWindowInSeconds\n084:             );\n085: \n086:             if (poolContext.primaryIndex == 1) {\n087:                 // If the primary index is the second token, we need to invert\n088:                 // the balancer price.\n089:                 balancerPrice = BalancerConstants.BALANCER_PRECISION_SQUARED / balancerPrice;\n090:             }\n091: \n092:             balancerWeightedPrice = balancerPrice * oracleContext.balancerOracleWeight;\n093:         }\n094: \n095:         uint256 chainlinkWeightedPrice;\n096:         if (oracleContext.balancerOracleWeight < BalancerConstants.BALANCER_ORACLE_WEIGHT_PRECISION) {\n097:             (int256 rate, int256 decimals) = tradingModule.getOraclePrice(\n098:                 poolContext.primaryToken, poolContext.secondaryToken\n099:             );\n100:             require(rate > 0);\n101:             require(decimals >= 0);\n102: \n103:             if (uint256(decimals) != BalancerConstants.BALANCER_PRECISION) {\n104:                 rate = (rate * int256(BalancerConstants.BALANCER_PRECISION)) / decimals;\n105:             }\n106: \n107:             // No overflow in rate conversion, checked above\n108:             chainlinkWeightedPrice = uint256(rate) * \n109:                 (BalancerConstants.BALANCER_ORACLE_WEIGHT_PRECISION - oracleContext.balancerOracleWeight);\n110:         }\n111: \n112:         oraclePairPrice = (balancerWeightedPrice + chainlinkWeightedPrice) / \n113:             BalancerConstants.BALANCER_ORACLE_WEIGHT_PRECISION;\n114:     }\n```\n\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/contracts/vaults/balancer/internal/pool/BalancerUtils.sol#L21\n\n```solidity\nFile: BalancerUtils.sol\n21:     function _getTimeWeightedOraclePrice(\n22:         address pool,\n23:         IPriceOracle.Variable variable,\n24:         uint256 secs\n25:     ) internal view returns (uint256) {\n26:         IPriceOracle.OracleAverageQuery[]\n27:             memory queries = new IPriceOracle.OracleAverageQuery[](1);\n28: \n29:         queries[0].variable = variable;\n30:         queries[0].secs = secs;\n31:         queries[0].ago = 0; // now\n32: \n33:         // Gets the balancer time weighted average price denominated in the first token\n34:         return IPriceOracle(pool).getTimeWeightedAverage(queries)[0];\n35:     }\n```\n\n## Impact\n\nThe price provided by the function will not reflect the true value of the assets. It might be overvalued or undervalued. The affected function is being used in almost all functions within the vault. For instance, this function is part of the critical `_convertStrategyToUnderlying` function that computes the value of the strategy token in terms of its underlying assets. As a result, it might cause the following:\n\n  - Vault Settlement - Vault settlement requires computing the underlying value of the strategy tokens. It involves dealing with a large number of assets, and thus even a slight slippage in the price will be significantly amplified.\n  - Deleverage/Liquidation of Account - If the price provided does not reflect the true value, users whose debt ratio is close to the liquidation threshold might be pre-maturely deleveraged/liquidated since their total asset value might be undervalued.\n  - Borrowing - If the price provided does not reflect the true value, it might be possible that the assets of some users might be overvalued, and thus they are able to over-borrow from the vault.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/contracts/vaults/balancer/internal/pool/TwoTokenPoolUtils.sol#L66\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/contracts/vaults/balancer/internal/pool/BalancerUtils.sol#L21\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nAlthough it is not possible to obtain a price pair that truly reflects the true value of an asset in the real world, the vault should attempt to minimize inaccuracy and slippage as much as possible. This can be done by choosing and using a more accurate Oracle that is updated more frequently instead of using the Balancer Oracle that is infrequently updated. \n\nChainlink should be used as the primary Oracle for price pair. If a secondary Oracle is needed for a price pair, consider using [Teller](https://tellor.io/) Oracle instead of Balancer Oracle. Some example of how Chainlink and Tellor works together in a live protocol can be found [here](https://www.liquity.org/blog/price-oracles-in-liquity)\n\nObtaining the time-weight average price of BTP LP token from Balancer Oracle is fine as the Balancer pool is the source of truth. However, getting the price of ETH or stETH from Balancer Oracle would not be a good option. \n\nOn a side note, it was observed that the weightage of the price pair is Balancer Oracle - 60% and Chainlink - 40%. Thus, this theoretically will reduce the impact of inaccurate prices provided by Balancer Oracle by around half. However, the team should still consider using a better Oracle as almost all the functions within the vault depends on the accurate price of underlying assets to operate.\n\nNote: For the stETH/ETH balancer leverage vault, the price pair is computed based on a weighted average of Balancer Oracle and Chainlink. Based on the test script, the weightage is Balancer Oracle - 60% and Chainlink - 40%.\n\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/scripts/BalancerEnvironment.py#L45\n\n```python\nFile: BalancerEnvironment.py\n45:             \"maxRewardTradeSlippageLimitPercent\": 5e6,\n46:             \"balancerOracleWeight\": 0.6e4, # 60%\n47:             \"settlementCoolDownInMinutes\": 60 * 6, # 6 hour settlement cooldown\n```\n\n## Discussion\n\n**jeffywu**\n\n@T-Woodward \n\n**T-Woodward**\n\nYes, the threat you are talking about is potentially true however it depends on the time window you choose for the balancer price oracle and the particular pool. If it's a short time window and the pool is liquid and highly active, then the balancer pool is not a totally unreasonable source of truth.\n\nHaving said that, we do plan on removing the dependency to Balancer pool oracles entirely due to manipulation concerns so I will confirm this issue.\n\n**jeffywu**\n\nThis issue is not a duplicate of the Chainlink issues, it should be separate.",
+      "summary": "\nThis bug report concerns the MetaStable2 balancer leverage vault, which relies on Balancer Oracle to compute the pair price between two tokens using a weighted average. The issue is that this pool only handled ~1.5 transactions per day based on the last 5 days' data, meaning the price will only be updated once every 16 hours. This lack of updates means the price provided by Balancer Oracle will not reflect the true value of the assets, potentially leading to inaccurate vault settlements, pre-mature deleveraging/liquidation of accounts, and over-borrowing from the vault. \n\nTo mitigate this issue, the team should consider using a more accurate Oracle that is updated more frequently instead of using the Balancer Oracle. Chainlink should be used as the primary Oracle for price pair, and Tellor Oracle could be used as a secondary. Additionally, the weightage of the price pair should be adjusted to reduce the impact of inaccurate prices provided by Balancer Oracle. \n\nThe team plans to remove the dependency to Balancer pool oracles entirely due to manipulation concerns, and this issue should be treated as separate from the Chainlink issues.",
+      "report_date": {},
+      "contest_prize_txt": "100000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/2",
+      "sponsor_name": "Notional",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-09-notional-judging/issues/67",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "2",
+      "slug": "m-13-rely-on-balancer-oracle-which-is-not-updated-frequently-sherlock-notional-notional-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Notional",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Notional",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Oracle"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7239",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "72",
+      "title": "Missing checks for Chainlink oracle",
+      "content": "## Severity: Medium Risk\n\n## Context\n- ConnextPriceOracle.sol#L98\n- ConnextPriceOracle.sol#L153\n\n## Description\nThe `ConnextPriceOracle.getTokenPrice()` function goes through a series of oracles. At each step, it has a few validations to avoid incorrect prices. If such validations succeed, the function returns the non-zero oracle price. \n\nFor the Chainlink oracle, `getTokenPrice()` ultimately calls `getPriceFromChainlink()`, which has the following validation:\n\n```solidity\nif (answer == 0 || answeredInRound < roundId || updateAt == 0) {\n    // answeredInRound > roundId ===> ChainLink Error: Stale price\n    // updatedAt = 0 ===> ChainLink Error: Round not complete\n    return 0;\n}\n```\n\n`updateAt` refers to the timestamp of the round. This value isn’t checked to ensure it is recent. Additionally, it is important to be aware of the `minAnswer` and `maxAnswer` of the Chainlink oracle; these values are not allowed to be reached or surpassed. See the Chainlink API reference for documentation on `minAnswer` and `maxAnswer`, as well as this piece of code: `OffchainAggregator.sol`.\n\n## Recommendation\n- Determine the tolerance threshold for `updateAt`. If `block.timestamp - updateAt` exceeds that threshold, return 0, which is consistent with how the current validations are handled.\n- Consider having off-chain monitoring to identify when the market price moves out of `[minAnswer, maxAnswer]` range.\n\n## Connext\nRecency check is implemented in PR 1602. Off-chain monitoring will be considered.\n\n## Spearbit\nVerified and acknowledged.",
+      "summary": "\nThis report is about a bug found in the ConnextPriceOracle.sol file at lines 98 and 153. The bug is related to the getTokenPrice() function which goes through a series of oracles and returns a non-zero oracle price if all validations succeed. The bug is that the updateAt value, which is the timestamp of the round, is not checked to make sure it is recent. Additionally, the minAnswer and maxAnswer of the Chainlink oracle are not checked to make sure they are not reached or surpassed. \n\nThe recommendation is to determine the tolerance threshold for updateAt and if the block.timestamp - updateAt exceeds that threshold, return 0. Additionally, consider having off-chain monitoring to identify when the market price moves out of the [minAnswer, maxAnswer] range. Connext has implemented a recency check in PR 1602 and will consider off-chain monitoring. Spearbit has verified and acknowledged this report.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Connext-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Connext-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/Connext-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 27,
+      "contest_id": "",
+      "slug": "missing-checks-for-chainlink-oracle-spearbit-connext-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Connext",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Connext",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Stale Price"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Oracle"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3228",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 21,
+      "protocol_id": "160",
+      "title": "[M-24] [NAZ-M1] Chainlink's `latestRoundData` Might Return Stale Results",
+      "content": "_Submitted by 0xNazgul, also found by &#95;&#95;141345&#95;&#95;, 0x1f8b, ak1, brgltd, cccz, csanuragjain, Dravee, Guardian, hyh, IllIllI, itsmeSTYJ, Jujic, Lambda, pashov, peachtea, rbserver, reassor, Sm4rty, TomJ, and zzzitron_\n\n<https://github.com/code-423n4/2022-08-olympus/blob/main/src/modules/PRICE.sol#L161><br>\n<https://github.com/code-423n4/2022-08-olympus/blob/main/src/modules/PRICE.sol#L170><br>\n\nAcross these contracts, you are using Chainlink's `latestRoundData` API, but there is only a check on `updatedAt`. This could lead to stale prices according to the Chainlink documentation:\n\n*   [Historical Price data](https://docs.chain.link/docs/historical-price-data/#historical-rounds)\n*   [Checking Your returned answers](https://docs.chain.link/docs/faq/#how-can-i-check-if-the-answer-to-a-round-is-being-carried-over-from-a-previous-round)\n\nThe result of `latestRoundData` API will be used across various functions, therefore, a stale price from Chainlink can lead to loss of funds to end-users.\n\n### Recommended Mitigation Steps\n\nConsider adding the missing checks for stale data.\n\nFor example:\n\n```js\n(uint80 roundID ,answer,, uint256 timestamp, uint80 answeredInRound) = AggregatorV3Interface(chainLinkAggregatorMap[underlying]).latestRoundData();\n\nrequire(answer > 0, \"Chainlink price <= 0\"); \nrequire(answeredInRound >= roundID, \"Stale price\");\nrequire(timestamp != 0, \"Round not complete\");\n```\n\n**[Oighty (Olympus) confirmed and commented](https://github.com/code-423n4/2022-08-olympus-findings/issues/441#issuecomment-1238528515):**\n > Agree. We'll add the additional checks.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability that could lead to loss of funds to end-users. The vulnerability is caused by the use of Chainlink's `latestRoundData` API without a check on `updatedAt`. This could lead to the use of stale prices across various functions. Manual review was used to detect the vulnerability. To mitigate this vulnerability, it is recommended to add checks for stale data, such as checking that the answer to a round is being carried over from a previous round, and that the round is complete. This should ensure that the correct, up-to-date data is used.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-08-olympus-dao-contest",
+      "sponsor_name": "Olympus DAO",
+      "sponsor_link": "https://twitter.com/olympusdao",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2022-08-olympus",
+      "github_link": "https://github.com/code-423n4/2022-08-olympus-findings/issues/441",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "156",
+      "slug": "m-24-naz-m1-chainlinks-latestrounddata-might-return-stale-results-code4rena-olympus-dao-olympus-dao-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Olympus DAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Olympus DAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA Lending"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Oracle"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Stale Price"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2957",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 33,
+      "protocol_id": "189",
+      "title": "[H-01] Oracle data feed can be outdated yet used anyways which will impact payment logic",
+      "content": "_Submitted by 0xNineDec, also found by 0x1f8b, 0x29A, 0x52, 0xdanial, 0xDjango, 0xf15ers, bardamu, cccz, Cheeezzyyyy, Chom, codexploder, defsec, Franfran, Alex the Entreprenerd, Green, hake, hansfriese, horsefacts, hubble, hyh, IllIllI, jonatascm, kebabsec, Meera, oyc&#95;109, pashov, rbserver, Ruhum, simon135, tabish, tintin, and zzzitron_\n\n<https://github.com/jbx-protocol/juice-contracts-v2-code4rena/blob/828bf2f3e719873daa08081cfa0d0a6deaa5ace5/contracts/JBChainlinkV3PriceFeed.sol#L44>\n\n<https://github.com/jbx-protocol/juice-contracts-v2-code4rena/blob/828bf2f3e719873daa08081cfa0d0a6deaa5ace5/contracts/JBPrices.sol#L57>\n\n<https://github.com/jbx-protocol/juice-contracts-v2-code4rena/blob/828bf2f3e719873daa08081cfa0d0a6deaa5ace5/contracts/JBSingleTokenPaymentTerminalStore.sol#L387>\n\n<https://github.com/jbx-protocol/juice-contracts-v2-code4rena/blob/828bf2f3e719873daa08081cfa0d0a6deaa5ace5/contracts/JBSingleTokenPaymentTerminalStore.sol#L585>\n\n<https://github.com/jbx-protocol/juice-contracts-v2-code4rena/blob/828bf2f3e719873daa08081cfa0d0a6deaa5ace5/contracts/JBSingleTokenPaymentTerminalStore.sol#L661>\n\n<https://github.com/jbx-protocol/juice-contracts-v2-code4rena/blob/828bf2f3e719873daa08081cfa0d0a6deaa5ace5/contracts/JBSingleTokenPaymentTerminalStore.sol#L830>\n\n<https://github.com/jbx-protocol/juice-contracts-v2-code4rena/blob/828bf2f3e719873daa08081cfa0d0a6deaa5ace5/contracts/JBSingleTokenPaymentTerminalStore.sol#L868>\n\n### Impact\n\nThe current implementation of `JBChainlinkV3PriceFeed` is used by the protocol to showcase how the feed will be retrieved via Chainlink Data Feeds. The feed is used to retrieve the `currentPrice`, which is also used afterwards by `JBPrices.priceFor()`, then by `JBSingleTokenPaymentTerminalStore.recordPaymentFrom()`, `JBSingleTokenPaymentTerminalStore.recordDistributionFor`, `JBSingleTokenPaymentTerminalStore.recordUsedAllowanceOf`, `JBSingleTokenPaymentTerminalStore._overflowDuring` and `JBSingleTokenPaymentTerminalStore._currentTotalOverflowOf`.\nAlthough the current feeds are calculated by a non implemented IJBPriceFeed, if the implementation of the price feed is the same as the showcased in`JBChainlinkV3PriceFeed`, the retrieved data can be outdated or out of bounds.\n\nIt is important to remember that the sponsor said on the dedicated Discord Channel that also oracle pricing and data retrieval is inside the scope.\n\n### Proof of Concept\n\nChainlink classifies their data feeds into four different groups regarding how reliable is each source thus, how risky they are. The groups are *Verified Feeds, Monitored Feeds, Custom Feeds and Specialized Feeds* (they can be seen [here](https://docs.chain.link/docs/selecting-data-feeds/#data-feed-categories)). The risk is the lowest on the first one and highest on the last one.\n\nA strong reliance on the price feeds has to be also monitored as recommended on the [Risk Mitigation section](https://docs.chain.link/docs/selecting-data-feeds/#risk-mitigation). There are several reasons why a data feed may fail such as unforeseen market events, volatile market conditions, degraded performance of infrastructure, chains, or networks, upstream data providers outage, malicious activities from third parties among others.\n\nChainlink recommends using their data feeds along with some controls to prevent mismatches with the retrieved data. Along some recommendations, the feed can include circuit breakers (for extreme price events), contract update delays (to ensure that the injected data into the protocol is fresh enough), manual kill-switches (to cease connection in case of found bug or vulnerability in an upstream contract), monitoring (control the deviation of the data) and soak testing (of the price feeds).\n\nThe `feed.lastRoundData()` interface parameters [according to Chainlink](https://docs.chain.link/docs/price-feeds-api-reference/) are the following:\n\n    function latestRoundData() external view\n        returns (\n            uint80 roundId,             //  The round ID.\n            int256 answer,              //  The price.\n            uint256 startedAt,          //  Timestamp of when the round started.\n            uint256 updatedAt,          //  Timestamp of when the round was updated.\n            uint80 answeredInRound      //  The round ID of the round in which the answer was computed.\n        )\n\nRegarding Juicebox itself, only the `answer` is used on the `JBChainlinkV3PriceFeed.currentPrice()` implementation. The retrieved price of the `priceFeed` can be outdated and used anyways as a valid data because no timestamp tolerance of the update source time is checked while storing the return parameters of `feed.latestRoundData()` inside `JBChainlinkV3PriceFeed.currentPrice()` as recommended by Chainlink in [here](https://docs.chain.link/docs/using-chainlink-reference-contracts/#check-the-timestamp-of-the-latest-answer). The usage of outdated data can impact on how the Payment terminals work regarding pricing calculation and value measurement.\n\nPrecisely the following protocol logic within `JBSingleTokenPaymentTerminalStore​‌` will work unexpectedly regarding value management.\n\n*   `recordPaymentFrom()`:\n\n    This function handles the minting of a project tokens according to a data source if one is given. If the retrieved value of the oracle is outdated, the `_weightRatio` at [Line 387](https://github.com/jbx-protocol/juice-contracts-v2-code4rena/blob/828bf2f3e719873daa08081cfa0d0a6deaa5ace5/contracts/JBSingleTokenPaymentTerminalStore.sol#L387) will return an incorrect value and then the `tokenCount` calculated amount will suffer from this mismatch, impacting in the amount of tokens minted.\n\n*   `recordDistributionFor()`:\n\n    Performs the recording of recently distributed funds for a project. On [line 580](https://github.com/jbx-protocol/juice-contracts-v2-code4rena/blob/828bf2f3e719873daa08081cfa0d0a6deaa5ace5/contracts/JBSingleTokenPaymentTerminalStore.sol#L580) the `distributedAmount` is computed and if the boolean check is false, then the call will perform a call to `priceFor` at [line 585](https://github.com/jbx-protocol/juice-contracts-v2-code4rena/blob/828bf2f3e719873daa08081cfa0d0a6deaa5ace5/contracts/JBSingleTokenPaymentTerminalStore.sol#L585). If the returned oracle value is not adjusted with current market prices, the `distributedAmount` will also drag that error computing an incorrect `distributedAmount`. Afterwards, because the `distributedAmount` is also used to update the token balances of the `msg.sender` ([line 598](https://github.com/jbx-protocol/juice-contracts-v2-code4rena/blob/828bf2f3e719873daa08081cfa0d0a6deaa5ace5/contracts/JBSingleTokenPaymentTerminalStore.sol#L598)) it means that the mismatch impacts on the modified balance.\n\n*   `recordUsedAllowanceOf()`:\n\n    Keeps record of used allowances of a project. It returns are analogue to the ones shown at `recordDistributionFor` where the `usedAmount` resembles the `distributedAmount`. The `usedAmount` is also used to update the project's balance. If the data of the oracle is outdated, the `usedAmount` will be calculated dragging that error.\n\n*   `_overflowDuring()`:\n\n    Used to get the amount that is overflowing relative to a specified cycle. The data retrieved from the oracle is used to calculate the value of `_distributionLimitRemaining` on [line 827](https://github.com/jbx-protocol/juice-contracts-v2-code4rena/blob/828bf2f3e719873daa08081cfa0d0a6deaa5ace5/contracts/JBSingleTokenPaymentTerminalStore.sol#L827) which is used later to calculate the return value if the boolean check performed at line 834 is true. Because the return of this function is the current balance of a project minus the amount that can be still distributed, if the amount that can still be distributed is wrong so will be the subtraction thus the return value.\n\n*   `_currentTotalOverflowOf()`:\n\n    Similar to the latter but used to get the overflow of all the terminals of a project. If the retrieved data has a mismatch with the market, the `_totalOverflow18Decimal` calculated on [line 866](https://github.com/jbx-protocol/juice-contracts-v2-code4rena/blob/828bf2f3e719873daa08081cfa0d0a6deaa5ace5/contracts/JBSingleTokenPaymentTerminalStore.sol#L827) if the boolean check is false will drag this mismatch which will also be dragged into the final return of the function.\n\nThe issues of those miscalculations impact on every project currently minted, which also affects subsequently on each user that has tokens of a project resulting in a high reach impact.\n\n### Recommended Mitigation Steps\n\nAs Chainlink [recommends](https://docs.chain.link/docs/using-chainlink-reference-contracts/#check-the-timestamp-of-the-latest-answer):\n\n> Your application should track the `latestTimestamp` variable or use the `updatedAt` value from the `latestRoundData()` function to make sure that the latest answer is recent enough for your application to use it. If your application detects that the reported answer is not updated within the heartbeat or within time limits that you determine are acceptable for your application, pause operation or switch to an alternate operation mode while identifying the cause of the delay.\n>\n> During periods of low volatility, the heartbeat triggers updates to the latest answer. Some heartbeats are configured to last several hours, so your application should check the timestamp and verify that the latest answer is recent enough for your application.\n\nIt is recommended to add a tolerance that compares the `updatedAt` return timestamp from `latestRoundData()` with the current block timestamp and ensure that the `priceFeed` is being updated with the required frequency.\n\nIf the `ETH/USD` is the only one that is needed to retrieve, because it is the most popular and available pair. It can also be useful to add other oracle to get the price feed (such as Uniswap's). This can be used as a redundancy in the case of having one oracle that returns outdated values (what is outdated and what is up to date can be determined by a tolerance as mentioned).\n\n**[mejango (Juicebox) confirmed, but disagreed with severity and commented](https://github.com/code-423n4/2022-07-juicebox-findings/issues/138#issuecomment-1182192760):**\n > There is also a good description in this duplicate #[78](https://github.com/code-423n4/2022-07-juicebox-findings/issues/78)\n\n**mejango (Juicebox) resolved:**\n> PR with fix: [PR #1](https://github.com/jbx-protocol/juice-contracts-v3/pull/1)\n\n**berndartmueller (warden) reviewed mitigation:**\n> Appropriate validations to prevent price staleness, round incompleteness and a negative price is put in place now.\n\n***\n\n",
+      "summary": "\nThis bug report is about an issue with the implementation of the `JBChainlinkV3PriceFeed` contract. This contract is used by the protocol to retrieve the `currentPrice` from a Chainlink Data Feed. The retrieved data can be outdated or out of bounds, which can have an impact on how the Payment terminals work regarding pricing calculation and value measurement.\n\nThe `feed.lastRoundData()` interface parameters includes a timestamp of when the round was updated. Chainlink recommends using their data feeds along with some controls to prevent mismatches with the retrieved data. This includes circuit breakers, contract update delays, manual kill-switches, monitoring, and soak testing.\n\nThe protocol logic within `JBSingleTokenPaymentTerminalStore​‌` can be affected by the outdated data. This includes `recordPaymentFrom()`, `recordDistributionFor()`, `recordUsedAllowanceOf()`, `_overflowDuring()`, and `_currentTotalOverflowOf()`. All of these functions can result in incorrect token balances and value measurements.\n\nIt is recommended to add a tolerance that compares the `updatedAt` return timestamp from `latestRoundData()` with the current block timestamp and ensure that the `priceFeed` is being updated with the required frequency. Additionally, adding another oracle to get the price feed (such as Uniswap's) can be used as a redundancy in case one of the oracles returns outdated values.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-07-juicebox-v2-contest",
+      "sponsor_name": "Juicebox",
+      "sponsor_link": "https://twitter.com/juiceboxETH",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2022-07-juicebox",
+      "github_link": "https://github.com/code-423n4/2022-07-juicebox-findings/issues/138",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "143",
+      "slug": "h-01-oracle-data-feed-can-be-outdated-yet-used-anyways-which-will-impact-payment-logic-code4rena-juicebox-juicebox-v2-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Juicebox",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Juicebox",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Oracle"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Stale Price"
+          }
+        }
+      ]
+    },
+    {
+      "id": "1351",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 12,
+      "protocol_id": "423",
+      "title": "[M-01] Oracle data feed is insufficiently validated",
+      "content": "_Submitted by throttle, also found by 0x1f8b, cccz, defsec, hack3r-0m, hyh, kenzo, leastwood, sirhashalot, TomFrenchBlockchain, WatchPug, and ye0lde_\n\nPrice can be stale and can lead to wrong `quoteAmount` return value\n\n#### Proof of Concept\n\nOracle data feed is insufficiently validated. There is no check for stale price and round completeness.\nPrice can be stale and can lead to wrong `quoteAmount` return value\n\n```javascript\nfunction _peek(\n    bytes6 base,\n    bytes6 quote,\n    uint256 baseAmount\n) private view returns (uint256 quoteAmount, uint256 updateTime) {\n    ...\n\n    (, int256 daiPrice, , , ) = DAI.latestRoundData();\n    (, int256 usdcPrice, , , ) = USDC.latestRoundData();\n    (, int256 usdtPrice, , , ) = USDT.latestRoundData();\n\n    require(\n        daiPrice > 0 && usdcPrice > 0 && usdtPrice > 0,\n        \"Chainlink pricefeed reporting 0\"\n    );\n\n    ...\n}\n```\n\n#### Recommended Mitigation Steps\n\nValidate data feed\n\n```javascript\nfunction _peek(\n    bytes6 base,\n    bytes6 quote,\n    uint256 baseAmount\n) private view returns (uint256 quoteAmount, uint256 updateTime) {\n    ...\n    (uint80 roundID, int256 daiPrice, , uint256 timestamp, uint80 answeredInRound) = DAI.latestRoundData();\n    require(daiPrice > 0, \"ChainLink: DAI price <= 0\");\n    require(answeredInRound >= roundID, \"ChainLink: Stale price\");\n    require(timestamp > 0, \"ChainLink: Round not complete\");\n\n    (roundID, int256 usdcPrice, , timestamp, answeredInRound) = USDC.latestRoundData();\n    require(usdcPrice > 0, \"ChainLink: USDC price <= 0\");\n    require(answeredInRound >= roundID, \"ChainLink: Stale USDC price\");\n    require(timestamp > 0, \"ChainLink: USDC round not complete\");\n\n    (roundID, int256 usdtPrice, , timestamp, answeredInRound) = USDT.latestRoundData();\n    require(usdtPrice > 0, \"ChainLink: USDT price <= 0\");\n    require(answeredInRound >= roundID, \"ChainLink: Stale USDT price\");\n    require(timestamp > 0, \"ChainLink: USDT round not complete\");\n\n    ...\n}\n```\n\n**[iamsahu (Yield) confirmed and resolved](https://github.com/code-423n4/2022-01-yield-findings/issues/136)**\n\n**[Alex the Entreprenerd (judge) commented](https://github.com/code-423n4/2022-01-yield-findings/issues/136#issuecomment-1039639929):**\n > When using Chainlink Price feeds it is important to ensure the price feed data was updated recently.\n> While getting started with chainlink requires just one line of code, it is best to add additional checks for in production environments.\n> \n> I believe the finding to be valid and Medium severity to be appropriate.\n> \n> The sponsor has mitigated in a subsequent PR.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about the 'throttle' handle. The vulnerability in this handle is that the Oracle data feed is insufficiently validated, which can lead to a stale price and wrong return value. The proof of concept is that there is no check for stale price and round completeness, and the impact of this is that the quoteAmount return value can be wrong. The tool used for this bug report is manual review. The recommended mitigation steps are to validate the data feed, which can be done by adding code to the _peek() function to check for stale prices and round completeness. This code will require the prices to be greater than zero, and the round to be complete.",
+      "report_date": {},
+      "contest_prize_txt": "$30,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-01-yield-convex-contest",
+      "sponsor_name": "Yield",
+      "sponsor_link": "https://twitter.com/yield",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-01-yield",
+      "github_link": "https://github.com/code-423n4/2022-01-yield-findings/issues/136",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "80",
+      "slug": "m-01-oracle-data-feed-is-insufficiently-validated-code4rena-yield-yield-convex-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Yield",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Yield",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Chainlink"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Stale Price"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Oracle"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,234 @@
+{
+  "tag": "Array Reorder",
+  "count": 3,
+  "metadata": {
+    "totalResults": 3,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 8,
+    "reset": 1771760940
+  },
+  "findings": [
+    {
+      "id": "20824",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "934",
+      "title": "[M-07] User may get less tokens than expected when collateral list order changes",
+      "content": "\n<https://github.com/AngleProtocol/angle-transmuter/blob/8a2c3aaf4bd054581b06d33049370a6f01b56d44/contracts/transmuter/libraries/LibSetters.sol#L123> <br><https://github.com/AngleProtocol/angle-transmuter/blob/8a2c3aaf4bd054581b06d33049370a6f01b56d44/contracts/transmuter/facets/Redeemer.sol#L64>\n\nThe order of `ts.collateralList` is not stable: Whenever `LibSetters.revokeCollateral` is used to revoke a collateral, it may change because of the swap that is performed. However, the function `Redeemer.redeem` relies on this order, as the user has to provide the `minAmountsOut` in the order of `ts.collateralList`. This can lead to situations where the user has crafted the `minAmountsOut` array when the order was still different, leading to unintended results (and potentially redemptions that the user did not want to accept). It also means that revoking a collateral can be challenging for the team / governance because it should never be done when a user has already prepared a redemption (either via the frontend which he had open or some other way to interact with the contract). But there is of course no way to know this.\n\n### Proof of Concept\n\nLet's say the system contains the collateral \\[tokenA, tokenB, tokenC]. `normalizedStables` for tokenA is 0. The user therefore does not want to receive tokenA (and will not receive anything for it). However, it is extremely important to him that he receives 100,000 of tokenC. He therefore crafts a `minAmountsOut` of \\[0, 10000, 100000]. Just before he submits the call, tokenA is removed from the system, resulting in the collateral array \\[tokenC, tokenB]. Even if the user only receives 50,000 tokens of tokenC, the call will therefore succeed.\n\n### Recommended Mitigation Steps\n\nThe problem could be alleviated a bit by checking the length of `minAmountsOut` (making sure it is not longer than `ts.collateralList`). However, that would not help if a collateral is revoked and a new one is added. Another solution would be to provide pairs of token addresses and amounts, which would solve the problem completely.\n\n**[Picodes (Angle) confirmed and commented](https://github.com/code-423n4/2023-06-angle-findings/issues/8#issuecomment-1628688537):**\n > The mitigation doesn't cost much and we will implement it. It's really an edge case though.\n\n**[Angle mitigated](https://github.com/code-423n4/2023-07-angle-mitigation/blob/main/README.md#mitigations-to-be-reviewed):**\n> PR: https://github.com/AngleProtocol/angle-transmuter/commit/f8d0bf7c4009586f7022d5929359041db3990175<br>\n> Applies the suggested fix.\n\n**Status:** Not fully mitigated. Full details in reports from [Lambda](https://github.com/code-423n4/2023-07-angle-mitigation-findings/issues/5) and [auditor0517](https://github.com/code-423n4/2023-07-angle-mitigation-findings/issues/30).\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is related to the Angle Protocol's angle-transmuter project. The order of the `ts.collateralList` is not stable when the `LibSetters.revokeCollateral` function is used to revoke a collateral. This can cause unintended results when the user has crafted the `minAmountsOut` array when the order was still different. A proof of concept was provided to demonstrate the issue.\n\nThe problem could be alleviated by checking the length of `minAmountsOut` or by providing pairs of token addresses and amounts. Picodes (Angle) confirmed and commented that the mitigation doesn't cost much and they will implement it, and a PR was submitted with the suggested fix. However, the issue is not fully mitigated as further details can be found in reports from Lambda and auditor0517.",
+      "report_date": {},
+      "contest_prize_txt": "$52,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2022-01-dev-test-repo",
+      "sponsor_name": "Angle Protocol",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2022-01-dev-test-repo",
+      "github_link": "https://github.com/code-423n4/2023-06-angle-findings/issues/8",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "255",
+      "slug": "m-07-user-may-get-less-tokens-than-expected-when-collateral-list-order-changes-code4rena-angle-protocol-angle-protocol-invitational-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Angle Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Angle Protocol",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Array"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Array Reorder"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Array Reorder"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Array"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3633",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "99",
+      "title": "M-1: `claimFromIndividualPlugin()` may endup claiming the reward from a different plugin with wrong `auxData` when the index as changed due to `removePlugin()`",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-telcoin-judging/issues/86 \n\n## Found by \nWATCHPUG\n\n## Summary\n\nWhen `removePlugin()` happens between the user sends the `claimFromIndividualPlugin()` transaction and before it gets minted, it may lead to lesser rewards as the `auxData` prepared for another plugin will now be used.\n\n## Vulnerability Detail\n\nWhen a user calls `claimFromIndividualPlugin()`, a `pluginIndex` is used to refer to a plugin.\n\nHowever, if the `PLUGIN_EDITOR` removed a plugin before the transaction gets minted, the plugin referred by the `pluginIndex` can be changed to another plugin.\n\nAs a result, the `auxData` supposed to be supplied to the original plugin is now supplied to another plugin.\n\n## Impact\n\nThe user may end up with lesser rewards as a wrong `auxData` is supplied to the wrong plugin.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2022-11-telcoin/blob/main/contracts/StakingModule.sol#L420-L429\n\nhttps://github.com/sherlock-audit/2022-11-telcoin/blob/main/contracts/StakingModule.sol#L178-L185\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nConsider using `pluginAddress` instead.\n\n## Discussion\n\n**amshirif**\n\nhttps://github.com/telcoin/telcoin-staking/pull/8",
+      "summary": "\nThis bug report is about the `claimFromIndividualPlugin()` function in the Telcoin staking contract. The bug occurs when a user calls `claimFromIndividualPlugin()` and the `PLUGIN_EDITOR` removes a plugin before the transaction gets minted. The plugin referred by the `pluginIndex` can be changed to another plugin, and the `auxData` supposed to be supplied to the original plugin is now supplied to another plugin. As a result, the user may end up with lesser rewards as a wrong `auxData` is supplied to the wrong plugin. The code snippet and the tool used to find the bug are provided in the report. The recommendation is to consider using `pluginAddress` instead. The discussion section provides a link to a pull request.",
+      "report_date": {},
+      "contest_prize_txt": "10000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/25",
+      "sponsor_name": "Telcoin",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-telcoin-judging/issues/86",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "25",
+      "slug": "m-1-claimfromindividualplugin-may-endup-claiming-the-reward-from-a-different-plugin-with-wrong-auxdata-when-the-index-as-changed-due-to-removeplugin-sherlock-telcoin-telcoin-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Telcoin",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Telcoin",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Array Reorder"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3387",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "136",
+      "title": "H-4: Wrong implementation of orderbook can make user can't get their fund back",
+      "content": "Source: https://github.com/sherlock-audit/2022-09-knox-judging/issues/66 \n\n## Found by \nTrumpero\n\n## Lines of code \nhttps://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/auction/OrderBook.sol#L240\nhttps://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/auction/OrderBook.sol#L182-L190\n\n## Summary\nWhen a user remove an order, next user call `addLimitOrder` can override the latest order with his/her order. It will make one who is owner of that latest order lose their fund. \n\n## Vulnerability Detail\nFunction `_remove` will decrease value of `index.length` by 1 when an order is removed\n```solidity=\n// url = https://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/auction/OrderBook.sol#L240\nfunction _remove(Index storage index, uint256 id) internal returns (bool) {\n    index.length = index.length > 0 ? index.length - 1 : 1;\n    ...\n}\n```\nInstead of reserving `id` of removed order to reuse for next created order, function `_insert` use the id of new order is `index.length + 1`\n```solidity=\n// url = https://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/auction/OrderBook.sol#L165-L172\nfunction _insert(\n    Index storage index,\n    int128 price64x64,\n    uint256 size,\n    address buyer\n) internal returns (uint256) {\n    index.length = index.length > 0 ? index.length + 1 : 1;\n    uint256 id = index.length;\n    ...\n}\n```\nIt will override the latest order with new order's data.\n\nFor example\n* Alice create an order with price = 10 --> `id = 1, index.length = 1`\n* Bob create an order with price = 20 --> `id = 2, index.length = 2` \n* Alice cancel order `id = 1` --> `index.length = 1`\n* Candice create new order with price = 30 \n    * At this time, new order will have `id = index.length + 1 = 1 + 1 = 2`. It will override the state of Bob's order: price from 20 -> 30 \n\n## Impact\nUser whose order is overrided can't withdraw their refund `ERC20` and their exercised tokens. \n\n## Code Snippet\n```typescript=\nit.only(\"bug\", async() => {\n    const totalContracts = await auction.getTotalContracts(epoch);\n\n    const buyer1OrderSize = totalContracts.div(5);\n    const buyer2OrderSize = totalContracts.div(5);\n    const buyer3OrderSize = totalContracts.div(5);\n\n    // buyer1 create order with price = 10\n    await asset\n      .connect(signers.buyer1)\n      .approve(addresses.auction, ethers.constants.MaxUint256);\n    await auction.addLimitOrder(epoch, 10, buyer1OrderSize);\n\n    // buyer2 create order with price = 20\n    await asset \n      .connect(signers.buyer2)\n      .approve(addresses.auction, ethers.constants.MaxUint256);\n    await auction\n      .connect(signers.buyer2)\n      .addLimitOrder(epoch, 20, buyer2OrderSize);\n\n    // order with id = 2 have price = 20 \n    expect( (await auction.getOrderById(epoch, 2)).price64x64 ).to.equal(20);\n\n    // buyer1 cancel order with id = 1\n    await auction.connect(signers.buyer1).cancelLimitOrder(epoch, 1);\n\n    // buyer3 create order with price = 30\n    await asset\n      .connect(signers.buyer3)\n      .approve(addresses.auction, ethers.constants.MaxUint256);\n    await auction\n      .connect(signers.buyer3)\n      .addLimitOrder(epoch, 30, buyer3OrderSize);\n\n    // order with id = 2 have price = 30 --> nervous \n    expect( (await auction.getOrderById(epoch, 2)).price64x64 ).to.equal(30);\n});\n```\nTo check with test, u can use this file \nhttps://gist.github.com/Trumpero/adbcd84c33f71856dbf379f581e8abbb\nI write one more describe `::Bug` beside your original describe `::Auction` in file `Auction.behavior.ts` (just too lazy to write a new one). \n\n## Tool used\nHardhat \n\n## Recommendation\nUse an array to store unused (removed) id, then assign each id to the new limit order created instead of using `index.length`.",
+      "summary": "\nThis bug report is about an issue found in the OrderBook.sol file of the sherlock-audit/2022-09-knox-judging repository on GitHub. The issue was found by Trumpero and is labeled as Issue H-4. It states that when a user removes an order, the next user to call the addLimitOrder function can override the latest order with their own order, which can cause the owner of the latest order to lose their funds. \n\nThe code snippet provided in the report explains how the vulnerability works. It starts with Alice creating an order with a price of 10, Bob creating an order with a price of 20, and Alice canceling her order. Then, Candice creates a new order with a price of 30. The new order will have an id of 2, which is the same as Bob's order. This will override Bob's order, causing him to lose his funds.\n\nThe report also includes a tool used to test the vulnerability, which is Hardhat. The recommendation given is to use an array to store unused (removed) id, and assign each id to the new limit order created instead of using index.length. This will ensure that no orders are overridden and users will not lose their funds.",
+      "report_date": {},
+      "contest_prize_txt": "50000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/4",
+      "sponsor_name": "Knox",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-09-knox-judging/issues/66",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "4",
+      "slug": "h-4-wrong-implementation-of-orderbook-can-make-user-cant-get-their-fund-back-sherlock-knox-knox-finance-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Knox Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Knox Finance",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Indexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Business Logic"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Array Reorder"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Array"
+          }
+        }
+      ]
+    }
+  ]
+}

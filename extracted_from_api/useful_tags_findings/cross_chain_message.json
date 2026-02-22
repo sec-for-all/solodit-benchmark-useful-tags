@@ -1,0 +1,146 @@
+{
+  "tag": "Cross Chain Message",
+  "count": 2,
+  "metadata": {
+    "totalResults": 2,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 19,
+    "reset": 1771761000
+  },
+  "findings": [
+    {
+      "id": "49144",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 60,
+      "protocol_id": "1722",
+      "title": "[H-11] There is no refund mechanism in `ChakraSettlement.processCrossChainCallback` or `ChakraSettlementHandler.receive_cross_chain_callback` function",
+      "content": "\n### Impact\n\nBecause there is no refund mechanism in the `ChakraSettlement.processCrossChainCallback` or `ChakraSettlementHandler.receive_cross_chain_callback` function, when the cross-chain ERC20 settlement fails, such as due to that the source chain's handler can be removed from the whitelist for the destination chain after the corresponding cross-chain message is initiated on the source chain and before such message is received on the destination chain, the `ChakraSettlementHandler.cross_chain_erc20_settlement` function caller cannot get back and loses the tokens that have been transferred to the source chain's handler or burned on the source chain by such caller.\n\n### Proof of Concept\n\nWhen the `ChakraSettlementHandler.cross_chain_erc20_settlement` function is called to initiate a cross-chain ERC20 settlement, the function caller can check to ensure that the handler on the source chain is whitelisted on the destination chain. After such function call, the function caller has transferred tokens to the handler on the source chain under the `MintBurn`, `LockUnlock`, or `LockMint` mode or burned tokens on the source chain under the `BurnUnlock` mode.\n\n<https://github.com/code-423n4/2024-08-chakra/blob/f61c899c22492bdf5bdcb07cdb62ea9b4cd38825/solidity/handler/contracts/ChakraSettlementHandler.sol#L111-L223>\n\n```solidity\n    function cross_chain_erc20_settlement(\n        string memory to_chain,\n        uint256 to_handler,\n        uint256 to_token,\n        uint256 to,\n        uint256 amount\n    ) external {\n        require(amount > 0, \"Amount must be greater than 0\");\n        require(to != 0, \"Invalid to address\");\n        require(to_handler != 0, \"Invalid to handler address\");\n        require(to_token != 0, \"Invalid to token address\");\n\n@>      if (mode == SettlementMode.MintBurn) {\n@>          _erc20_lock(msg.sender, address(this), amount);\n@>      } else if (mode == SettlementMode.LockUnlock) {\n@>          _erc20_lock(msg.sender, address(this), amount);\n@>      } else if (mode == SettlementMode.LockMint) {\n@>          _erc20_lock(msg.sender, address(this), amount);\n@>      } else if (mode == SettlementMode.BurnUnlock) {\n@>          _erc20_burn(msg.sender, amount);\n@>      }\n\n        ...\n    }\n```\n\nYet, after the corresponding cross-chain message is initiated on the source chain and before such message is received on the destination chain, it is possible that the `ChakraSettlementHandler.remove_handler` function is called on the destination chain, which removes the source chain's handler from the whitelist for the destination chain. This is beyond the control of the `ChakraSettlementHandler.cross_chain_erc20_settlement` function caller because such function caller cannot know this in advance.\n\n<https://github.com/code-423n4/2024-08-chakra/blob/f61c899c22492bdf5bdcb07cdb62ea9b4cd38825/solidity/handler/contracts/ChakraSettlementHandler.sol#L65-L70>\n\n```solidity\n    function remove_handler(\n        string memory chain_name,\n        uint256 handler\n    ) external onlyOwner {\n@>      handler_whitelist[chain_name][handler] = false;\n    }\n```\n\nWhen the corresponding cross-chain message is received on the destination chain, since the handler on the source chain has been changed to be not whitelisted on the destination chain, the `ChakraSettlementHandler.receive_cross_chain_msg` function would return `false`, which marks the `status` and `receive_cross_txs[txid].status` corresponding to the cross-chain message as failed in the `ChakraSettlement.receive_cross_chain_msg` function.\n\n<https://github.com/code-423n4/2024-08-chakra/blob/f61c899c22492bdf5bdcb07cdb62ea9b4cd38825/solidity/handler/contracts/ChakraSettlementHandler.sol#L300-L355>\n\n```solidity\n    function receive_cross_chain_msg(\n        uint256 /**txid */,\n        string memory from_chain,\n        uint256 /**from_address */,\n        uint256 from_handler,\n        PayloadType payload_type,\n        bytes calldata payload,\n        uint8 /**sign type */,\n        bytes calldata /**signaturs */\n    ) external onlySettlement returns (bool) {\n        //  from_handler need in whitelist\n@>      if (is_valid_handler(from_chain, from_handler) == false) {\n@>          return false;\n        }\n        ...\n    }\n```\n\n<https://github.com/code-423n4/2024-08-chakra/blob/f61c899c22492bdf5bdcb07cdb62ea9b4cd38825/solidity/settlement/contracts/ChakraSettlement.sol#L170-L244>\n\n```solidity\n    function receive_cross_chain_msg(\n        uint256 txid,\n        string memory from_chain,\n        uint256 from_address,\n        uint256 from_handler,\n        address to_handler,\n        PayloadType payload_type,\n        bytes calldata payload,\n        uint8 sign_type, // validators signature type /  multisig or bls sr25519\n        bytes calldata signatures // signature array\n    ) external {\n        ...\n\n@>      bool result = ISettlementHandler(to_handler).receive_cross_chain_msg(\n            txid,\n            from_chain,\n            from_address,\n            from_handler,\n            payload_type,\n            payload,\n            sign_type,\n            signatures\n        );\n\n@>      CrossChainMsgStatus status = CrossChainMsgStatus.Failed;\n        if (result == true) {\n            status = CrossChainMsgStatus.Success;\n            receive_cross_txs[txid].status = CrossChainMsgStatus.Success;\n@>      } else {\n@>          receive_cross_txs[txid].status = CrossChainMsgStatus.Failed;\n        }\n\n        emit CrossChainHandleResult(\n            txid,\n            status,\n            contract_chain_name,\n            from_chain,\n            address(to_handler),\n            from_handler,\n            payload_type\n        );\n    }\n```\n\nBack on the source chain, the `ChakraSettlement.processCrossChainCallback` and `ChakraSettlementHandler.receive_cross_chain_callback` functions are then called with the failed cross-chain message's `status`. This notifies that the corresponding cross-chain ERC20 settlement has failed by marking the corresponding `create_cross_txs[txid].status` as failed in both the `ChakraSettlement` and `ChakraSettlementHandler` contracts. However, such `ChakraSettlement.processCrossChainCallback` and `ChakraSettlementHandler.receive_cross_chain_callback` function calls do not refund the caller of the `ChakraSettlementHandler.cross_chain_erc20_settlement` function the tokens that were transferred to the source chain's handler or burned on the source chain by such caller.\n\n<https://github.com/code-423n4/2024-08-chakra/blob/f61c899c22492bdf5bdcb07cdb62ea9b4cd38825/solidity/settlement/contracts/ChakraSettlement.sol#L303-L331>\n\n```solidity\n    function processCrossChainCallback(\n        uint256 txid,\n        string memory from_chain,\n        uint256 from_handler,\n        address to_handler,\n        CrossChainMsgStatus status,\n        uint8 sign_type,\n        bytes calldata signatures\n    ) internal {\n        require(\n            create_cross_txs[txid].status == CrossChainMsgStatus.Pending,\n            \"Invalid transaction status\"\n        );\n\n        if (\n@>          ISettlementHandler(to_handler).receive_cross_chain_callback(\n                txid,\n                from_chain,\n                from_handler,\n                status,\n                sign_type,\n                signatures\n            )\n        ) {\n            create_cross_txs[txid].status = status;\n@>      } else {\n@>          create_cross_txs[txid].status = CrossChainMsgStatus.Failed;\n        }\n    }\n```\n\n<https://github.com/code-423n4/2024-08-chakra/blob/f61c899c22492bdf5bdcb07cdb62ea9b4cd38825/solidity/handler/contracts/ChakraSettlementHandler.sol#L365-L396>\n\n```solidity\n    function receive_cross_chain_callback(\n        uint256 txid,\n        string memory from_chain,\n        uint256 from_handler,\n        CrossChainMsgStatus status,\n        uint8 /* sign_type */, // validators signature type /  multisig or bls sr25519\n        bytes calldata /* signatures */\n    ) external onlySettlement returns (bool) {\n        //  from_handler need in whitelist\n        if (is_valid_handler(from_chain, from_handler) == false) {\n            return false;\n        }\n\n        require(\n            create_cross_txs[txid].status == CrossChainTxStatus.Pending,\n            \"invalid CrossChainTxStatus\"\n        );\n\n        if (status == CrossChainMsgStatus.Success) {\n            if (mode == SettlementMode.MintBurn) {\n                _erc20_burn(address(this), create_cross_txs[txid].amount);\n            }\n\n            create_cross_txs[txid].status = CrossChainTxStatus.Settled;\n        }\n\n@>      if (status == CrossChainMsgStatus.Failed) {\n@>          create_cross_txs[txid].status = CrossChainTxStatus.Failed;\n        }\n\n        return true;\n    }\n```\n\n### Recommended Mitigation Steps\n\nThe `ChakraSettlementHandler.receive_cross_chain_callback` function can be updated to transfer the failed cross-chain ERC20 settlement's token amount to the corresponding caller of the `ChakraSettlementHandler.cross_chain_erc20_settlement` function under the `MintBurn`, `LockUnlock`, or `LockMint` mode. If possible, such function can also be updated to mint the failed cross-chain ERC20 settlement's token amount to the corresponding caller of the `ChakraSettlementHandler.cross_chain_erc20_settlement` function under the `BurnUnlock` mode; otherwise, if the corresponding token cannot be minted by the protocol, the protocol needs to clearly communicate with its users about the inability of refunding the failed cross-chain ERC20 settlement's token amount under the `BurnUnlock` mode.\n\n**[0xsomeone (judge) commented](https://github.com/code-423n4/2024-08-chakra-findings/issues/115#issuecomment-2435474628):**\n > The submission and all its duplicates concern various ways in which the cross-chain system of the Chakra protocol can fail transactions and does not expose a mechanism to issue refunds for those failed transactions.\n> \n> This issue class is significantly large, and the lack of documentation as well as insight into the Chakra node system renders it impossible to judge fairly. I believe that a refund mechanism should be set in place, and thus consider all issues related to its missing functionality to be of high severity.\n> \n> To note, I believe this is a flaw arising **from the design of the system itself** and thus have grouped these issues based on the design principle they are based on. The Sponsor has expressed that the callback function is not invoked in all cases and is solely invoked in the `MintBurn` mode, indicating that a solution based on the callback mode is not in line with the desires of the Sponsor and cannot be considered the \"unopinionated way\" to resolve this issue. \n> \n> The lack of documentation renders granular judgments of issues outlining the absence of a refund mechanism impractical to perform as any such distinction would rely on assumptions about the system that cannot be validated.\n\n\n***\n\n",
+      "summary": "\nThis bug report discusses a potential issue in the Chakra protocol that could result in the loss of tokens for users. The problem arises when a cross-chain ERC20 settlement fails due to a change in the whitelist for the destination chain. This change can occur after the cross-chain message is initiated on the source chain and before it is received on the destination chain. The current code does not have a mechanism to refund the tokens in such a scenario. This bug report recommends updating the `ChakraSettlementHandler.receive_cross_chain_callback` function to transfer or mint the failed cross-chain ERC20 settlement's token amount to the caller of the `ChakraSettlementHandler.cross_chain_erc20_settlement` function. However, due to the lack of documentation and insight into the Chakra node system, it is difficult to make a fair judgment on this issue. It is recommended that a refund mechanism is implemented to address this issue.",
+      "report_date": {},
+      "contest_prize_txt": "60000",
+      "contest_link": "https://code4rena.com/reports/2024-08-chakra",
+      "sponsor_name": "Chakra",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2024-08-chakra",
+      "github_link": "https://github.com/code-423n4/2024-08-chakra-findings/issues/115",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "432",
+      "slug": "h-11-there-is-no-refund-mechanism-in-chakrasettlementprocesscrosschaincallback-or-chakrasettlementhandlerreceive_cross_chain_callback-function-code4rena-chakra-chakra-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Chakra",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Chakra",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Cross Chain Message"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7143",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "HIGH",
+      "finders_count": 5,
+      "protocol_id": "72",
+      "title": "Cross-chain messaging via Multichain protocol will fail",
+      "content": "## Security Assessment\n\n## Severity: \n**High Risk**\n\n## Context: \n`BaseMultichain.sol#L39-L47`\n\n## Description: \nMultichain v6 is supported by Connext for cross-chain messaging. The `_sendMessage` function of `BaseMultichain.sol` relies on Multichain's anyCall for cross-chain messaging.\n\nPer the Anycall V6 documentation, a gas fee for transaction execution needs to be paid either on the source or destination chain when an anyCall is called. However, the anyCall is called without consideration of the gas fee within the connectors, and thus the anyCall will always fail. Since Multichain's hub and spoke connectors are unable to send messages, cross-chain messaging using Multichain within Connext will not work.\n\n```solidity\nfunction _sendMessage(address _amb, bytes memory _data) internal {\n    Multichain(_amb).anyCall(\n        _amb, // Same address on every chain, using AMB as it is immutable\n        _data,\n        address(0), // fallback address on origin chain\n        MIRROR_CHAIN_ID,\n        0; // fee paid on origin chain\n    );\n}\n```\n\nAdditionally, for the payment of the execution gas fee, a project can choose to implement either of the following methods:\n- Pay on the source chain by depositing the gas fee to the caller contracts.\n- Pay on the destination chain by depositing the gas fee to Multichain's anyCall contract at the destination chain.\n\nIf Connext decides to pay the gas fee on the source chain, they would need to deposit some ETH to the connector contracts. However, it is not possible because no `receive()`, `fallback`, or `payable` function has been implemented within the contracts and their parent contracts for accepting ETH.\n\n## Recommendation: \nEnsure that the gas fee is paid when making an anyCall. If the execution gas fee should be paid on the source chain, ensure that the connector contracts can accept ETH.\n\n## Connext: \nSolved in PR 2421.\n\n## Spearbit: \nVerified.",
+      "summary": "\nThis bug report is about an issue with the _sendMessage function of BaseMultichain.sol when using Multichain v6 for cross-chain messaging within Connext. The anyCall function is called without consideration of the gas fee and thus will always fail. This means that Multichain's hub and spoke connectors are unable to send messages, preventing cross-chain messaging from working. \n\nTwo methods are suggested for paying the gas fee: paying on the source chain by depositing the gas fee to the caller contracts, or paying on the destination chain by depositing the gas fee to Multichain's anyCall contract at the destination chain. However, if Connext decides to pay the gas fee on the source chain, the connector contracts need to be able to accept ETH, which is not possible because no receive() ,fallback orpayable function has been implemented.\n\nThe recommendation is to ensure that the gas fee is paid when making an anyCall, and if the execution gas fee should be paid on the source chain, ensure that the connector contracts can accept ETH. Connext solved the issue in PR 2421 and Spearbit verified it.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/ConnextNxtp-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/ConnextNxtp-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/ConnextNxtp-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 18,
+      "contest_id": "",
+      "slug": "cross-chain-messaging-via-multichain-protocol-will-fail-spearbit-connext-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Connext",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Connext",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Payable"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Cross Chain Message"
+          }
+        }
+      ]
+    }
+  ]
+}

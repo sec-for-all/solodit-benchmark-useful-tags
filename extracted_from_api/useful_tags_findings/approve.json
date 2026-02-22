@@ -1,0 +1,1394 @@
+{
+  "tag": "Approve",
+  "count": 18,
+  "metadata": {
+    "totalResults": 18,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 11,
+    "reset": 1771760940
+  },
+  "findings": [
+    {
+      "id": "29738",
+      "kind": "GIT",
+      "auditfirm_id": "20",
+      "impact": "HIGH",
+      "finders_count": 11,
+      "protocol_id": "1230",
+      "title": "A user can steal an already transfered and bridged reSDL lock because of approval",
+      "content": "### Relevant GitHub Links\n<a data-meta=\"codehawks-github-link\" href=\"https://github.com/Cyfrin/2023-12-stake-link/blob/main/contracts/core/sdlPool/SDLPoolPrimary.sol#L172-L199\">https://github.com/Cyfrin/2023-12-stake-link/blob/main/contracts/core/sdlPool/SDLPoolPrimary.sol#L172-L199</a>\n\n<a data-meta=\"codehawks-github-link\" href=\"https://github.com/Cyfrin/2023-12-stake-link/blob/main/contracts/core/sdlPool/SDLPoolSecondary.sol#L259-L281\">https://github.com/Cyfrin/2023-12-stake-link/blob/main/contracts/core/sdlPool/SDLPoolSecondary.sol#L259-L281</a>\n\n\n## Summary\nThe reSDL token approval is not deleted when the lock is bridged to an other chain\n\n## Vulnerability Details\nWhen a reSDL token is bridged to an other chain, the `handleOutgoingRESDL()` function is called to make the state changes into the `sdlPool` contract. The function executes the following:\n\n```\n    function handleOutgoingRESDL(\n        address _sender,\n        uint256 _lockId,\n        address _sdlReceiver\n    )\n        external\n        onlyCCIPController\n        onlyLockOwner(_lockId, _sender)\n        updateRewards(_sender)\n        updateRewards(ccipController)\n        returns (Lock memory)\n    {\n        Lock memory lock = locks[_lockId];\n\n        delete locks[_lockId].amount;\n        delete lockOwners[_lockId];\n        balances[_sender] -= 1;\n\n        uint256 totalAmount = lock.amount + lock.boostAmount;\n        effectiveBalances[_sender] -= totalAmount;\n        effectiveBalances[ccipController] += totalAmount;\n\n        sdlToken.safeTransfer(_sdlReceiver, lock.amount);\n\n        emit OutgoingRESDL(_sender, _lockId);\n\n        return lock;\n    }\n```\nAs we can see, it deletes the lock.amount of the lockId, removes the ownership of the lock and decrements the lock balance of the account that is bridging the lock.\nThe approval that the user had before bridging the reSDL lock will remain there and he can get benefited from it by stealing the NFT.\nConsider the following situation:\nA user knows that there is a victim that is willing to pay the underlying value for a reSDL lock ownership transfer. What the malicious user can do is set approval to move his lockId in all supported chains to an alt address that he owns. Then, he trades the underlying value for the reSDL ownership and the lock is transfered to the victim/buyer. If the buyer keeps the lock in this chain nothing happens, but if he bridges any of the other supported chains, the malicious user can use the approval of his alt account to steal the reSDL lock.\n\n#### Proof of Concept\nIt is written inside `resdl-token-bridge.test.ts` because it uses its setup\n```\n  it('PoC steal reSDL', async () => {\n    let lockId = 2\n\n    let thief = accounts[0]\n    let victim = accounts[1]\n\n    let thiefAccount2 = accounts[2]\n\n    let ts = (await ethers.provider.getBlock(await ethers.provider.getBlockNumber())).timestamp\n\n    // Thief approves an alt account that he controls to move his lock in the original chain\n    await sdlPool.approve(thiefAccount2, lockId)\n\n    assert.equal(await sdlPool.getApproved(2), thiefAccount2);\n\n    // Thief bridges the lock to an other chain but the approval is not deleted\n    await bridge.transferRESDL(77, victim, lockId, true, toEther(10), { value: toEther(10) })\n    let lastRequestMsg = await onRamp.getLastRequestMessage()\n    assert.deepEqual(\n      ethers.utils.defaultAbiCoder\n        .decode(\n          ['address', 'uint256', 'uint256', 'uint256', 'uint64', 'uint64', 'uint64'],\n          lastRequestMsg[1]\n        )\n        .map((d, i) => {\n          if (i == 0) return d\n          if (i > 1 && i < 4) return fromEther(d)\n          return d.toNumber()\n        }),\n      [victim, lockId, 1000, 1000, ts, 365 * 86400, 0]\n    )\n    assert.deepEqual(\n      lastRequestMsg[2].map((d) => [d.token, fromEther(d.amount)]),\n      [[sdlToken.address, 1000]]\n    )\n    assert.equal(lastRequestMsg[3], wrappedNative.address)\n    assert.equal(lastRequestMsg[4], '0x11')\n    await expect(sdlPool.ownerOf(lockId)).to.be.revertedWith('InvalidLockId()')\n\n    // The user that received the lock from bridging on the other chain decides to bridge the lock id\n    // back to the original chain\n    await offRamp\n      .connect(signers[6])\n      .executeSingleMessage(\n        ethers.utils.formatBytes32String('messageId'),\n        77,\n        ethers.utils.defaultAbiCoder.encode(\n          ['address', 'uint256', 'uint256', 'uint256', 'uint64', 'uint64', 'uint64'],\n          [victim, lockId, 1000, 1000, ts, 365 * 86400, 0]\n        ),\n        sdlPoolCCIPController.address,\n        [{ token: sdlToken.address, amount: toEther(25) }]\n      )\n\n\n    // Now the victim owns the reSDL lock on the original chain\n    assert.equal(await sdlPool.ownerOf(2), victim)\n\n    // However, this lockId has the approval that originally the thief set to his alt account and victim do not know that\n    assert.equal(await sdlPool.getApproved(2), thiefAccount2);\n\n    // Thief transfers back to his main account the reSDL via his alt account\n    await sdlPool\n      .connect(signers[2])\n      .transferFrom(victim, thief, lockId)\n\n    // Thief is now the owner of the reSDL\n    assert.equal(await sdlPool.ownerOf(2), thief)\n  })\n```\n\n## Impact\nHigh, possibility to steal funds\n\n## Tools Used\nManual review\n\n## Recommendations\nWhen bridging a lock between chains, the lock approval should be deleted.\n\n```diff\n     function handleOutgoingRESDL(\n         address _sender,\n         uint256 _lockId,\n         address _sdlReceiver\n     )\n         external\n         onlyCCIPController\n         onlyLockOwner(_lockId, _sender)\n         updateRewards(_sender)\n         updateRewards(ccipController)\n         returns (Lock memory)\n     {\n         Lock memory lock = locks[_lockId];\n \n         delete locks[_lockId].amount;\n         delete lockOwners[_lockId];\n         balances[_sender] -= 1;\n+        delete tokenApprovals[_lockId];\n\n         uint256 totalAmount = lock.amount + lock.boostAmount;\n         effectiveBalances[_sender] -= totalAmount;\n         effectiveBalances[ccipController] += totalAmount;\n\n         sdlToken.safeTransfer(_sdlReceiver, lock.amount);\n\n         emit OutgoingRESDL(_sender, _lockId);\n\n         return lock;\n     }\n```",
+      "summary": "\nA user can currently steal an already transferred and bridged reSDL lock due to a bug in the approval process. This poses a high risk as it allows for the possibility of stealing funds. The vulnerability lies in the `handleOutgoingRESDL()` function, which does not delete the approval when a reSDL token is bridged to another chain. This means that a malicious user can set an approval to move their lock to an alternative account and then trade the ownership to a victim. If the victim bridges the lock to another chain, the malicious user can use the approval to steal the reSDL lock. A proof of concept has been provided in the report to demonstrate this vulnerability. To fix this issue, the approval should be deleted when a lock is bridged between chains.",
+      "report_date": {},
+      "contest_prize_txt": "27500 USDC",
+      "contest_link": "https://www.codehawks.com/contests/clqf7mgla0001yeyfah59c674",
+      "sponsor_name": "stake.link",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 2.5,
+      "source_link": "",
+      "github_link": "https://github.com/Cyfrin/2023-12-stake-link",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "clqf7mgla0001yeyfah59c674",
+      "slug": "a-user-can-steal-an-already-transfered-and-bridged-resdl-lock-because-of-approval-codehawks-stakelink-git",
+      "firm_name": "Codehawks",
+      "firm_logo_square": "codehawks_square.png",
+      "protocol_name": "stake.link",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Codehawks",
+        "logo_square": "codehawks_square.png"
+      },
+      "protocols_protocol": {
+        "name": "stake.link",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Cross Chain"
+          }
+        }
+      ]
+    },
+    {
+      "id": "29384",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 23,
+      "protocol_id": "1135",
+      "title": "[M-01] ``FULL_RESTRICTED`` Stakers can bypass restriction through approvals",
+      "content": "\n<https://github.com/code-423n4/2023-10-ethena/blob/ee67d9b542642c9757a6b826c82d0cae60256509/contracts/StakedUSDe.sol#L225-L238><br>\n<https://github.com/code-423n4/2023-10-ethena/blob/ee67d9b542642c9757a6b826c82d0cae60256509/contracts/StakedUSDe.sol#L245-L248>\n\nThe `StakedUSDe` contract implements a method to `SOFTLY` or `FULLY` restrict user address, and either transfer to another user or burn.\n\nHowever there is an underlying issue. A fully restricted address is supposed to be unable to withdraw/redeem, however this issue can be walked around via the approve mechanism.\n\nThe openzeppelin `ERC4626` contract allows approved address to withdraw and redeem on behalf of another address so far there is an approval.\n\n```solidity\n    function redeem(uint256 shares, address receiver, address owner) public virtual override returns (uint256) \n```\n\nBlacklisted Users can explore this loophole to redeem their funds fully. This is because in the overridden `_withdraw` function, the token owner is not checked for restriction.\n\n```solidity\n  function _withdraw(address caller, address receiver, address _owner, uint256 assets, uint256 shares)\n    internal\n    override\n    nonReentrant\n    notZero(assets)\n    notZero(shares)\n  {\n    if (hasRole(FULL_RESTRICTED_STAKER_ROLE, caller) || hasRole(FULL_RESTRICTED_STAKER_ROLE, receiver)) {\n      revert OperationNotAllowed();\n    }\n```\n\nAlso in the overridden `_beforeTokenTransfer` there is a clause added to allow burning from restricted addresses:\n\n```solidity\n  function _beforeTokenTransfer(address from, address to, uint256) internal virtual override {\n    if (hasRole(FULL_RESTRICTED_STAKER_ROLE, from) && to != address(0)) {\n      revert OperationNotAllowed();\n    }\n```\n\nAll these issues allows a restricted user to simply approve another address and redeem their usde.\n\n### Proof of Concept\n\nThis is a foundry test that can be run in the `StakedUSDe.blacklist.t.sol` in the `test/foundry/staking` directory.\n\n```solidity\n// SPDX-License-Identifier: MIT\npragma solidity >=0.8;\n\n/* solhint-disable private-vars-leading-underscore  */\n/* solhint-disable func-name-mixedcase  */\n/* solhint-disable var-name-mixedcase  */\n\nimport {console} from \"forge-std/console.sol\";\nimport \"forge-std/Test.sol\";\nimport {SigUtils} from \"forge-std/SigUtils.sol\";\n\nimport \"../../../contracts/USDe.sol\";\nimport \"../../../contracts/StakedUSDe.sol\";\nimport \"../../../contracts/interfaces/IUSDe.sol\";\nimport \"../../../contracts/interfaces/IERC20Events.sol\";\nimport \"../../../contracts/interfaces/ISingleAdminAccessControl.sol\";\n\ncontract StakedUSDeBlacklistTest is Test, IERC20Events {\n  USDe public usdeToken;\n  StakedUSDe public stakedUSDe;\n  SigUtils public sigUtilsUSDe;\n  SigUtils public sigUtilsStakedUSDe;\n  uint256 public _amount = 100 ether;\n\n  address public owner;\n  address public alice;\n  address public bob;\n  address public greg;\n\n  bytes32 SOFT_RESTRICTED_STAKER_ROLE;\n  bytes32 FULL_RESTRICTED_STAKER_ROLE;\n  bytes32 DEFAULT_ADMIN_ROLE;\n  bytes32 BLACKLIST_MANAGER_ROLE;\n\n  event Deposit(address indexed caller, address indexed owner, uint256 assets, uint256 shares);\n  event Withdraw(\n    address indexed caller, address indexed receiver, address indexed owner, uint256 assets, uint256 shares\n  );\n  event LockedAmountRedistributed(address indexed from, address indexed to, uint256 amountToDistribute);\n\n  function setUp() public virtual {\n    usdeToken = new USDe(address(this));\n\n    alice = makeAddr(\"alice\");\n    bob = makeAddr(\"bob\");\n    greg = makeAddr(\"greg\");\n    owner = makeAddr(\"owner\");\n\n    usdeToken.setMinter(address(this));\n\n    vm.startPrank(owner);\n    stakedUSDe = new StakedUSDe(IUSDe(address(usdeToken)), makeAddr('rewarder'), owner);\n    vm.stopPrank();\n\n    FULL_RESTRICTED_STAKER_ROLE = keccak256(\"FULL_RESTRICTED_STAKER_ROLE\");\n    SOFT_RESTRICTED_STAKER_ROLE = keccak256(\"SOFT_RESTRICTED_STAKER_ROLE\");\n    DEFAULT_ADMIN_ROLE = 0x00;\n    BLACKLIST_MANAGER_ROLE = keccak256(\"BLACKLIST_MANAGER_ROLE\");\n  }\n\n  function _mintApproveDeposit(address staker, uint256 amount, bool expectRevert) internal {\n    usdeToken.mint(staker, amount);\n\n    vm.startPrank(staker);\n    usdeToken.approve(address(stakedUSDe), amount);\n\n    uint256 sharesBefore = stakedUSDe.balanceOf(staker);\n    if (expectRevert) {\n      vm.expectRevert(IStakedUSDe.OperationNotAllowed.selector);\n    } else {\n      vm.expectEmit(true, true, true, false);\n      emit Deposit(staker, staker, amount, amount);\n    }\n    stakedUSDe.deposit(amount, staker);\n    uint256 sharesAfter = stakedUSDe.balanceOf(staker);\n    if (expectRevert) {\n      assertEq(sharesAfter, sharesBefore);\n    } else {\n      assertApproxEqAbs(sharesAfter - sharesBefore, amount, 1);\n    }\n    vm.stopPrank();\n  }\n\n \n    function test_fullBlacklist_withdraw_pass() public {\n    _mintApproveDeposit(alice, _amount, false);\n\n    vm.startPrank(owner);\n    stakedUSDe.grantRole(FULL_RESTRICTED_STAKER_ROLE, alice);\n    vm.stopPrank();\n    //@audit-issue assert that alice is blacklisted\n   bool isBlacklisted = stakedUSDe.hasRole(FULL_RESTRICTED_STAKER_ROLE, alice);\n   assertEq(isBlacklisted, true);\n  //@audit-issue The staked balance of Alice\n    uint256 balAliceBefore = stakedUSDe.balanceOf(alice); \n    //@audit-issue The usde balance of address 56\n    uint256 bal56Before = usdeToken.balanceOf(address(56));\n    vm.startPrank(alice);\n    stakedUSDe.approve(address(56), _amount);\n    vm.stopPrank();\n    \n    //@audit-issue address 56 receives approval and can unstake usde for Alice after a blacklist\n    vm.startPrank(address(56));\n    stakedUSDe.redeem(_amount, address(56), alice);\n    vm.stopPrank();\n      //@audit-issue The staked balance of Alice\n     uint256 balAliceAfter = stakedUSDe.balanceOf(alice);\n     //@audit-issue The usde balance of address 56\n     uint256 bal56After = usdeToken.balanceOf(address(56));\n\n      assertEq(bal56Before, 0);\n      assertEq(balAliceAfter, 0);\n      console.log(balAliceBefore);\n      console.log(bal56Before);\n      console.log(balAliceAfter);\n      console.log(bal56After);\n\n  }\n}\n```\n\nHere we use `address(56)` as the second address, and we see that the user can withdraw their `100000000000000000000` tokens that was restricted.\n\nThis is my test result showing the  balances.\n\n```shell\n[PASS] test_fullBlacklist_withdraw_pass() (gas: 239624)\nLogs:\n  100000000000000000000 // Alice staked balance before\n  0 // address(56) USDe balance before\n  0 // Alice staked balance after\n  100000000000000000000 // address(56) USDe balance after\n\nTest result: ok. 1 passed; 0 failed; 0 skipped; finished in 8.68ms\n```\n\n### Tools Used\n\nFoundry, Manual review\n\n### Recommended Mitigation Steps\n\nCheck the token owner as well in the `_withdraw` function:\n\n```solidity\n\n    if (hasRole(FULL_RESTRICTED_STAKER_ROLE, caller) || hasRole(FULL_RESTRICTED_STAKER_ROLE, receiver) || hasRole(FULL_RESTRICTED_STAKER_ROLE, _owner) ) {\n      revert OperationNotAllowed();\n    }\n```\n\n**[FJ-Riveros (Ethena) confirmed via duplicate issue \\#666](https://github.com/code-423n4/2023-10-ethena-findings/issues/666#issuecomment-1802065692)**\n\n**[0xDjango (judge) decreased severity to Medium](https://github.com/code-423n4/2023-10-ethena-findings/issues/499#issuecomment-1810441530)**\n\n**[josephdara (warden) commented](https://github.com/code-423n4/2023-10-ethena-findings/issues/499#issuecomment-1811883453):**\n > Hi @0xDjango,  I do believe this is a high severity bug. It does break a major protocol functionality, compromising assets directly. \n> According to the severity categorization:\n> > 3 — High: Assets can be stolen/lost/compromised directly\n>\n> Thanks!\n\n**[0xDjango (judge) commented](https://github.com/code-423n4/2023-10-ethena-findings/issues/499#issuecomment-1815670715):**\n > @josephdara - I have conversed with the project team, and we have agreed that breaking rules due to legal compliance is medium severity as no funds are at risk.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a loophole in the `StakedUSDe` contract that allows blacklisted users to redeem their funds fully. The issue is that the overridden `_withdraw` and `_beforeTokenTransfer` functions do not check the token owner for restriction. Foundry and manual review were used to identify this issue.\n\nThe recommended mitigation steps are to check the token owner as well in the `_withdraw` function:\n\n```solidity\n    if (hasRole(FULL_RESTRICTED_STAKER_ROLE, caller) || hasRole(FULL_RESTRICTED_STAKER_ROLE, receiver) || hasRole(FULL_RESTRICTED_STAKER_ROLE, _owner) ) {\n      revert OperationNotAllowed();\n    }\n```\n\nThe severity of the issue was initially categorized as High but was later decreased to Medium by the project team after a discussion as no funds are at risk.",
+      "report_date": {},
+      "contest_prize_txt": "36500",
+      "contest_link": "https://code4rena.com/reports/2023-10-ethena",
+      "sponsor_name": "Ethena Labs",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-10-ethena",
+      "github_link": "https://github.com/code-423n4/2023-10-ethena-findings/issues/499",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "299",
+      "slug": "m-01-full_restricted-stakers-can-bypass-restriction-through-approvals-code4rena-ethena-labs-ethena-labs-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Ethena Labs",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Ethena Labs",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 377.72
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Decentralized Stablecoin"
+            },
+            "score": 377.72
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Access Control"
+          }
+        }
+      ]
+    },
+    {
+      "id": "21844",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "MEDIUM",
+      "finders_count": 3,
+      "protocol_id": "41",
+      "title": "Seaport auctions not compatible with USDT",
+      "content": "## Security Analysis Report\n\n## Severity\n**Medium Risk**\n\n## Context\n`CollateralToken.sol#L173`\n\n## Description\nAs per the ERC20 specification, the `approve()` function is expected to return a boolean:\n\n```solidity\nfunction approve(address _spender, uint256 _value) public returns (bool success)\n```\n\nHowever, USDT deviates from this standard, and its `approve()` method does not have a return value. Hence, if USDT is used as a payment token, the following line reverts in `validateOrder()` as it expects return data but doesn't receive it:\n\n```solidity\npaymentToken.approve(address(transferProxy), s.LIEN_TOKEN.getOwed(stack));\n```\n\n## Recommendation\nUse Solmate's `safeApprove()` function to accommodate USDT's `approve()`:\n\n```solidity\npaymentToken.safeApprove(address(transferProxy), s.LIEN_TOKEN.getOwed(stack));\n```\n\n## Additional Information\n- **Astaria:** Fixed in PR339.\n- **Spearbit:** Verified.",
+      "summary": "\nThis bug report is about a medium risk issue with the CollateralToken.sol#L173. According to the ERC20 specification, the approve() method should return a boolean. However, for USDT, the approve() method does not have a return value. This causes the following line to revert in validateOrder() as it expects return data but doesn't receive it: paymentToken.approve(address(transferProxy), s.LIEN_TOKEN.getOwed(stack)).\n\nThe recommendation is to use solmate's safeApprove() function instead to accommodate USDT's approve(). This would look like paymentToken.safeApprove(address(transferProxy), s.LIEN_TOKEN.getOwed(stack)). The issue has been fixed in PR339 and verified by Spearbit.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Astaria-Spearbit-Security-Review-July.pdf",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Astaria-Spearbit-Security-Review-July.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/Astaria-Spearbit-Security-Review-July.pdf",
+      "pdf_page_from": 34,
+      "contest_id": "",
+      "slug": "seaport-auctions-not-compatible-with-usdt-spearbit-none-astaria-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Astaria",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Astaria",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Weird ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "USDT"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "SafeApprove"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        }
+      ]
+    },
+    {
+      "id": "18600",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 16,
+      "protocol_id": "643",
+      "title": "H-1: Escrow approvals are not cleared when club is transferred allowing for abuse after transfer",
+      "content": "Source: https://github.com/sherlock-audit/2023-04-footium-judging/issues/289 \n\n## Found by \n0x52, BenRai, Brenzee, CMierez, J4de, MiloTruck, PokemonAuditSimulator, Quantish, cergyk, ctf\\_sec, mstpr-brainbot, pengun, sashik\\_eth, shaka, shogoki, toshii\n## Summary\n\nEscrow approvals remain even across club token transfers. This allows a malicious club owners to sell their club then drain everything after sale due to previous approvals.\n\n## Vulnerability Detail\n\nERC20 and ERC721 token approval persist regardless of the owner of the club. The result is that approvals set by one owner can be accessed after a token has been sold or transferred. This allows the following attack:\n\n1) User A owns clubId = 1\n2) User A sets approval to themselves\n3) User A sells clubId = 1 to User B\n4) User A uses persistent approval to drain all players and tokens\n\n## Impact\n\nMalicious approvals can be used to drain club after sale\n\n## Code Snippet\n\n[FootiumEscrow.sol#L75-L81](https://github.com/sherlock-audit/2023-04-footium/blob/main/footium-eth-shareable/contracts/FootiumEscrow.sol#L75-L81)\n\n[FootiumEscrow.sol#L90-L96](https://github.com/sherlock-audit/2023-04-footium/blob/main/footium-eth-shareable/contracts/FootiumEscrow.sol#L90-L96)\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nClub escrow system needs to be redesigned",
+      "summary": "\nA bug was discovered in FootiumEscrow.sol that allows malicious club owners to abuse their club after it has been sold or transferred. The bug is that ERC20 and ERC721 token approval persist regardless of the owner of the club. This means that any approvals set by the original owner can be accessed after the club is sold or transferred. This allows the original owner to use the persistent approval to drain all players and tokens from the club after the sale.\n\nThis bug was discovered by 0x52, BenRai, Brenzee, CMierez, J4de, MiloTruck, PokemonAuditSimulator, Quantish, cergyk, ctf_sec, mstpr-brainbot, pengun, sashik_eth, shaka, shogoki, and toshii. The impact of this bug is that malicious approvals can be used to drain club after sale.\n\nThe code snippet that was used to find the bug can be found at FootiumEscrow.sol#L75-L81 and FootiumEscrow.sol#L90-L96. The bug was found using manual review. The recommendation is that the club escrow system needs to be redesigned.",
+      "report_date": {},
+      "contest_prize_txt": "11000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/71",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-04-footium-judging/issues/289",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "71",
+      "slug": "h-1-escrow-approvals-are-not-cleared-when-club-is-transferred-allowing-for-abuse-after-transfer-sherlock-none-footium-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Footium",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Footium",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC721"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        }
+      ]
+    },
+    {
+      "id": "15922",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "HIGH",
+      "finders_count": 4,
+      "protocol_id": "2",
+      "title": "Receiver doesn't always reset allowance",
+      "content": "## Security Report\n\n## Severity\n**High Risk**\n\n## Context\nReceiver.sol#L224-L297\n\n## Description\nThe function `_swapAndCompleteBridgeTokens()` of Receiver resets the approval to the executor at the end of an ERC20 transfer. However, if there is insufficient gas, the approval is not reset. This allows the executor to access any tokens (of the same type) left in the Receiver.\n\n```solidity\nfunction _swapAndCompleteBridgeTokens(...) {\n    ...\n    if (LibAsset.isNativeAsset(assetId)) {\n        ...\n    } else { // case 2: ERC20 asset\n        ...\n        token.safeIncreaseAllowance(address(executor), amount);\n        if (reserveRecoverGas && gasleft() < _recoverGas) {\n            token.safeTransfer(receiver, amount);\n            ...\n            return; // no safeApprove 0\n        }\n        try executor.swapAndCompleteBridgeTokens{...} {\n            ...\n        }\n        token.safeApprove(address(executor), 0);\n    }\n}\n```\n\n## Recommendation\nOnly increase the allowance if sufficient gas is available, for example in the following way:\n\n```solidity\nfunction _swapAndCompleteBridgeTokens(...) {\n    ...\n    if (LibAsset.isNativeAsset(assetId)) {\n        ...\n    } else { // case 2: ERC20 asset\n        ...\n        - token.safeIncreaseAllowance(address(executor), amount);\n        if (reserveRecoverGas && gasleft() < _recoverGas) {\n            token.safeTransfer(receiver, amount);\n            ...\n            return;\n        }\n        + token.safeIncreaseAllowance(address(executor), amount);\n        try executor.swapAndCompleteBridgeTokens{...} {\n            ...\n        }\n        token.safeApprove(address(executor), 0);\n    }\n}\n```\n\n## LiFi\nFixed in PR 247.\n\n## Spearbit\nVerified.",
+      "summary": "\nThis bug report is about the function _swapAndCompleteBridgeTokens() in Receiver.sol. In this function, the approval to the executor is reset at the end of an ERC20 transfer. However, if there is insufficient gas, the approval is not reset, which allows the executor to access any tokens left in the Receiver.\n\nThe recommendation to fix this bug is to only increase the allowance if sufficient gas is available. This can be done by adding a line of code to the function. The fix was implemented in PR 247 and has been verified.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-retainer1-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-retainer1-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/LIFI-retainer1-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 6,
+      "contest_id": "",
+      "slug": "receiver-doesnt-always-reset-allowance-spearbit-lifi-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "LI.FI",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "LI.FI",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7311",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "MEDIUM",
+      "finders_count": 4,
+      "protocol_id": "41",
+      "title": "Multiple ERC4626Router and ERC4626RouterBase functions will always revert",
+      "content": "## Severity: Medium Risk\n\n## Context\n- `ERC4626Router.sol#L49-58`\n- `ERC4626RouterBase.sol#L47`\n- `ERC4626RouterBase.sol#L60`\n\n## Description\nThe intention of the `ERC4626Router.sol` functions is that they are approval-less ways to deposit and redeem:\n\n> For the below, no approval needed, assumes vault is already max approved.\n\nAs long as the user has approved the `TRANSFER_PROXY` for WETH, this works for the `depositToVault` function:\n- WETH is transferred from the user to the router with `pullTokens`.\n- The router approves the vault for the correct amount of WETH.\n- `vault.deposit()` is called, which uses `safeTransferFrom` to transfer WETH from the router into the vault.\n\nHowever, for the `redeemMax` function, it doesn't work:\n- Approves the vault to spend the router's WETH.\n- `vault.redeem()` is called, which tries to transfer vault tokens from the router to the vault, and then mints withdraw proxy tokens to the receiver.\n\nThis error occurs assuming that the vault tokens would be burned, in which case the logic would work. But since they are transferred into the vault until the end of the epoch, we require approvals.\n\nThe same issue also exists in these two functions in `ERC4626RouterBase.sol`:\n- `redeem()`: this is where the incorrect approval lives, so the same issue occurs when it is called directly.\n- `withdraw()`: the same faulty approval exists in this function.\n\n## Recommendation\n`redeemMax` should follow the same flow as `deposit` to make this work:\n- `redeemMax` should `pullTokens` to pull the vault tokens from the user.\n- The router should approve the vault to spend its own tokens, not WETH.\n- Then we can call `vault.redeem()` and it will work as intended.\n\nBoth the `ERC4626RouterBase` functions should change the approval to be vault tokens rather than WETH:\n```diff\n- ERC20(vault.asset()).safeApprove(address(vault), amount);\n+ vault.safeApprove(address(vault), amount);\n```",
+      "summary": "\nThis bug report is about the ERC4626Router.sol and ERC4626RouterBase.sol functions not working as intended. The intention of the functions is to allow deposit and redemption of funds without needing an approval, but this is not working as expected.\n\nThe depositToVault function works as intended, with WETH being transferred from the user to the router, then the router approving the vault for the correct amount of WETH, and finally vault.deposit() being called to transfer the WETH from the router into the vault.\n\nHowever, the redeemMax function does not work as expected. The router approves the vault to spend its WETH, then vault.redeem() is called, which tries to transfer vault tokens from the router to the vault, and then mints the withdraw proxy tokens to the receiver. This does not work because the vault tokens need to be approved for transfer.\n\nThe same issue exists in the redeem() and withdraw() functions in ERC4626RouterBase.sol.\n\nThe recommendation is that the redeemMax function should follow the same flow as depositToVault, and that the ERC4626RouterBase functions should change the approval to be vault tokens rather than WETH.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Astaria-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Astaria-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/Astaria-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 34,
+      "contest_id": "",
+      "slug": "multiple-erc4626router-and-erc4626routerbase-functions-will-always-revert-spearbit-astaria-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Astaria",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Astaria",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "WETH"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC4626"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        }
+      ]
+    },
+    {
+      "id": "25839",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "41",
+      "title": "[M-23] Function `withdraw()` and `redeem()` in ERC4626RouterBase would revert always because they have unnecessary allowance setting",
+      "content": "\n<https://github.com/AstariaXYZ/astaria-gpl/blob/4b49fe993d9b807fe68b3421ee7f2fe91267c9ef/src/ERC4626RouterBase.sol#L48><br>\n<https://github.com/AstariaXYZ/astaria-gpl/blob/4b49fe993d9b807fe68b3421ee7f2fe91267c9ef/src/ERC4626RouterBase.sol#L62>\n\nFunctions withdraw() and redeem()  in ERC4626RouterBase  are used to withdraw user funds from vaults and they call `vault.withdraw()` and `vault.redeem()` and logics in vault transfer user shares and user required to give spending allowance for vault and there is no need for ERC4626RouterBase to set approval for vault and because those approved tokens won't be used and code uses `safeApprove()` so next calls to `withdraw()` and `redeem()` would revert because code would tries to change allowance amount while it's not zero. those functions would revert always and AstariaRouter uses them and user won't be able to use those function and any other protocol integrating with Astaria calling those function would have broken logic. also if UI interact with protocol with router functions then UI would have broken parts too. and functions in router support users to set slippage allowance and without them users have to interact with vault directly and they may lose funds because of the slippage.\n\n### Proof of Concept\n\nThis is `withdraw()` and `redeem()` code in ERC4626RouterBase:\n\n      function withdraw(\n        IERC4626 vault,\n        address to,\n        uint256 amount,\n        uint256 maxSharesOut\n      ) public payable virtual override returns (uint256 sharesOut) {\n\n        ERC20(address(vault)).safeApprove(address(vault), amount);\n        if ((sharesOut = vault.withdraw(amount, to, msg.sender)) > maxSharesOut) {\n          revert MaxSharesError();\n        }\n      }\n\n      function redeem(\n        IERC4626 vault,\n        address to,\n        uint256 shares,\n        uint256 minAmountOut\n      ) public payable virtual override returns (uint256 amountOut) {\n\n        ERC20(address(vault)).safeApprove(address(vault), shares);\n        if ((amountOut = vault.redeem(shares, to, msg.sender)) < minAmountOut) {\n          revert MinAmountError();\n        }\n      }\n\nAs you can see the code sets approval for vault to spend routers vault tokens and then call vault function. This is `_redeemFutureEpoch()` code in the vault which handles withdraw and redeem:\n\n      function _redeemFutureEpoch(\n        VaultData storage s,\n        uint256 shares,\n        address receiver,\n        address owner,\n        uint64 epoch\n      ) internal virtual returns (uint256 assets) {\n        // check to ensure that the requested epoch is not in the past\n\n        ERC20Data storage es = _loadERC20Slot();\n\n        if (msg.sender != owner) {\n          uint256 allowed = es.allowance[owner][msg.sender]; // Saves gas for limited approvals.\n\n          if (allowed != type(uint256).max) {\n            es.allowance[owner][msg.sender] = allowed - shares;\n          }\n        }\n\n        if (epoch < s.currentEpoch) {\n          revert InvalidState(InvalidStates.EPOCH_TOO_LOW);\n        }\n        require((assets = previewRedeem(shares)) != 0, \"ZERO_ASSETS\");\n        // check for rounding error since we round down in previewRedeem.\n\n        //this will underflow if not enough balance\n        es.balanceOf[owner] -= shares;\n\n        // Cannot overflow because the sum of all user\n        // balances can't exceed the max uint256 value.\n        unchecked {\n          es.balanceOf[address(this)] += shares;\n        }\n\n        emit Transfer(owner, address(this), shares);\n        // Deploy WithdrawProxy if no WithdrawProxy exists for the specified epoch\n        _deployWithdrawProxyIfNotDeployed(s, epoch);\n\n        emit Withdraw(msg.sender, receiver, owner, assets, shares);\n\n        // WithdrawProxy shares are minted 1:1 with PublicVault shares\n        WithdrawProxy(s.epochData[epoch].withdrawProxy).mint(shares, receiver);\n      }\n\nAs you can see this code only checks spending allowance that real owner of shares gives to the `msg.sender` and there is no check or updating spending allowance of the router vaulttokens for vault. so those approvals in the `withdraw()` and `redeem()` are unnecessary and they would cause code to revert always because code tries to set approval with `safeApprove()` while the current allowance is not zero.\n\nThis issue would cause calls to withdraw() and redeem() function to revert. any other protocol integrating with Astaria using those functions would have broken logic and also users would lose gas if they use those functions. contract AstariaRouter inherits ERC4626RouterBase and uses its `withdraw()` and `redeem()` function so users can't call `AstariaRouter.withdraw()` or `AstariaRouter.redeem()`which supports slippage allowance and they have to call vault's functions directly and they may lose funds because of the slippage.\n\n### Tools Used\n\nVIM\n\n### Recommended Mitigation Steps\n\nRemove unnecessary code.\n\n**[androolloyd (Astaria) confirmed](https://github.com/code-423n4/2023-01-astaria-findings/issues/175)**\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about the functions `withdraw()` and `redeem()` in the ERC4626RouterBase contract. These functions are used to withdraw user funds from vaults and they call `vault.withdraw()` and `vault.redeem()` and logics in the vault transfer user shares. The code uses `safeApprove()` which sets an approval for the vault to spend router vault tokens. The problem is that there is no need for ERC4626RouterBase to set approval for the vault and because those approved tokens won't be used, the code tries to change allowance amount while it's not zero, causing calls to `withdraw()` and `redeem()` to revert. This issue would cause any other protocol integrating with Astaria using those functions to have broken logic and users would lose gas if they use those functions. Furthermore, users would have to call vault's functions directly, which may lead to lost funds due to slippage.\n\nThe recommended mitigation steps for this issue are to remove the unnecessary code. Androolloyd (Astaria) has confirmed the bug report.",
+      "report_date": {},
+      "contest_prize_txt": "$90,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-01-astaria",
+      "sponsor_name": "Astaria",
+      "sponsor_link": "",
+      "quality_score": 1,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-01-astaria",
+      "github_link": "https://github.com/code-423n4/2023-01-astaria-findings/issues/175",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "202",
+      "slug": "m-23-function-withdraw-and-redeem-in-erc4626routerbase-would-revert-always-because-they-have-unnecessary-allowance-setting-code4rena-astaria-astaria-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Astaria",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Astaria",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC4626"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "SafeApprove"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "EIP-4626"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7023",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "MEDIUM",
+      "finders_count": 5,
+      "protocol_id": "53",
+      "title": "approve() function can be front-ran resulting in token theft",
+      "content": "## Security Advisory\n\n## Severity\n**Medium Risk**\n\n## Context\n- SharesManager.1.sol#L143\n- WLSETH.1.sol#L116-L120\n\n## Description\nThe `approve()` function has a known race condition that can lead to token theft. If a user calls the `approve` function a second time on a spender that was already allowed, the spender can front-run the transaction and call `transferFrom()` to transfer the previous value and still receive the authorization to transfer the new value.\n\n## Recommendation\nConsider implementing functionality that allows a user to increase and decrease their allowance similar to Lido's implementation. This will help prevent users from losing funds from front-running attacks.\n\n- **Alluvial:** Recommendation implemented in SPEARBIT/9.\n- **Spearbit:** Acknowledged. Note: if you want to follow the same logic of OpenZeppelin ERC20 implementation, the `_spendAllowance` in both SharesManager and WLSETH should execute `emit Approval(owner, spender, amount);`.\n- **Alluvial:** Fixed in PR 151.",
+      "summary": "\nA bug was reported in the SharesManager.1.sol and WLSETH.1.sol files related to the approve() function. This bug is a race condition that can lead to token theft if a user calls the approve function a second time on a spender that was already allowed. The spender can then front-run the transaction and call transferFrom() to transfer the previous value and still receive the authorization to transfer the new value.\n\nTo prevent users from losing funds from front-running attacks, it was recommended to consider implementing functionality that allows a user to increase and decrease their allowance similar to Lido's implementation. This recommendation was implemented in SPEARBIT/9 and the _spendAllowance in both SharesManager and WLSETH should execute emit Approval(owner, spender, amount). This was fixed in PR 151.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LiquidCollective-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LiquidCollective-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/LiquidCollective-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 26,
+      "contest_id": "",
+      "slug": "approve-function-can-be-front-ran-resulting-in-token-theft-spearbit-liquid-collective-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Liquid Collective",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Liquid Collective",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 67.10914421941607
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Front-Running"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3511",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 5,
+      "protocol_id": "104",
+      "title": "H-1: If a user approves junior vault tokens to WithdrawPeriphery, anyone can withdraw/redeem his/her token",
+      "content": "Source: https://github.com/sherlock-audit/2022-10-rage-trade-judging/issues/79 \n\n## Found by \nsimon135, cccz, Nyx, GimelSec, clems4ever\n\n## Summary\n\nIf users want to withdraw/redeem tokens by WithdrawPeriphery, they should approve token approval to WithdrawPeriphery, then call `withdrawToken()` or `redeemToken()`.\nBut if users approve `dnGmxJuniorVault` to WithdrawPeriphery, anyone can withdraw/redeem his/her token.\n\n## Vulnerability Detail\n\nUsers should approve `dnGmxJuniorVault` before calling `withdrawToken()` or `redeemToken()`:\n\n```solidity\n    function withdrawToken(\n        address from,\n        address token,\n        address receiver,\n        uint256 sGlpAmount\n    ) external returns (uint256 amountOut) {\n        // user has approved periphery to use junior vault shares\n        dnGmxJuniorVault.withdraw(sGlpAmount, address(this), from);\n...\n\n    function redeemToken(\n        address from,\n        address token,\n        address receiver,\n        uint256 sharesAmount\n    ) external returns (uint256 amountOut) {\n        // user has approved periphery to use junior vault shares\n        dnGmxJuniorVault.redeem(sharesAmount, address(this), from);\n...\n```\n\nFor better user experience, we always use `approve(WithdrawPeriphery, type(uint256).max)`. It means that if Alice approves the max amount, anyone can withdraw/redeem her tokens anytime.\nAnother scenario is that if Alice approves 30 amounts, she wants to call `withdrawToken` to withdraw 30 tokens. But in this case Alice should send two transactions separately, then an attacker can frontrun `withdrawToken` transaction and withdraw Alice’s token.\n\n## Impact\n\nAttackers can frontrun withdraw/redeem transactions and steal tokens. And some UI always approves max amount, which means that anyone can withdraw users tokens.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2022-10-rage-trade/blob/main/dn-gmx-vaults/contracts/periphery/WithdrawPeriphery.sol#L119-L120\nhttps://github.com/sherlock-audit/2022-10-rage-trade/blob/main/dn-gmx-vaults/contracts/periphery/WithdrawPeriphery.sol#L139-L140\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nReplace `from` parameter by `msg.sender`.\n\n```solidity\n        // user has approved periphery to use junior vault shares\n        dnGmxJuniorVault.withdraw(sGlpAmount, address(this), msg.sender);\n\n        // user has approved periphery to use junior vault shares\n        dnGmxJuniorVault.redeem(sharesAmount, address(this), msg.sender);\n```",
+      "summary": "\nThis bug report is about an issue with the WithdrawPeriphery feature of the dnGmxJuniorVault. If users approve junior vault tokens to WithdrawPeriphery, anyone can withdraw/redeem their token. This was found by simon135, cccz, Nyx, GimelSec, and clems4ever. \n\nIn order for users to withdraw/redeem tokens, they must approve token approval to WithdrawPeriphery, then call `withdrawToken()` or `redeemToken()`. This code snippet shows how the approval is done: \n\n```solidity\n    function withdrawToken(\n        address from,\n        address token,\n        address receiver,\n        uint256 sGlpAmount\n    ) external returns (uint256 amountOut) {\n        // user has approved periphery to use junior vault shares\n        dnGmxJuniorVault.withdraw(sGlpAmount, address(this), from);\n...\n\n    function redeemToken(\n        address from,\n        address token,\n        address receiver,\n        uint256 sharesAmount\n    ) external returns (uint256 amountOut) {\n        // user has approved periphery to use junior vault shares\n        dnGmxJuniorVault.redeem(sharesAmount, address(this), from);\n...\n```\n\nHowever, if users approve `dnGmxJuniorVault` to WithdrawPeriphery, anyone can withdraw/redeem their token. This is because, for better user experience, it is common to use `approve(WithdrawPeriphery, type(uint256).max)`. This means that if someone approves the max amount, anyone can withdraw the user's tokens anytime. Another scenario is that if someone approves a certain amount, they must send two transactions separately. This opens up the possibility of attackers frontrunning the `withdrawToken` transaction and stealing tokens. \n\nThe code snippet for this bug can be found here:\nhttps://github.com/sherlock-audit/2022-10-rage-trade/blob/main/dn-gmx-vaults/contracts/periphery/WithdrawPeriphery.sol#L119-L120\nhttps://github.com/sherlock-audit/2022-",
+      "report_date": {},
+      "contest_prize_txt": "50000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/16",
+      "sponsor_name": "Rage Trade",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-10-rage-trade-judging/issues/79",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "16",
+      "slug": "h-1-if-a-user-approves-junior-vault-tokens-to-withdrawperiphery-anyone-can-withdrawredeem-hisher-token-sherlock-rage-trade-rage-trade-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Rage Trade",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Rage Trade",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Front-Running"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3723",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 4,
+      "protocol_id": "114",
+      "title": "H-11: Sense PTs can never be redeemed",
+      "content": "Source: https://github.com/sherlock-audit/2022-10-illuminate-judging/issues/117 \n\n## Found by \nIllIllI, neumo, Ruhum, 0x52\n\n## Summary\n\nSense PTs can never be redeemed\n\n\n## Vulnerability Detail\n\nMost of the protocols that require the user of the `Converter` contract have code that approves the `Converter` for that protocol, but there is no such approval for Sense.\n\n\n## Impact\n\n_Permanent freezing of funds_\n\nUsers will be able to lend and mint using Sense, but when it's time for Illuminate to redeem the Sense PTs, the call will always revert, meaning the associated underlying will be locked in the contract, and users that try to redeem their Illuminate PTs will have lost principal.\n\nWhile the Illuminate project does have an emergency `withdraw()` function that would allow an admin to rescue the funds and manually distribute them, this would not be trustless and defeats the purpose of having a smart contract.\n\n\n## Code Snippet\nThe Sense flavor of `redeem()` requires the use of the `Converter`:\n```solidity\n// File: src/Redeemer.sol : Redeemer.redeem()   #1\n\n366            // Get the starting balance to verify the amount received afterwards\n367            uint256 starting = IERC20(u).balanceOf(address(this));\n368    \n369            // Get the divider from the adapter\n370            ISenseDivider divider = ISenseDivider(ISenseAdapter(a).divider());\n371    \n372            // Redeem the tokens from the Sense contract\n373            ISenseDivider(divider).redeem(a, s, amount);\n374    \n375            // Get the compounding token that is redeemed by Sense\n376            address compounding = ISenseAdapter(a).target();\n377    \n378            // Redeem the compounding token back to the underlying\n379 @>         IConverter(converter).convert(\n380                compounding,\n381                u,\n382                IERC20(compounding).balanceOf(address(this))\n383            );\n384    \n385            // Get the amount received\n386:           uint256 redeemed = IERC20(u).balanceOf(address(this)) - starting;\n```\nhttps://github.com/sherlock-audit/2022-10-illuminate/blob/main/src/Redeemer.sol#L366-L386\n\nBut there is no code that approves the `Converter` to be able to withdraw from the `Redeemer`. The only function available is required to have been called by the `MarketPlace`, and is thus not callable by the admin:\n```solidity\n// File: src/Redeemer.sol : Redeemer.approve()   #2\n\n203        function approve(address i) external authorized(marketPlace) {\n204            if (i != address(0)) {\n205 @>             Safe.approve(IERC20(i), address(converter), type(uint256).max);\n206            }\n207:       }\n```\nhttps://github.com/sherlock-audit/2022-10-illuminate/blob/main/src/Redeemer.sol#L203-L207\n\n\nRedemptions of Illuminate PTs for underlyings is based on shares of each Illuminate PT's `totalSupply()` of the _available_ underlying, not the expect underlying total:\nhttps://github.com/sherlock-audit/2022-10-illuminate/blob/main/src/Redeemer.sol#L422\nhttps://github.com/sherlock-audit/2022-10-illuminate/blob/main/src/Redeemer.sol#L464\nhttps://github.com/sherlock-audit/2022-10-illuminate/blob/main/src/Redeemer.sol#L517\n\n\nThere is a fork test that tests the converter functionalty, but is uses `vm.startPrank()` to [hack the approval](https://github.com/sherlock-audit/2022-10-illuminate/blob/main/test/fork/Redeemer.t.sol#L370-L372), which wouldn't be available in real life.\n\nAlso note that if the admin ever deploys and sets a new converter, that all other redemptions using the converter will break\n\n## Tool used\n\nManual Review\n\n## Recommendation\nAdd the sense yield token to the `Redeemer`'s `Converter` approval during market creation/setting of principal",
+      "summary": "\nThis bug report is about the issue of Sense PTs not being able to be redeemed. It was found by IllIllI, neumo, Ruhum, and 0x52. The vulnerability detail explains that the protocols requiring the use of the Converter contract have code that approves the Converter for that protocol, but there is no such approval for Sense. This means that users will be able to lend and mint using Sense, but when it's time for Illuminate to redeem the Sense PTs, the call will always revert, resulting in the underlying being locked in the contract and users losing their principal. The code snippet shows that there is no code that approves the Converter to be able to withdraw from the Redeemer. It also explains that redemptions of Illuminate PTs for underlyings is based on shares of each Illuminate PT's totalSupply() of the available underlying, not the expected underlying total. The tool used for this bug report is Manual Review. The recommendation is to add the Sense yield token to the Redeemer's Converter approval during market creation/setting of principal.",
+      "report_date": {},
+      "contest_prize_txt": "50000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/12",
+      "sponsor_name": "Swivel",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 3,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-10-illuminate-judging/issues/117",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "12",
+      "slug": "h-11-sense-pts-can-never-be-redeemed-sherlock-swivel-illuminate-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Illuminate",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Illuminate",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5612",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "131",
+      "title": "[M-19] `HolographERC721.approve` not EIP-721 compliant",
+      "content": "\n[HolographERC721.sol#L272](https://github.com/code-423n4/2022-10-holograph/blob/24bc4d8dfeb6e4328d2c6291d20553b1d3eff00b/src/enforcer/HolographERC721.sol#L272)<br>\n\nAccording to EIP-721, we have for `approve`:\n\n```solidity\n///  Throws unless `msg.sender` is the current NFT owner, or an authorized\n///  operator of the current owner.\n```\n\nAn operator in the context of EIP-721 is someone who was approved via `setApprovalForAll`:\n\n```solidity\n/// @notice Enable or disable approval for a third party (\"operator\") to manage\n///  all of `msg.sender`'s assets\n/// @dev Emits the ApprovalForAll event. The contract MUST allow\n///  multiple operators per owner.\n/// @param _operator Address to add to the set of authorized operators\n/// @param _approved True if the operator is approved, false to revoke approval\nfunction setApprovalForAll(address _operator, bool _approved) external;\n```\n\nBesides operators, there are also approved addresses for a token (for which `approve` is used). However, approved addresses can only transfer the token, see for instance the `safeTransferFrom` description:\n\n```solidity\n/// @dev Throws unless `msg.sender` is the current owner, an authorized\n///  operator, or the approved address for this NFT.\n```\n\n`HolographERC721` does not distinguish between authorized operators and approved addresses when it comes to the `approve` function. Because `_isApproved(msg.sender, tokenId)` is used there, an approved address can approve another address, which is a violation of the EIP (only authorized operators should be able to do so).\n\n### Proof Of Concept\n\nBob calls `approve` to approve Alice on token ID 42 (that is owned by Bob). One week later, Bob sees that a malicious address was approved for his token ID 42 (e.g., because Alice got phished) and stole his token. Bob wonders how this is possible, because Alice should not have the permission to approve other addresses. However, becaue `HolographERC721` did not follow EIP-721, it was possible.\n\n### Recommended Mitigation Steps\n\nFollow the EIP, i.e. do not allow approved addresses to approve other addresses.\n\n**[alexanderattar (Holograph) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/205#issuecomment-1307792766):**\n > Originally, this was a design decision, but we will update the highlighted code to follow the ERC721 spec to avoid unknown consequences.\n\n**[gzeon (judge) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/205#issuecomment-1320957930):**\n > Consider as duplicate of [`#203`](https://github.com/code-423n4/2022-10-holograph-findings/issues/203)\n\n**[Lambda (warden) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/205#issuecomment-1322711108):**\n > @gzeon - Isn't this a different issue than [`#203`](https://github.com/code-423n4/2022-10-holograph-findings/issues/203)? Both are related to ERC721 compliance, but they have different causes (wrong `safeTransferFrom` vs. wrong `approve`), very different impacts (failing transfers vs. unintended permissions), and the sponsor will implement different fixes for them (that for instance would not make sense to review together in a fix review)\n\n**[gzeon (judge) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/205#issuecomment-1328124102):**\n > @Lambda - Fair.\n\n**[ACC01ADE (Holograph) linked a PR](https://github.com/code-423n4/2022-10-holograph-findings/issues/205#ref-pullrequest-1452472274):**\n > [Feature/HOLO-605: C4 medium risk fixes](https://github.com/holographxyz/holograph-protocol/pull/88)\n\n\n\n***\n\n",
+      "summary": "\nThe bug report is about a vulnerability in the HolographERC721 contract, which does not follow the EIP-721 standard for the `approve` function. According to the EIP-721, only authorized operators should be able to approve other addresses, but the contract does not distinguish between authorized operators and approved addresses. This means that approved addresses can approve other addresses, which can lead to malicious actors stealing tokens. The proof of concept given is an example of how this vulnerability can be exploited, and the recommended mitigation step is to follow the EIP-721 and not allow approved addresses to approve other addresses.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-10-holograph-contest",
+      "sponsor_name": "Holograph",
+      "sponsor_link": "https://twitter.com/holographxyz",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-10-holograph",
+      "github_link": "https://github.com/code-423n4/2022-10-holograph-findings/issues/205",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "170",
+      "slug": "m-19-holographerc721approve-not-eip-721-compliant-code4rena-holograph-holograph-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Holograph",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Holograph",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Marketplace"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC721"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7054",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "MEDIUM",
+      "finders_count": 3,
+      "protocol_id": "2",
+      "title": "Facets approve arbitrary addresses for ERC20 tokens",
+      "content": "## Severity: Medium Risk\n\n## Context\nAcross the following files and lines:\n- `AcrossFacet.sol#L103`\n- `AmarokFacet.sol#L145`\n- `AnyswapFacet.sol#L127`\n- `ArbitrumBridge-Facet.sol#L111`\n- `CBridgeFacet.sol#L103`\n- `GenericBridgeFacet.sol#L111`\n- `GnosisBridgeFacet.sol#L119`\n- `HopFacet.sol#L106`\n- `HyphenFacet.sol#L101`\n- `NXTPFacet.sol#L127`\n- `OmniBridgeFacet.sol#L88`\n- `OptimismBridge-Facet.sol#L100`\n- `PolygonBridgeFacet.sol#L101`\n- `StargateFacet.sol#L229`\n- `WormholeFacet.sol#L94`\n\n## Description\nAll the facets pointed above approve an address for an ERC20 token, where both these values are provided by the user:\n\n```solidity\nLibAsset.maxApproveERC20(IERC20(token), router, amount);\n```\n\nThe parameter names change depending on the context. So for any ERC20 token that the `LifiDiamond` contract holds, the user can:\n- Call any of the functions in these facets to approve another address for that token.\n- Use the approved address to transfer tokens out of the `LifiDiamond` contract.\n\n**Note:** Normally, there shouldn’t be any tokens in the `LiFi Diamond` contract, so the risk is limited. Also, see \"Hardcode bridge addresses via immutable.\"\n\n## Recommendation\nFor each bridge facet, the bridge approval contract address is already known. Store these addresses in an immutable or a storage variable instead of taking them as user input. Only approve and interact with these pre-defined addresses.\n\n## LiFi\nFixed with PR #79, PR #102, PR #103\n\n## Spearbit\nVerified.",
+      "summary": "\nThis bug report is about the LiFi Diamond contract, which is used to approve an address for an ERC20 token. The user is able to provide two values, the parameter names of which change depending on the context. This allows the user to call functions in the facets and use the approved address to transfer tokens out of the contract, even though normally there shouldn't be any tokens in the LiFi Diamond contract. \n\nTo address the bug, it is recommended that the bridge approval contract address should be stored in an immutable or a storage variable instead of taking it as a user input. This way, only pre-defined addresses can be approved and interacted with. The bug has been fixed with PR #79, PR #102 and PR #103 for LiFi, and has been verified for Spearbit.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/LIFI-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 23,
+      "contest_id": "",
+      "slug": "facets-approve-arbitrary-addresses-for-erc20-tokens-spearbit-lifi-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "LI.FI",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "LI.FI",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Validation"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7039",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "HIGH",
+      "finders_count": 3,
+      "protocol_id": "2",
+      "title": "Decrease allowance when it is already set a non-zero value",
+      "content": "## Security Analysis Report\n\n## Severity\n**High Risk**\n\n## Context\n- AxelarFacet.sol#L71\n- LibAsset.sol#L52\n- FusePoolZap.sol#L64\n- Executor.sol#L312\n\n## Description\nNon-standard tokens like USDT will revert the transaction when a contract or a user tries to approve an allowance when the spender allowance is already set to a non-zero value. For that reason, the previous allowance should be decreased before increasing the allowance in the related function.\n\n- Performing a direct overwrite of the value in the allowances mapping is susceptible to front-running scenarios by an attacker (e.g., an approved spender). As OpenZeppelin mentioned, `safeApprove` should only be called when setting an initial allowance or when resetting it to zero.\n\n### Function\n```solidity\nfunction safeApprove(\n    IERC20 token,\n    address spender,\n    uint256 value\n) internal {\n    // safeApprove should only be called when setting an initial allowance,\n    // or when resetting it to zero. To increase and decrease it, use\n    // 'safeIncreaseAllowance' and 'safeDecreaseAllowance'.\n    require(\n        (value == 0) || (token.allowance(address(this), spender) == 0),\n        \"SafeERC20: approve from non-zero to non-zero allowance\"\n    );\n    _callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, value));\n}\n```\n\n### Instances of the Issue\nThere are four instances of this issue:\n\n1. **AxelarFacet.sol** is directly using the `approve` function, which does not check the return value of an external function. The faucet should utilize `LibAsset.maxApproveERC20()` function like the other faucets.\n   \n2. **LibAsset**'s `LibAsset.maxApproveERC20()` function is used in the other faucets. For instance, USDT’s approval mechanism reverts if current allowance is nonzero. For that reason, the function can approve with zero first or `safeIncreaseAllowance` can be utilized.\n\n3. **FusePoolZap.sol** is also using the `approve` function, which does not check the return value. The contract does not import any other libraries; thus, the contract should use the `safeApprove` function with approving zero.\n\n4. **Executor.sol** is directly using the `approve` function, which does not check the return value of an external function. The contract should utilize `LibAsset.maxApproveERC20()` function like the other contracts.\n\n## Recommendation\nApprove with a zero amount first before setting the actual amount, or `safeIncreaseAllowance` can be utilized in the `LibAsset.maxApproveERC20()` function.\n\n## LiFi\nFixed with PR #10.\n\n## Spearbit\nVerified.",
+      "summary": "\nThis bug report relates to a problem encountered when dealing with non-standard tokens, such as USDT. When a contract or user tries to approve an allowance for a spender, the transaction will revert if the spender allowance is already set to a non-zero value. This is due to a vulnerability which can be exploited by an attacker, known as front-running.\n\nThe bug has been identified in four different contracts: AxelarFacet.sol, LibAsset.sol, FusePoolZap.sol and Executor.sol. In AxelarFacet.sol, the faucet should use the LibAsset.maxApproveERC20() function, as is used in the other faucets. In LibAsset, the function can approve with zero first, or safeIncreaseAllowance can be utilized. In FusePoolZap.sol, the contract should use safeApprove with approving zero. Finally, in Executor.sol, the contract should utilize LibAsset.maxApproveERC20() function, as is done in the other contracts.\n\nThe recommended solution is to approve with a zero amount first before setting the actual amount, or to use the safeIncreaseAllowance function in the LibAsset.maxApproveERC20() function. These solutions have been implemented in PR #10 and have been verified.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/LIFI-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 10,
+      "contest_id": "",
+      "slug": "decrease-allowance-when-it-is-already-set-a-non-zero-value-spearbit-lifi-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "LI.FI",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "LI.FI",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "USDT"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3342",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 3,
+      "protocol_id": "137",
+      "title": "M-17: Did Not Approve To Zero First",
+      "content": "Source: https://github.com/sherlock-audit/2022-09-notional-judging/issues/59 \n\n## Found by \nxiaoming90, 0x52, csanuragjain\n\n## Summary\n\nAllowance was not set to zero first before changing the allowance.\n\n## Vulnerability Detail\n\nSome ERC20 tokens (like USDT) do not work when changing the allowance from an existing non-zero allowance value. For example Tether (USDT)'s `approve()` function will revert if the current approval is not zero, to protect against front-running changes of approvals.\n\nThe following  attempt to call the `approve()` function without setting the allowance to zero first.\n\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/contracts/utils/TokenUtils.sol#L18\n\n```solidity\nFile: TokenUtils.sol\n18:     function checkApprove(IERC20 token, address spender, uint256 amount) internal {\n19:         if (address(token) == address(0)) return;\n20: \n21:         IEIP20NonStandard(address(token)).approve(spender, amount);\n22:         _checkReturnCode();\n23:     }\n```\n\nHowever, if the token involved is an ERC20 token that does not work when changing the allowance from an existing non-zero allowance value, it will break a number of key functions or features of the protocol as the `TokenUtils.checkApprove` function is utilised extensively within the vault as shown below.\n\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/contracts/vaults/balancer/internal/pool/TwoTokenPoolUtils.sol#L159\n\n```solidity\nFile: TwoTokenPoolUtils.sol\n157:     function _approveBalancerTokens(TwoTokenPoolContext memory poolContext, address bptSpender) internal {\n158:         IERC20(poolContext.primaryToken).checkApprove(address(Deployments.BALANCER_VAULT), type(uint256).max);\n159:         IERC20(poolContext.secondaryToken).checkApprove(address(Deployments.BALANCER_VAULT), type(uint256).max);\n160:         // Allow BPT spender to pull BALANCER_POOL_TOKEN\n161:         IERC20(address(poolContext.basePool.pool)).checkApprove(bptSpender, type(uint256).max);\n162:     }\n```\n\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/contracts/vaults/balancer/internal/pool/Boosted3TokenPoolUtils.sol#L225\n\n```solidity\nFile: Boosted3TokenPoolUtils.sol\n222:     function _approveBalancerTokens(ThreeTokenPoolContext memory poolContext, address bptSpender) internal {\n223:         poolContext.basePool._approveBalancerTokens(bptSpender);\n224: \n225:         IERC20(poolContext.tertiaryToken).checkApprove(address(Deployments.BALANCER_VAULT), type(uint256).max);\n226: \n227:         // For boosted pools, the tokens inside pool context are AaveLinearPool tokens.\n228:         // So, we need to approve the _underlyingToken (primary borrow currency) for trading.\n229:         IBoostedPool underlyingPool = IBoostedPool(poolContext.basePool.primaryToken);\n230:         address primaryUnderlyingAddress = BalancerUtils.getTokenAddress(underlyingPool.getMainToken());\n231:         IERC20(primaryUnderlyingAddress).checkApprove(address(Deployments.BALANCER_VAULT), type(uint256).max);\n232:     }\n```\n\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/contracts/trading/TradingUtils.sol#L115\n\n```solidity\nFile: TradingUtils.sol\n110:     /// @notice Approve exchange to pull from this contract\n111:     /// @dev approve up to trade.amount for EXACT_IN trades and up to trade.limit\n112:     /// for EXACT_OUT trades\n113:     function _approve(Trade memory trade, address spender) private {\n114:         uint256 allowance = _isExactIn(trade) ? trade.amount : trade.limit;\n115:         IERC20(trade.sellToken).checkApprove(spender, allowance);\n116:     }\n```\n\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/contracts/vaults/balancer/internal/strategy/StrategyUtils.sol#L85\n\n```solidity\nFile: StrategyUtils.sol\n85:             IERC20(buyToken).checkApprove(address(Deployments.WRAPPED_STETH), amountBought);\n86:             uint256 wrappedAmount = Deployments.WRAPPED_STETH.balanceOf(address(this));\n87:             /// @notice the amount returned by wrap is not always accurate for some reason\n88:             Deployments.WRAPPED_STETH.wrap(amountBought);\n89:             amountBought = Deployments.WRAPPED_STETH.balanceOf(address(this)) - wrappedAmount;\n```\n\n## Impact\n\nA number of features within the vaults will not work if the `approve` function reverts.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/contracts/utils/TokenUtils.sol#L18\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/contracts/vaults/balancer/internal/pool/TwoTokenPoolUtils.sol#L159\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/contracts/vaults/balancer/internal/pool/Boosted3TokenPoolUtils.sol#L225\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/contracts/trading/TradingUtils.sol#L115\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/contracts/vaults/balancer/internal/strategy/StrategyUtils.sol#L85\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nIt is recommended to set the allowance to zero before increasing the allowance and use safeApprove/safeIncreaseAllowance.\n\n## Discussion\n\n**jeffywu**\n\n@weitianjie2000",
+      "summary": "\nThis bug report is about an issue with the `approve()` function of the ERC20 token USDT. The issue is that when attempting to call the `approve()` function without setting the allowance to zero first, it will break a number of key functions or features of the protocol. This is because the `TokenUtils.checkApprove` function is used extensively within the vault. The issue impacts a number of features within the vaults, such as the ability to pull BALANCER_POOL_TOKEN, the ability to approve the _underlyingToken, and the ability to approve exchange to pull from the contract. The bug was found by xiaoming90, 0x52, and csanuragjain. It was found using manual review. The recommendation given is to set the allowance to zero before increasing the allowance and use safeApprove/safeIncreaseAllowance.",
+      "report_date": {},
+      "contest_prize_txt": "100000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/2",
+      "sponsor_name": "Notional",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-09-notional-judging/issues/59",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "2",
+      "slug": "m-17-did-not-approve-to-zero-first-sherlock-notional-notional-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Notional",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Notional",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "USDT"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3233",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 4,
+      "protocol_id": "160",
+      "title": "[M-29] TRSRY susceptible to loan / withdraw confusion",
+      "content": "_Submitted by Trust, also found by 0xSky, datapunk, and tonisives_\n\n<https://github.com/code-423n4/2022-08-olympus/blob/main/src/modules/TRSRY.sol#L64-L102><br>\n\nTreasury allocates approvals in the withdrawApproval mapping which is set via setApprovalFor(). In both withdrawReserves() and in getLoan(), \\_checkApproval() is used to verify user has enough approval and subtracts the withdraw / loan amount. Therefore, there is no differentiation in validation between loan approval and withdraw approval. Policies which will use getLoan() (currently none) can simply withdraw the tokens without bookkeeping it as a loan.\n\n### Proof of Concept\n\n1.  Policy P has getLoan permission\n2.  setApprovalFor(policy, token, amount) was called to grant P permission to loan amount\n3.  P calls withdrawReserves(address, token, amount) and directly withdraws the funds without registering as loan\n\n### Recommended Mitigation Steps\n\nA separate mapping called loanApproval should be implemented, and setLoanApprovalFor() will set it, getLoan() will reduce loanApproval balance.\n\n**[ind-igo (Olympus) confirmed, but disagreed with severity and commented](https://github.com/code-423n4/2022-08-olympus-findings/issues/75#issuecomment-1239657706):**\n > Confirmed. Good suggestion. Would put as low risk though.\n\n**[0xean (judge) commented](https://github.com/code-423n4/2022-08-olympus-findings/issues/75#issuecomment-1250396074):**\n > Currently thinking Medium is appropriate for this issue, but will circle back on it. \n\n**[0xean (judge) commented](https://github.com/code-423n4/2022-08-olympus-findings/issues/75#issuecomment-1251404052):**\n > See [#293](https://github.com/code-423n4/2022-08-olympus-findings/issues/293) for a possible vector in which this could lead to loss of funds.  Going to leave as Medium.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the code of a software system. The code in question is located at the GitHub link provided, and the vulnerability allows users with the permission to take out a loan to directly withdraw funds without registering it as a loan. This could have serious financial implications for the system. \n\nThe proof of concept provided in the report outlines how the vulnerability could be exploited. The recommended mitigation steps suggest implementing a separate mapping called loanApproval and creating two new functions, setLoanApprovalFor() and getLoan(), to set and reduce the loanApproval balance, respectively. This would ensure that any loans taken out are properly registered and tracked. \n\nIn conclusion, this bug report outlines a vulnerability in the code of a software system that could have serious financial implications if exploited. The recommended mitigation steps provided in the report should be implemented to ensure that any loans taken out are properly registered and tracked.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-08-olympus-dao-contest",
+      "sponsor_name": "Olympus DAO",
+      "sponsor_link": "https://twitter.com/olympusdao",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-08-olympus",
+      "github_link": "https://github.com/code-423n4/2022-08-olympus-findings/issues/75",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "156",
+      "slug": "m-29-trsry-susceptible-to-loan-withdraw-confusion-code4rena-olympus-dao-olympus-dao-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Olympus DAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Olympus DAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA Lending"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Business Logic"
+          }
+        }
+      ]
+    },
+    {
+      "id": "1076",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "344",
+      "title": "[H-04] Approvals not cleared after key transfer",
+      "content": "_Submitted by cmichel_\n\nThe locks implement three different approval types, see `onlyKeyManagerOrApproved` for an overview:\n\n*   key manager (map `keyManagerOf`)\n*   single-person approvals (map `approved`). Cleared by `_clearApproval` or `_setKeyManagerOf`\n*   operator approvals (map `managerToOperatorApproved`)\n\nThe `MixinTransfer.transferFrom` requires any of the three approval types in the `onlyKeyManagerOrApproved` modifier on the tokenId to authenticate transfers from `from`.\n\nNotice that if the `to` address previously had a key but it expired only the `_setKeyManagerOf` call is performed, which does not clear `approved` if the key manager was already set to 0:\n\n```solidity\nfunction transferFrom(\n  address _from,\n  address _recipient,\n  uint _tokenId\n)\n  public\n  onlyIfAlive\n  hasValidKey(_from)\n  onlyKeyManagerOrApproved(_tokenId)\n{\n  // @audit this is skipped if user had a key that expired\n  if (toKey.tokenId == 0) {\n    toKey.tokenId = _tokenId;\n    _recordOwner(_recipient, _tokenId);\n    // Clear any previous approvals\n    _clearApproval(_tokenId);\n  }\n\n  if (previousExpiration <= block.timestamp) {\n    // The recipient did not have a key, or had a key but it expired. The new expiration is the sender's key expiration\n    // An expired key is no longer a valid key, so the new tokenID is the sender's tokenID\n    toKey.expirationTimestamp = fromKey.expirationTimestamp;\n    toKey.tokenId = _tokenId;\n\n    // Reset the key Manager to the key owner\n    // @audit  doesn't clear approval if key manager already was 0\n    _setKeyManagerOf(_tokenId, address(0));\n\n    _recordOwner(_recipient, _tokenId);\n  }\n  // ...\n}\n\n// \nfunction _setKeyManagerOf(\n  uint _tokenId,\n  address _keyManager\n) internal\n{\n  // @audit-ok only clears approved if key manager updated\n  if(keyManagerOf[_tokenId] != _keyManager) {\n    keyManagerOf[_tokenId] = _keyManager;\n    _clearApproval(_tokenId);\n    emit KeyManagerChanged(_tokenId, address(0));\n  }\n}\n```\n\n#### Impact\n\nIt's possible to sell someone a key and then claim it back as the approvals are not always cleared.\n\n#### Proof Of Concept\n\n*   Attacker A has a valuable key (`tokenId = 42`) with an expiry date far in the future.\n*   A sets approvals for their second attacker controlled account A' by calling `MixinKeys.setApprovalForAll(A', true)`, which sets `managerToOperatorApproved[A][A'] = true`.\n*   A clears the key manager by setting it to zero, for example, by transferring it to a second account that does not have a key yet, this calls the above `_setKeyManagerOf(42, address(0));` in `transferFrom`\n*   A sets single-token approval to A' by calling `MixinKeys.approve(A', 42)`, setting `approved[42] = A'`.\n*   A sells the token to a victim V for a discount (compared to purchasing it from the Lock). The victim needs to have owned a key before which already expired. The `transferFrom(A, V, 42)` call sets the owner of token 42 to `V`, but does not clear the `approved[42] == A'` field as described above. (`_setKeyManagerOf(_tokenId, address(0));` is called but the key manager was already zero, which then does not clear approvals.)\n*   A' can claim back the token by calling `transferFrom(V, A', 42)` and the `onlyKeyManagerOrApproved(42)` modifier will pass as `approved[42] == A'` is still set.\n\n#### Recommended Mitigation Steps\n\nThe `_setKeyManagerOf` function should not handle clearing approvals of single-token approvals (`approved`) as these are two separate approval types.\nThe `transferFrom` function should always call `_clearApproval` in the `(previousExpiration <= block.timestamp)` case.\n\n**[julien51 (Unlock Protocol) confirmed and commented](https://github.com/code-423n4/2021-11-unlock-findings/issues/160#issuecomment-991687080):**\n > Thanks for reporting this.\n > This is valid and we will fix it.\n\n\n\n",
+      "summary": "\nThis bug report details a vulnerability in the locks implementation of the MixinTransfer.transferFrom function, which requires any of the three approval types in the onlyKeyManagerOrApproved modifier on the tokenId to authenticate transfers from from. The bug is that if the to address previously had a key but it expired, only the _setKeyManagerOf call is performed, which does not clear approved if the key manager was already set to 0. This means that an attacker could sell someone a key, and then claim it back as the approvals are not always cleared. The recommended mitigation steps are for the _setKeyManagerOf function to not handle clearing approvals of single-token approvals, and for the transferFrom function to always call _clearApproval in the (previousExpiration <= block.timestamp) case.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2021-11-unlock-protocol-contest",
+      "sponsor_name": "Unlock Protocol",
+      "sponsor_link": "https://twitter.com/UnlockProtocol",
+      "quality_score": 3,
+      "general_score": 3,
+      "source_link": "https://code4rena.com/reports/2021-11-unlock",
+      "github_link": "https://github.com/code-423n4/2021-11-unlock-findings/issues/160",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "54",
+      "slug": "h-04-approvals-not-cleared-after-key-transfer-code4rena-unlock-protocol-unlock-protocol-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Unlock Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Unlock Protocol",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Privacy"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "951",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 6,
+      "protocol_id": "387",
+      "title": "[H-02] Approved spender can spend too many tokens",
+      "content": "_Submitted by cmichel, also found by WatchPug, jonah1005, gzeon, and TomFrench_\nThe `approve` function has not been overridden and therefore uses the internal *shares*, whereas `transfer(From)` uses the rebalanced amount.\n\n#### Impact\nThe approved spender may spend more tokens than desired. In fact, the approved amount that can be transferred keeps growing with `pricePerShare`.\n\nMany contracts also use the same amount for the `approve` call as for the amount they want to have transferred in a subsequent `transferFrom` call, and in this case, they approve an amount that is too large (as the approved `shares` amount yields a higher rebalanced amount).\n\n#### Recommended Mitigation Steps\n\nThe `_allowances` field should track the rebalanced amounts such that the approval value does not grow. (This does not actually require overriding the `approve` function.)\nIn `transferFrom`, the approvals should then be subtracted by the *transferred* `amount`, not the `amountInShares`:\n\n```solidity\n// _allowances are in rebalanced amounts such that they don't grow\n// need to subtract the transferred amount\n_approve(sender, _msgSender(), _allowances[sender][_msgSender()].sub(amount, \"ERC20: transfer amount exceeds allowance\"));\n```\n\n**[tabshaikh (Badger) confirmed and resolved](https://github.com/code-423n4/2021-10-badgerdao-findings/issues/43#issuecomment-957197908):**\n > Fix here: https://github.com/Badger-Finance/rebasing-ibbtc/pull/7\n\n",
+      "summary": "\nThis bug report is about the `approve` function and the `transfer(From)` function in the ERC20 token standard. The `approve` function has not been overridden and it uses the internal `_shares` instead of the rebalanced amount. This could lead to the approved spender spending more tokens than desired, as the approved amount can keep growing with the `pricePerShare` value.\n\nThe recommended mitigation steps are to track the rebalanced amounts in the `_allowances` field and subtract the transferred amount in `transferFrom` instead of the `amountInShares`. This would ensure that the approved amount does not keep growing.",
+      "report_date": {},
+      "contest_prize_txt": "$30,000 worth of ETH",
+      "contest_link": "https://code4rena.com/contests/2021-10-badgerdao-ibbtc-wrapper-contest",
+      "sponsor_name": "BadgerDAO",
+      "sponsor_link": "https://twitter.com/BadgerDAO",
+      "quality_score": 3,
+      "general_score": 3,
+      "source_link": "https://code4rena.com/reports/2021-10-badgerdao",
+      "github_link": "https://github.com/code-423n4/2021-10-badgerdao-findings/issues/43",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "47",
+      "slug": "h-02-approved-spender-can-spend-too-many-tokens-code4rena-badgerdao-badgerdao-ibbtc-wrapper-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "BadgerDAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "BadgerDAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        }
+      ]
+    },
+    {
+      "id": "191",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 3,
+      "protocol_id": "427",
+      "title": "[H-03] Approval for NFT transfers is not removed after transfer",
+      "content": "_Submitted by cmichel, also found by gpersoon, and pauliax_\n\nThe `Visor.transferERC721` does not reset the approval for the NFT.\n\nAn approved delegatee can move the NFT out of the contract once.\nIt could be moved to a market and bought by someone else who then deposits it again to the same vault.\nThe first delegatee can steal the NFT and move it out of the contract a second time.\n\nRecommend resetting the approval on transfer.\n\n**[xyz-ctrl (Visor) confirmed](https://github.com/code-423n4/2021-05-visorfinance-findings/issues/48#issuecomment-856953219):**\n> We will be mitigating this issue for our next release and before these experimental features are introduced in platform.\n> PR pending\n\n**[ztcrypto (Visor) commented](https://github.com/code-423n4/2021-05-visorfinance-findings/issues/48#issuecomment-889192312):**\n> duplicate of above ones and fixed\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the `Visor.transferERC721` function. This vulnerability could allow an approved delegatee to steal a Non-Fungible Token (NFT) from the contract. The delegatee can move the NFT out of the contract once, and then someone else could buy it from a market and deposit it back to the same vault. The delegatee can then steal the NFT again and move it out of the contract a second time. \n\nTo mitigate this vulnerability, it is recommended to reset the approval on transfer.",
+      "report_date": {},
+      "contest_prize_txt": "$60,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2021-05-visor-contest",
+      "sponsor_name": "Visor",
+      "sponsor_link": "https://twitter.com/VisorFinance",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2021-05-visorfinance",
+      "github_link": "https://github.com/code-423n4/2021-05-visorfinance-findings/issues/48",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "10",
+      "slug": "h-03-approval-for-nft-transfers-is-not-removed-after-transfer-code4rena-visor-visor-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Visor",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Visor",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC721"
+          }
+        }
+      ]
+    }
+  ]
+}

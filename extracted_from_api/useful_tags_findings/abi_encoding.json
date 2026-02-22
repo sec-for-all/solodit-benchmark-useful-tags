@@ -1,0 +1,306 @@
+{
+  "tag": "ABI Encoding",
+  "count": 4,
+  "metadata": {
+    "totalResults": 4,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 19,
+    "reset": 1771760940
+  },
+  "findings": [
+    {
+      "id": "61521",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "16",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "3326",
+      "title": "[M-01] Wrong collateral refund in liquidation when `liqPrice == priceAfterImpact`",
+      "content": "\n## Severity\n\n**Impact:** High\n\n**Likelihood:** Low\n\n## Description\n\nWhen a liquidation is triggered and the Oracle price used results in `liqPrice == priceAfterImpact` during the execution of `executeAutomationCloseOrderCallback()`, the system may incorrectly refund a portion of the user collateral - approximately equal to the `liquidationFee`.\n\nThis occurs due to a discrepancy in how `value` and `liqMarginValue` are calculated within the `getTradeValuePure()` function. Under specific conditions (`liqPrice == priceAfterImpact`), `value` can become greater than `liqMarginValue`, even though the position should be fully liquidated.\n\nWithin the new `Margin-Based Liquidations` logic, users should not receive any collateral back during liquidation. The entire collateral should be distributed between the `liquidationFee` and the `Vault` to cover losing trade.\n\nHowever, do to the legacy refund logic that remains in the code:\n\n```solidity\n@>      uint256 usdcSentToVault = usdcLeftInStorage - usdcSentToTrader;\n        storageT.transferUsdc(address(storageT), address(this), usdcSentToVault);\n        vault.receiveAssets(usdcSentToVault, trade.trader);\n@>      if (usdcSentToTrader > 0) storageT.transferUsdc(address(storageT), trade.trader, usdcSentToTrader);\n```\n\nWith combination to the incorrect calculation of `value` and `liqMarginValue`, the `usdcSentToTrader` returned from the `getTradeValue()` function may end up being roughly equal to the `liquidationFee`, resulting in an unintended refund to the liquidated trader.\n\n## Recommendation\n\nEnsure that `usdcSentToTrader` is explicitly set to `0` during liquidation, preventing any collateral refund:\n\n```diff\n    if (liquidationFee > 0) {\n        storageT.transferUsdc(address(storageT), address(this), liquidationFee);\n        vault.distributeReward(liquidationFee);\n        emit VaultLiqFeeCharged(orderId, tradeId, trade.trader, liquidationFee);\n+\n+       usdcSentToTrader = 0;\n    }\n```\n\n\n\n",
+      "summary": "\nThe report describes a bug in the system where during a liquidation process, the system may incorrectly refund a portion of the user's collateral. This happens because of a discrepancy in how certain values are calculated. The recommendation is to explicitly set a value to 0 during liquidation to prevent any unintended refunds. ",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 3.6,
+      "source_link": "https://github.com/pashov/audits/blob/master/team/md/Ostium-security-review_2025-04-06.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "m-01-wrong-collateral-refund-in-liquidation-when-liqprice-priceafterimpact-pashov-audit-group-none-ostium_2025-04-06-markdown",
+      "firm_name": "Pashov Audit Group",
+      "firm_logo_square": "Pashov_square.png",
+      "protocol_name": "Ostium_2025-04-06",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Pashov Audit Group",
+        "logo_square": "Pashov_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Ostium_2025-04-06",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Gaming"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ABI Encoding"
+          }
+        }
+      ]
+    },
+    {
+      "id": "15958",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "MEDIUM",
+      "finders_count": 4,
+      "protocol_id": "31",
+      "title": "ABI decoding for bytes: memory can be corrupted by maliciously constructing the calldata",
+      "content": "## Security Analysis Report\n\n## Severity: \n**Medium Risk**\n\n## Context: \n`ConsiderationDecoder.sol#L51-L62`\n\n## Description: \nIn the code snippet below, `size` can be made `0` by maliciously crafting the calldata. In this case, the free memory is not incremented.\n\n```solidity\nassembly {\n    mPtrLength := mload(0x40)\n    let size := and(\n        add(\n            and(calldataload(cdPtrLength), OffsetOrLengthMask),\n            AlmostTwoWords\n        ),\n        OnlyFullWordMask\n    )\n    calldatacopy(mPtrLength, cdPtrLength, size)\n    mstore(0x40, add(mPtrLength, size))\n}\n```\n\nThis has two different consequences:\n1. If the memory offset `mPtrLength` is immediately used, then junk values at that memory location can be interpreted as the decoded bytes type. In the case of Seaport 1.2, the likelihood of the current free memory pointing to junk value is low. So, this case has low severity.\n2. The consequent memory allocation will also use the value `mPtrLength` to store data in memory. This can lead to corrupting the initial memory data. In the worst case, the next allocation can be tuned so that the first bytes data can be any arbitrary data.\n\n### Steps to Make the Size Calculation Return 0:\n1. Find a function call which has `bytes` as a (nested) parameter.\n2. Modify the calldata field where the length of the above byte is stored to the new length `0xffffe0`.\n3. The calculation will now return `size = 0`.\n\n**Note:** There is an additional requirement that this `bytes` type should be inside a dynamic struct. Otherwise, for example, in the case of `function foo(bytes calldata signature)`, the compiler will insert a check that calldata-size is big enough to fit `signature.length`. Since the value `0xffffe0` is too big to fit into calldata, such an attack is impractical.\n\nHowever, for `bytes` type inside a dynamic type, for example in `function foo(bytes[] calldata signature)`, this check is skipped by `solc` (likely because it's expensive). For a practical exploit, we need to look for such a function. In the case of Seaport 1.2, this could be the `matchAdvancedOrders(AdvancedOrder[] calldata orders, ...)` function. The struct `AdvancedOrder` has a nested parameter `bytes signature` as well as `bytes extraData`.\n\nIn the above exploit, one would be able to maliciously modify the calldata in such a way that Seaport would interpret the data in `extraData` as the `signature`. Here is a proof of concept for a simplified case that showcases injecting an arbitrary value into a decoded bytes.\n\nAs for severity, even though interpreting calldata differently may not fundamentally break the protocol, an attacker with enough effort may be able to use this for subtle phishing attacks or as a precursor to other attacks.\n\n## Recommendation: \nUpdating `OnlyFullWordMask` to `0xff_ff_ff_e0` will not fix this as you can still replace `len` by `0xff_ff_ff_e0` and get the same effect. Also see **The size calculation can be incorrect for large numbers**.\n\n## Seaport: \nFixed in PR 789.\n\n## Spearbit: \nVerified.",
+      "summary": "\nThis bug report pertains to the code snippet in ConsiderationDecoder.sol#L51-L62, which could be exploited to make the size calculation return 0. This could be done by maliciously crafting the calldata to modify the length of a bytes parameter inside a dynamic struct. This could lead to corrupting the initial memory data, and in the worst case, the next allocation can be tuned to contain arbitrary data. Even though this exploit may not fundamentally break the protocol, it could be used for subtle phishing attacks or as a precursor to other attacks. The bug was fixed in Seaport PR 789, and Spearbit verified the fix.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Seaport-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Seaport-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/Seaport-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 18,
+      "contest_id": "",
+      "slug": "abi-decoding-for-bytes-memory-can-be-corrupted-by-maliciously-constructing-the-calldata-spearbit-seaport-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "SEAPORT",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "SEAPORT",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Marketplace"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Prediction Market"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ABI Encoding"
+          }
+        }
+      ]
+    },
+    {
+      "id": "8872",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "44",
+      "title": "[M-04] `CidNFT`: Broken `tokenURI` function",
+      "content": "\n[`CidNFT#tokenURI`](https://github.com/code-423n4/2023-01-canto-identity/blob/dff8e74c54471f5f3b84c217848234d474477d82/src/CidNFT.sol#L133-L142) does not convert the `uint256 _id` argument to a string before interpolating it in the token URI:\n\n```solidity\n    /// @notice Get the token URI for the provided ID\n    /// @param _id ID to retrieve the URI for\n    /// @return tokenURI The URI of the queried token (path to a JSON file)\n    function tokenURI(uint256 _id) public view override returns (string memory) {\n        if (ownerOf[_id] == address(0))\n            // According to ERC721, this revert for non-existing tokens is required\n            revert TokenNotMinted(_id);\n        return string(abi.encodePacked(baseURI, _id, \".json\"));\n    }\n\n```\n\nThis means the raw bytes of the 32-byte ABI encoded integer `_id` will be interpolated into the token URI, e.g. `0x0000000000000000000000000000000000000000000000000000000000000001` for ID `#1`.\n\nMost of the resulting UTF-8 strings will be malformed, incorrect, or invalid URIs. For example, token ID `#1` will show up as the invisible \"start of heading\" control character, and ID `#42` will show as the asterisk symbol `*`. URI-unsafe characters will break the token URIs altogether.\n\n### Impact\n\n*   `CidNFT` tokens will have invalid `tokenURI`s. Offchain tools that read the `tokenURI` view may break or display malformed data.\n\n### Suggestion\n\nConvert the `_id` to a string before calling `abi.encodePacked`. Latest Solmate includes a `LibString` helper library for this purpose:\n\n```solidity\n    import \"solmate/utils/LibString.sol\";\n\n    /// @notice Get the token URI for the provided ID\n    /// @param _id ID to retrieve the URI for\n    /// @return tokenURI The URI of the queried token (path to a JSON file)\n    function tokenURI(uint256 _id) public view override returns (string memory) {\n        if (ownerOf[_id] == address(0))\n            // According to ERC721, this revert for non-existing tokens is required\n            revert TokenNotMinted(_id);\n        return string(abi.encodePacked(baseURI, LibString.toString(_id), \".json\"));\n    }\n\n```\n\n### Test case\n\n```solidity\n    function test_InvalidTokenURI() public {\n        uint256 id1 = cidNFT.numMinted() + 1;\n        uint256 id2 = cidNFT.numMinted() + 2;\n        // mint id1\n        cidNFT.mint(new bytes[](0));\n        // mint id2\n        cidNFT.mint(new bytes[](0));\n\n        // These pass — the raw bytes '0000000000000000000000000000000000000000000000000000000000000001' are interpolated as _id.\n        assertEq(string(bytes(hex\"7462643a2f2f626173655f7572692f00000000000000000000000000000000000000000000000000000000000000012e6a736f6e\")), cidNFT.tokenURI(id1));\n        assertEq(string(bytes(hex\"7462643a2f2f626173655f7572692f00000000000000000000000000000000000000000000000000000000000000022e6a736f6e\")), cidNFT.tokenURI(id2));\n\n        // These fail - the generated string on the right is not the expected string on the left. \n        assertEq(\"tbd://base_uri/1.json\", cidNFT.tokenURI(id1));\n        assertEq(\"tbd://base_uri/2.json\", cidNFT.tokenURI(id2));\n    }\n```\n\n**[OpenCoreCH (Canto Identity) confirmed and commented](https://github.com/code-423n4/2023-01-canto-identity-findings/issues/89#issuecomment-1426179080):**\n > Great catch!\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is regarding an issue in the CidNFT smart contract. The vulnerability is that the uint256 _id argument is not converted to a string before being interpolated into the token URI. This means that the raw bytes of the 32-byte ABI encoded integer _id will be interpolated into the token URI, resulting in malformed, incorrect, or invalid URIs. The impact of this is that the CidNFT tokens will have invalid tokenURI's. This can lead to offchain tools that read the tokenURI view breaking or displaying malformed data.\n\nThe suggested solution is to convert the _id to a string before calling abi.encodePacked. This can be done using the LibString helper library included in the latest version of Solmate. A test case has been provided to demonstrate the issue.\n\nIn conclusion, this bug report covers a vulnerability in the CidNFT smart contract, which can lead to invalid tokenURI's. The suggested solution is to convert the _id to a string before calling abi.encodePacked using the LibString helper library.",
+      "report_date": {},
+      "contest_prize_txt": "$36,500 worth of CANTO",
+      "contest_link": "https://code4rena.com/contests/2023-01-canto-identity-protocol-contest",
+      "sponsor_name": "Canto Identity Protocol",
+      "sponsor_link": "https://twitter.com/CantoIdentity",
+      "quality_score": 5,
+      "general_score": 4.0216169476869865,
+      "source_link": "https://code4rena.com/reports/2023-01-canto-identity",
+      "github_link": "https://github.com/code-423n4/2023-01-canto-identity-findings/issues/89",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "212",
+      "slug": "m-04-cidnft-broken-tokenuri-function-code4rena-canto-identity-protocol-canto-identity-protocol-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Canto Identity Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Canto Identity Protocol",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Payments"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ABI Encoding"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC721"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "0x"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3546",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "125",
+      "title": "M-1: `abi.encodePacked` Allows Hash Collision",
+      "content": "Source: https://github.com/sherlock-audit/2022-10-nftport-judging/issues/118 \n\n## Found by \nkeccak123, 0xheynacho\n\n## Summary\n\nFrom the solidity documentation:\nhttps://docs.soliditylang.org/en/v0.8.17/abi-spec.html?highlight=collisions#non-standard-packed-mode\n    > If you use `keccak256(abi.encodePacked(a, b))` and both `a` and `b` are dynamic types, it is easy to craft collisions in the hash value by moving parts of `a` into `b` and vice-versa. More specifically, `abi.encodePacked(\"a\", \"bc\") == abi.encodePacked(\"ab\", \"c\")`.\n\nThis issue exists in the Factory contract can results in hash collisions, bypassing the `signedOnly` modifier.\n\n## Vulnerability Detail\n\nThe issue is in these lines of code:\nhttps://github.com/sherlock-audit/2022-10-nftport/blob/main/evm-minting-master/contracts/Factory.sol#L171\nhttps://github.com/sherlock-audit/2022-10-nftport/blob/main/evm-minting-master/contracts/Factory.sol#L195\nhttps://github.com/sherlock-audit/2022-10-nftport/blob/main/evm-minting-master/contracts/Factory.sol#L222\n\nAs the solidity docs describe, two or more dynamic types are passed to `abi.encodePacked`. Moreover, these dynamic values are user-specified function arguments in external functions, meaning anyone can directly specify the value of these arguments when calling the function. The `signedOnly` modifier is supposed to protect functions to permit only function arguments that have been properly signed to be passed to the function logic, but because a collision can be created, the modifier can be bypassed for certain select inputs that result in the same `encodePacked` value.\n\n## Impact\n\nThe `signedOnly` modifier ([line 537](https://github.com/sherlock-audit/2022-10-nftport/blob/main/evm-minting-master/contracts/Factory.sol#L537)) is not effective because the modifier can be bypassed by different function arguments that result in the same signature when the values are `encodePacked` together. This can result in the submission of values that were not actually signed.\n\n## Code Snippet\n\nAll instances of `abi.encodePacked` in the contract pass multiple dynamic type arguments\nhttps://github.com/sherlock-audit/2022-10-nftport/blob/main/evm-minting-master/contracts/Factory.sol#L171\nhttps://github.com/sherlock-audit/2022-10-nftport/blob/main/evm-minting-master/contracts/Factory.sol#L195\nhttps://github.com/sherlock-audit/2022-10-nftport/blob/main/evm-minting-master/contracts/Factory.sol#L222\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nInstead of writing functions to accept several arguments that are hashed inside the function, consider rewriting the function to take the hashed value as a function argument directly so that the hashing process happens off-chain. This approach would solve the issue and save gas.\n\n## Discussion\n\n**Evert0x**\n\nDowngrading to medium severity, fails to show an exploit pattern.\n\n**hyperspacebunny**\n\nFixed in https://github.com/nftport/evm-minting-sherlock-fixes/pull/18\n\n**rayn731**\n\nFixed, and it follows EIP-712 standard for hashing and signing data.",
+      "summary": "\nThis bug report is about an issue found in the Factory contract, which allows hash collisions and bypasses the `signedOnly` modifier. This issue is due to the fact that two or more dynamic types are passed to `abi.encodePacked` which can be user-specified function arguments. This can result in the submission of values that were not actually signed.\n\nThe issue was found by keccak123 and 0xheynacho and was fixed in a pull request by hyperspacebunny. The fix follows EIP-712 standard for hashing and signing data.\n\nIn order to solve this issue, the functions should be rewritten to take the hashed value as a function argument directly, so that the hashing process happens off-chain. This would save gas and solve the issue.",
+      "report_date": {},
+      "contest_prize_txt": "25000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/14",
+      "sponsor_name": "NFTPort",
+      "sponsor_link": "",
+      "quality_score": 3,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-10-nftport-judging/issues/118",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "14",
+      "slug": "m-1-abiencodepacked-allows-hash-collision-sherlock-nftport-nftport-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "NFTPort",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "NFTPort",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Payments"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Hash Collision"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ABI Encoding"
+          }
+        }
+      ]
+    }
+  ]
+}

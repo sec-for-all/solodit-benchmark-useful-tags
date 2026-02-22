@@ -1,0 +1,995 @@
+{
+  "tag": "Replay Attack",
+  "count": 14,
+  "metadata": {
+    "totalResults": 14,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 11,
+    "reset": 1771761120
+  },
+  "findings": [
+    {
+      "id": "45348",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "23",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "1185",
+      "title": "Signature Replay Allows Unauthorized Use of Permits",
+      "content": "##### Description\nThis issue has been identified within the signature verification flow of the `isValidSignature` function in the `P2pLendingProxy` contract. \n\nCurrently, signatures are verified against `s_client`, but the contract’s address or any unique identifier is not included in the signed data. An attacker can replay the same signature across multiple `P2pLendingProxy` instances owned by the same user. For example, the replayed signature could authorize unwanted or additional transfers. \n\nIn the context of `Permit2`, such reuse could allow multiple proxies to be drained using a single signature. Moreover, any message a client signs for themselves may inadvertently be valid for their proxies, and vice versa. \n\nThis issue is classified as **medium** severity because, while the proxy contracts are not designed to store tokens on balance, replay attacks still pose a risk of unauthorized operations.\n\n##### Recommendation\nWe recommend incorporating the contract address (or a unique contract-specific field) into the signed data, such as via an EIP-712 domain separator. By doing so, signatures become valid exclusively for the intended `P2pLendingProxy` contract, mitigating replay across different addresses.",
+      "summary": "\nThe `isValidSignature` function in the `P2pLendingProxy` contract has a bug where signatures are not being verified against the contract's address or any unique identifier. This means that an attacker can use the same signature multiple times on different `P2pLendingProxy` instances owned by the same user, potentially allowing for unauthorized transfers. This issue is considered medium severity because it could lead to unauthorized operations. To fix this issue, it is recommended to include the contract address or a unique identifier in the signed data, which will prevent replay attacks across different addresses. ",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/mixbytes/audits_public/blob/master/P2P.org/Lending%20Proxy/README.md#4-signature-replay-allows-unauthorized-use-of-permits",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "signature-replay-allows-unauthorized-use-of-permits-mixbytes-none-p2porg-markdown",
+      "firm_name": "MixBytes",
+      "firm_logo_square": "mixbytes_square.png",
+      "protocol_name": "P2P.org",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "MixBytes",
+        "logo_square": "mixbytes_square.png"
+      },
+      "protocols_protocol": {
+        "name": "P2P.org",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Signature Malleability"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Replay Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "36240",
+      "kind": "GIT",
+      "auditfirm_id": "20",
+      "impact": "HIGH",
+      "finders_count": 4,
+      "protocol_id": "1431",
+      "title": "Successful transactions are not stored, causing a replay attack on ``redeemDepositsAndInternalBalances``",
+      "content": "## Summary\n\nin `redeemDepositsAndInternalBalances` there is no validation about the parameters that have been used which should be stored and should not be reused.\n\nAs a result, parameters that have already been used can be reused.\n\n## Vulnerability Details\n\nLook at this:\n\n```solidity\nfunction redeemDepositsAndInternalBalances(\n        address owner,\n        address reciever,\n        AccountDepositData[] calldata deposits,\n        AccountInternalBalance[] calldata internalBalances,\n        uint256 ownerRoots,\n        bytes32[] calldata proof,\n        uint256 deadline,\n        bytes calldata signature\n    ) external payable fundsSafu noSupplyChange nonReentrant {\n        // verify deposits are valid.\n        // note: if the number of contracts that own deposits is small,\n        // deposits can be stored in bytecode rather than relying on a merkle tree.\n        verifyDepositsAndInternalBalances(owner, deposits, internalBalances, ownerRoots, proof);\n\n        // signature verification.\n        verifySignature(owner, reciever, deadline, signature);\n\nfunction verifyDepositsAndInternalBalances(\n        address account,\n        AccountDepositData[] calldata deposits,\n        AccountInternalBalance[] calldata internalBalances,\n        uint256 ownerRoots,\n        bytes32[] calldata proof\n    ) internal pure {\n        bytes32 leaf = keccak256(abi.encode(account, deposits, internalBalances, ownerRoots));\n        require(MerkleProof.verify(proof, MERKLE_ROOT, leaf), \"Migration: invalid proof\");\n    }\nfunction verifySignature(\n        address owner,\n        address reciever,\n        uint256 deadline,\n        bytes calldata signature\n    ) internal view {\n        require(block.timestamp <= deadline, \"Migration: permit expired deadline\");\n        bytes32 structHash = keccak256(\n            abi.encode(REDEEM_DEPOSIT_TYPE_HASH, owner, reciever, deadline)\n        );\n\n        bytes32 hash = _hashTypedDataV4(structHash);\n        address signer = ECDSA.recover(hash, signature);\n        require(signer == owner, \"Migration: permit invalid signature\");\n    }\n```\n\nIn `verifyDepositsAndInternalBalances`, `leaf` is not stored, and there are no checks to ensure that `leaf` is only used once.\n\nThis means that parameters that have been filled in `verifyDepositsAndInternalBalances` and succeeded, can be reused.\n\nAnd `verifySignature` also has no checks to ensure that the `signature` is only used once.\n\n`verifySignature` prevents replay attacks by relying solely on `deadline`, which is bad.\n\nSee this:\n`require(block.timestamp <= deadline, \"Migration: permission deadline expired\");`\n\nSo, `deadline` is always greater than `block.timestamp` for success.\n\nEven if `block.timestamp` reaches the deadline or is smaller than `block.timestamp`, the owner can sign again to execute a replay attack. This is because `verifyDepositsAndInternalBalances` does not prevent replay attacks and there is no access control on `redeemDepositsAndInternalBalances`.\n\nThe vulnerabilities present in the `verifyDepositAndInternalBalance` and `verifySignature` functions make replay attacks unavoidable.\n\n#### POC\n\nDue to difficulty finding the same `MERKLE_ROOT` value as the `L2ContractMigrationFacet` contract.\n\nSo, this PoC only proved a simple `signature` replay of `L2ContractMigrationFacet`.\n\nThen the bug in `verifyDepositsAndInternalBalances` can be proven by yourself with a replay attack scheme, since only you know the \"leaves\" of `MERKLE_ROOT` in the `L2ContractMigrationFacet` contract.\n\n* paste this code on dir/test of new foundry project\n\n- don't forget to install dependencies such as `forge-std` and `openzeppelin`\n\n* run with `forge test -vvvv`\n\n```solidity\n// SPDX-License-Identifier: UNLICENSED\npragma solidity ^0.8.13;\n\nimport {Test, console} from \"forge-std/Test.sol\";\nimport \"../src/ReentrancyGuard.sol\";\nimport \"@openzeppelin/contracts/utils/cryptography/ECDSA.sol\";\n\ncontract PocTest is Test {\n    using ECDSA for bytes32;\n\n    L2ContractMigrationFacet_simple L2CMF_Op;\n\n    uint256 internal signerPrivateKey;\n\n    uint256 optimismFork;\n\n    bytes32 private constant REDEEM_DEPOSIT_TYPE_HASH =\n        keccak256(\n            \"redeemDepositsAndInternalBalances(address owner,address reciever,uint256 deadline)\"\n        );\n\n    function setUp() public {\n        optimismFork = vm.createSelectFork(\"https://rpc.ankr.com/optimism\", 122288540);\n        L2CMF_Op = new L2ContractMigrationFacet_simple();\n    }\n      function test_poc_replay_attack() public {\n        vm.selectFork(optimismFork);\n        signerPrivateKey = 0xabc123;\n        address signer = vm.addr(signerPrivateKey);\n        address owner = signer;\n        address reciever = makeAddr(\"reciever\");\n        uint256 deadline = block.timestamp + 7 days;\n\n        bytes32 structHash = keccak256(\n            abi.encode(REDEEM_DEPOSIT_TYPE_HASH, owner, reciever, deadline)\n        );\n        vm.startPrank(signer);\n        bytes32 hash = L2CMF_Op._hashTypedDataV4(structHash);\n       (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPrivateKey, hash);\n        bytes memory signature = abi.encodePacked(r, s, v);\n        L2CMF_Op.redeemDepositsAndInternalBalances(owner, reciever, deadline, signature);\n        \n        console.log(\"..Replay attack\");\n        vm.warp(block.timestamp + 4200);\n        L2CMF_Op.redeemDepositsAndInternalBalances(owner, reciever, deadline, signature);\n      }\n}\n\ncontract L2ContractMigrationFacet_simple is ReentrancyGuard {\n    bytes32 private constant MIGRATION_HASHED_NAME =\n        keccak256(bytes(\"Migration\"));\n    bytes32 private constant MIGRATION_HASHED_VERSION = keccak256(bytes(\"1\"));\n    bytes32 private constant EIP712_TYPE_HASH =\n        keccak256(\n            \"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)\"\n        );\n    bytes32 private constant REDEEM_DEPOSIT_TYPE_HASH =\n        keccak256(\n            \"redeemDepositsAndInternalBalances(address owner,address reciever,uint256 deadline)\"\n        );\n\n    function redeemDepositsAndInternalBalances(\n        address owner,\n        address reciever,\n        uint256 deadline,\n        bytes calldata signature\n    ) external payable nonReentrant {\n        verifySignature(owner, reciever, deadline, signature);\n    }\n\n    function verifySignature(\n        address owner,\n        address reciever,\n        uint256 deadline,\n        bytes calldata signature\n    ) internal view {\n        require(\n            block.timestamp <= deadline,\n            \"Migration: permit expired deadline\"\n        );\n        bytes32 structHash = keccak256(\n            abi.encode(REDEEM_DEPOSIT_TYPE_HASH, owner, reciever, deadline)\n        );\n\n        bytes32 hash = _hashTypedDataV4(structHash);\n        address signer = ECDSA.recover(hash, signature);\n        require(signer == owner, \"Migration: permit invalid signature\");\n    }\n\n    function _hashTypedDataV4(\n        bytes32 structHash\n    ) public view returns (bytes32) {\n        return\n            keccak256(\n                abi.encodePacked(\"\\x19\\x01\", _domainSeparatorV4(), structHash)\n            );\n    }\n\n    /**\n     * @notice Returns the domain separator for the current chain.\n     */\n    function _domainSeparatorV4() internal view returns (bytes32) {\n        return\n            keccak256(\n                abi.encode(\n                    EIP712_TYPE_HASH,\n                    MIGRATION_HASHED_NAME,\n                    MIGRATION_HASHED_VERSION,\n                    1, // C.getLegacyChainId()\n                    address(this)\n                )\n            );\n    }\n}\n\n```\n\n## Impact\n\nlook at this code:\n\n```solidity\n uint256 accountStalk;\n        for (uint256 i; i < deposits.length; i++) {\n            accountStalk += addMigratedDepositsToAccount(reciever, deposits[i]);\n        }\n\n        // set stalk for account.\n        setStalk(reciever, accountStalk, ownerRoots);\n\n///////////////////////////////////////////////////////\n\nfunction setStalk(address account, uint256 accountStalk, uint256 accountRoots) internal {\n        s.accts[account].stalk += accountStalk;\n        s.accts[account].roots += accountRoots;\n\n        // emit event.\n        emit StalkBalanceChanged(account, int256(accountStalk), int256(accountRoots));\n    }\n\n```\n\n* Attacker can perfrom replay attack and increase of value of `stalk` and `roots`\n\n## Tools Used\n\nManual\n\n## Recommendations\n\n```solidity\n    mapping(bytes32 leaf => bool redeemed) public isRedeemed;\n\n function verifyDepositsAndInternalBalances(\n        address account,\n        AccountDepositData[] calldata deposits,\n        AccountInternalBalance[] calldata internalBalances,\n        uint256 ownerRoots,\n        bytes32[] calldata proof\n    ) internal pure {\n        bytes32 leaf = keccak256(abi.encode(account, deposits, internalBalances, ownerRoots));\n        if (isRedeemed[leaf]) revert REDEEMED_ALREADY();\n        require(MerkleProof.verify(proof, MERKLE_ROOT, leaf), \"Migration: invalid proof\");\n        isRedeemed[leaf] = true;\n}\n\n```\n\nAnd also do that in `verifySignature` ensure that can't be front running attack, like add access control or nonces",
+      "summary": "\nThis bug report discusses a high-risk issue with the `redeemDepositsAndInternalBalances` function. The problem is that there is no validation for the parameters used, which means that they can be reused. This can lead to a replay attack, where the same parameters are used again to execute a transaction. The `verifyDepositsAndInternalBalances` and `verifySignature` functions have vulnerabilities that make it possible for an attacker to perform a replay attack. This can result in an increase in the value of `stalk` and `roots` for the attacker. The report recommends adding a check to prevent replay attacks, such as storing a flag to indicate that the parameters have already been used. It also suggests implementing access control or nonces to prevent front running attacks.",
+      "report_date": {},
+      "contest_prize_txt": "250000 USDC",
+      "contest_link": "https://codehawks.cyfrin.io/c/clw9e11e4001gdv0iigjylx5n",
+      "sponsor_name": "Beanstalk",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/Cyfrin/2024-05-beanstalk-the-finale",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "clw9e11e4001gdv0iigjylx5n",
+      "slug": "successful-transactions-are-not-stored-causing-a-replay-attack-on-redeemdepositsandinternalbalances-codehawks-beanstalk-the-finale-git",
+      "firm_name": "Codehawks",
+      "firm_logo_square": "codehawks_square.png",
+      "protocol_name": "Beanstalk: The Finale",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Codehawks",
+        "logo_square": "codehawks_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Beanstalk: The Finale",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 1
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Replay Attack"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Merkle Tree"
+          }
+        }
+      ]
+    },
+    {
+      "id": "30540",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 12,
+      "protocol_id": "1238",
+      "title": "[M-13] `RentPayload`'s signature can be replayed",
+      "content": "\nA malicious user could potentially fulfill all `PAY` orders that own the same value of `zonehash`.\n\n### Proof of Concept\n\nThe rental process in `reNFT` can simply be described as follows:\n\n1.  `lender` create either `BASE` or `PAY` order, which includes a `zoneHash`.\n2.  `renter` fulfills the rental order by providing certain items, including `fulfiller`, `payload`(a structured data of `RentPayload`), and its corresponding signature.\n3.  Once the rental order is created, `Create#validateOrder()` will be executed to verify if the rental order is valid:\n    *   decode `payload` and its `signature` from `zoneParams.extraData`\n    *   Check if the signature is expired by comparing `payload.expiration` and `block.timestamp`\n    *   Recover the signer from `payload` and its `signature` and check if the signer is protocol signer\n    *   check if `zonehash` is equal to the derived hash of `payload.metadata`\n\nLet's take a look at `RentPayload` and its referenced structures:\n\n```solidity\nstruct RentPayload {\n    OrderFulfillment fulfillment;\n    OrderMetadata metadata;\n    uint256 expiration;\n    address intendedFulfiller;\n}\nstruct OrderFulfillment {\n    // Rental wallet address.\n    address recipient;\n}\nstruct OrderMetadata {\n    // Type of order being created.\n    OrderType orderType;\n    // Duration of the rental in seconds.\n    uint256 rentDuration;\n    // Hooks that will act as middleware for the items in the order.\n    Hook[] hooks;\n    // Any extra data to be emitted upon order fulfillment.\n    bytes emittedExtraData;\n}\n```\n\nBy observing all items in `Rentpayload`, it's obvious that there is no way to verify whether the signature of a `payload` has been used or not. The signature verification can always be passed as long as it has not expired.\n\nIf multiple `PAY` rental orders own the same `metadata`, a user could potentially utilize their `payload` and unexpired `signature` to fulfill all these rental orders and acquire rental earnings. Since `OrderMetadata` structure is very simple, the chance that two different orders own same `metadata` could be high.\n\nUpdate testcase `test_stopRentBatch_payOrders_allDifferentLenders()`in [`StopRentBatch.t.sol`](https://github.com/re-nft/smart-contracts/blob/3ddd32455a849c3c6dc3c3aad7a33a6c9b44c291/test/integration/StopRentBatch.t.sol) with below codes and run `forge test --match-test test_stopRentBatch_payOrders_allDifferentLenders`:\n\n<details>\n\n```diff\n    function test_stopRentBatch_payOrders_allDifferentLenders() public {\n        // create an array of offerers\n        ProtocolAccount[] memory offerers = new ProtocolAccount[](3);\n        offerers[0] = alice;\n        offerers[1] = bob;\n        offerers[2] = carol;\n\n        // for each offerer, create an order and a fulfillment\n        for (uint256 i = 0; i < offerers.length; i++) {\n            // create a PAY order\n            createOrder({\n                offerer: offerers[i],\n                orderType: OrderType.PAY,\n                erc721Offers: 1,\n                erc1155Offers: 0,\n                erc20Offers: 1,\n                erc721Considerations: 0,\n                erc1155Considerations: 0,\n                erc20Considerations: 0\n            });\n\n            // finalize the pay order creation\n            (\n                Order memory payOrder,\n                bytes32 payOrderHash,\n                OrderMetadata memory payOrderMetadata\n            ) = finalizeOrder();\n\n            // create a PAYEE order. The fulfiller will be the offerer.\n            createOrder({\n                offerer: dan,\n                orderType: OrderType.PAYEE,\n                erc721Offers: 0,\n                erc1155Offers: 0,\n                erc20Offers: 0,\n                erc721Considerations: 1,\n                erc1155Considerations: 0,\n                erc20Considerations: 1\n            });\n\n            // finalize the pay order creation\n            (\n                Order memory payeeOrder,\n                bytes32 payeeOrderHash,\n                OrderMetadata memory payeeOrderMetadata\n            ) = finalizeOrder();\n\n            // create an order fulfillment for the pay order\n            createOrderFulfillment({\n                _fulfiller: dan,\n                order: payOrder,\n                orderHash: payOrderHash,\n                metadata: payOrderMetadata\n            });\n\n            // create an order fulfillment for the payee order\n            createOrderFulfillment({\n                _fulfiller: dan,\n                order: payeeOrder,\n                orderHash: payeeOrderHash,\n                metadata: payeeOrderMetadata\n            });\n+           console.logBytes(ordersToFulfill[i*2].advancedOrder.extraData);\n\n            // add an amendment to include the seaport fulfillment structs\n            withLinkedPayAndPayeeOrders({\n                payOrderIndex: (i * 2),\n                payeeOrderIndex: (i * 2) + 1\n            });\n        }\n\n        // finalize the order pay/payee order fulfillments\n        RentalOrder[] memory rentalOrders = finalizePayOrdersFulfillment();\n\n        // pull out just the PAY orders\n        RentalOrder[] memory payRentalOrders = new RentalOrder[](3);\n        for (uint256 i = 0; i < rentalOrders.length; i++) {\n            if (rentalOrders[i].orderType == OrderType.PAY) {\n                payRentalOrders[i / 2] = rentalOrders[i];\n            }\n        }\n\n        // speed up in time past the rental expiration\n        vm.warp(block.timestamp + 750);\n\n        // renter stops the rental order\n        vm.prank(dan.addr);\n        stop.stopRentBatch(payRentalOrders);\n\n        // for each rental order stopped, perform some assertions\n        for (uint256 i = 0; i < payRentalOrders.length; i++) {\n            // assert that the rental order doesnt exist in storage\n            assertEq(STORE.orders(payRentalOrders[i].seaportOrderHash), false);\n\n            // assert that the token is no longer rented out in storage\n            assertEq(\n                STORE.isRentedOut(\n                    payRentalOrders[i].rentalWallet,\n                    address(erc721s[0]),\n                    i\n                ),\n                false\n            );\n\n            // assert that the ERC721 is back to its original owner\n            assertEq(erc721s[0].ownerOf(i), address(offerers[i].addr));\n\n            // assert that each offerer made a payment\n            assertEq(erc20s[0].balanceOf(offerers[i].addr), uint256(9900));\n        }\n\n        // assert that the payments were pulled from the escrow contract\n        assertEq(erc20s[0].balanceOf(address(ESCRW)), uint256(0));\n\n        // assert that the fulfiller was paid for each order\n        assertEq(erc20s[0].balanceOf(dan.addr), uint256(10300));\n    }\n```\n\n</details>\n\nYou may find out that all `extraData` are same although the rental orders are created by different lenders.\n\n### Recommended Mitigation Steps\n\nIntroduces a field into `RentPayload` to ensure every `payload` unique. It is feasible using `orderHash` of the rental order:\n\n```solidity\nstruct RentPayload {\n    bytes32 orderHash;\n    OrderFulfillment fulfillment;\n    OrderMetadata metadata;\n    uint256 expiration;\n    address intendedFulfiller;\n}\n```\n\n**[0xean (Judge) decreased severity to Medium](https://github.com/code-423n4/2024-01-renft-findings/issues/162#issuecomment-1913718038)**\n\n**[Alec1017 (reNFT) confirmed via duplicate #239](https://github.com/code-423n4/2024-01-renft-findings/issues/239#issuecomment-1908739770)**\n\n**[reNFT mitigated](https://github.com/code-423n4/2024-02-renft-mitigation?tab=readme-ov-file#mitigations-to-be-reviewed):**\n> The PR [here](https://github.com/re-nft/smart-contracts/pull/10) - Prevents `RentPayload` replayability and ensures that orders must be unique by disallowing partial orders from seaport.\n\n**Status:** Mitigation confirmed. Full details in reports from [juancito](https://github.com/code-423n4/2024-02-renft-mitigation-findings/issues/19), [EV_om](https://github.com/code-423n4/2024-02-renft-mitigation-findings/issues/65) and [sin1st3r__](https://github.com/code-423n4/2024-02-renft-mitigation-findings/issues/60).\n\n***\n\n",
+      "summary": "\nThe report describes a bug in reNFT's rental process that could allow a malicious user to fulfill multiple rental orders and gain rental earnings. The bug is caused by the lack of a way to verify whether a signature has been used or not. This could be exploited if multiple rental orders own the same metadata. The report suggests adding a field to ensure that each payload is unique. The bug was confirmed by the reNFT team and has been mitigated.",
+      "report_date": {},
+      "contest_prize_txt": "83600",
+      "contest_link": "https://code4rena.com/reports/2024-01-renft",
+      "sponsor_name": "reNFT",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2024-01-renft",
+      "github_link": "https://github.com/code-423n4/2024-01-renft-findings/issues/162",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "317",
+      "slug": "m-13-rentpayloads-signature-can-be-replayed-code4rena-renft-renft-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "reNFT",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "reNFT",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 1391.208791137663
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Replay Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6415",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 9,
+      "protocol_id": "1059",
+      "title": "[M-04] KYCRegistry is susceptible to signature replay attack.",
+      "content": "\nThe KYCRegistry contract uses signatures to grant KYC status to the users using the `addKYCAddressViaSignature` function.\n\nHowever this function does not prevent replaying of signatures in the case where KYC status was revoked from a user.\n\n```solidity\n  function addKYCAddressViaSignature( ... ) external {\n    require(v == 27 || v == 28, \"KYCRegistry: invalid v value in signature\");\n    require(\n      !kycState[kycRequirementGroup][user],\n      \"KYCRegistry: user already verified\"\n    );\n    require(block.timestamp <= deadline, \"KYCRegistry: signature expired\");\n    bytes32 structHash = keccak256(\n      abi.encode(_APPROVAL_TYPEHASH, kycRequirementGroup, user, deadline)\n    );\n\n    bytes32 expectedMessage = _hashTypedDataV4(structHash);\n\n    address signer = ECDSA.recover(expectedMessage, v, r, s);\n    _checkRole(kycGroupRoles[kycRequirementGroup], signer);\n\n    kycState[kycRequirementGroup][user] = true;\n    // ...\n  }\n```\n\nThis function could be exploited in the case when these conditions are true:\n\n*   KYC status was granted to user using a signature with validity up to `deadline`.\n*   Before the `deadline` was passed, the KYC status of user was revoked using the `removeKYCAddresses` function.\n\nIn the abovementioned conditions, the malicious user can submit the original signature again to the `addKYCAddressViaSignature` function which will forcefully grant the KYC status to the malicious user again.\n\nIt should also be noted that due to this bug until the deadline has passed, the privileged accounts cannot revoke the KYC status of a KYC granted user. This can result in unwanted moving of funds by the user in/out of Ondo protocol.\n\n### Proof of Concept\n\nTest file created `BugTest.t.sol` and was run by ` forge test --mp ./forge-tests/BugTest1.t.sol  `\n\n```solidity\npragma solidity 0.8.16;\n\nimport \"forge-std/Test.sol\";\nimport \"forge-std/Vm.sol\";\n\nimport \"contracts/cash/kyc/KYCRegistry.sol\";\n\ncontract SanctionsList {\n    function isSanctioned(address) external pure returns (bool) {\n        return false;\n    }\n}\nstruct KYCApproval {\n    uint256 kycRequirementGroup;\n    address user;\n    uint256 deadline;\n}\n\ncontract BugTest1 is Test {\n    bytes32 APPROVAL_TYPEHASH;\n    bytes32 DOMAIN_SEPARATOR;\n    KYCRegistry registry;\n\n    address admin;\n    address kycAgent;\n    uint256 kycAgentPrivateKey = 0xB0B;\n    address attacker;\n\n    function setUp() public {\n        admin = address(0xad);\n        attacker = address(0xbabe);\n        kycAgent = vm.addr(kycAgentPrivateKey);\n        registry = new KYCRegistry(admin, address(new SanctionsList()));\n        APPROVAL_TYPEHASH = registry._APPROVAL_TYPEHASH();\n        DOMAIN_SEPARATOR = registry.DOMAIN_SEPARATOR();\n    }\n\n    function test_bug() public {\n        uint256 kycGroup = 1;\n        bytes32 kycGroupRole = \"0x01\";\n        vm.prank(admin);\n        registry.assignRoletoKYCGroup(kycGroup, kycGroupRole);\n        vm.prank(admin);\n        registry.grantRole(kycGroupRole, kycAgent);\n        vm.stopPrank();\n\n        uint256 deadline = block.timestamp + 1 days;\n        KYCApproval memory approval = KYCApproval({\n            kycRequirementGroup: kycGroup,\n            user: attacker,\n            deadline: deadline\n        });\n        bytes32 digest = getTypedDataHash(approval);\n        // KYC approval got signed with validity of 1 day\n        (uint8 v, bytes32 r, bytes32 s) = vm.sign(kycAgentPrivateKey, digest);\n\n        assertEq(registry.kycState(kycGroup, attacker), false);\n        assertEq(registry.getKYCStatus(kycGroup, attacker), false);\n\n        vm.prank(attacker);\n        registry.addKYCAddressViaSignature(kycGroup, attacker, deadline, v, r, s);\n\n        assertEq(registry.kycState(kycGroup, attacker), true);\n        assertEq(registry.getKYCStatus(kycGroup, attacker), true);\n\n        address[] memory toBeRemovedAddrs = new address[](1);\n        toBeRemovedAddrs[0] = attacker;\n        // KYC approval was removed\n        vm.prank(kycAgent);\n        registry.removeKYCAddresses(kycGroup, toBeRemovedAddrs);\n        vm.stopPrank();\n        assertEq(registry.getKYCStatus(kycGroup, attacker), false);\n\n        // KYC approval was granted again by replaying the original signature\n        vm.prank(attacker);\n        registry.addKYCAddressViaSignature(kycGroup, attacker, deadline, v, r, s);\n        assertEq(registry.kycState(kycGroup, attacker), true);\n        assertEq(registry.getKYCStatus(kycGroup, attacker), true);\n    }\n\n    function getStructHash(KYCApproval memory _approval) internal view returns (bytes32) {\n        return keccak256(abi.encode(APPROVAL_TYPEHASH, _approval.kycRequirementGroup, _approval.user, _approval.deadline));\n    }\n\n    function getTypedDataHash(KYCApproval memory _approval) public view returns (bytes32) {\n        return keccak256(abi.encodePacked(\"\\x19\\x01\", DOMAIN_SEPARATOR, getStructHash(_approval)));\n    }\n}\n```\n\n### Recommended Mitigation Steps\n\nA nonce mapping for message signers can be maintained; the value of which can be incremented for every successful signature validation.\n\n```solidity\nmapping(address => uint) private nonces;\n```\n\nA more detailed usage example can be found in OpenZeppelin's EIP-2612 implementation. \n\nhttps://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/extensions/ERC20Permit.sol#L90>\n\n**[ali2251 (Ondo Finance) disagreed with severity and commented](https://github.com/code-423n4/2023-01-ondo-findings/issues/187#issuecomment-1410643360):**\n > Timestamps prevent replay attacks. These timestamps are like 30 minutes long, so the attack is valid only within 30 minutes and we can change the timestamp to 5 minutes and then it becomes exteremely hard for this attack to happen. Within 5 minutes, a suer must add themselves, then Admin removed them, then they add themselves but once 5 minutes is over, the attacker can no longer add themselves and so the admin can just remove them after 5 minutes. It can be seen here that in tests we use 9 minutes: https://github.com/code-423n4/2023-01-ondo/blob/f3426e5b6b4561e09460b2e6471eb694efdd6c70/forge-tests/cash/registry/RegistrySignature.t.sol#L57\n\n**[Trust (judge) decreased severity to Medium](https://github.com/code-423n4/2023-01-ondo-findings/issues/187)**\n\n\n***\n\n",
+      "summary": "\nA bug has been reported in the KYCRegistry contract which uses signatures to grant KYC status to users. This bug can be exploited in the case where KYC status was granted to a user using a signature with validity up to a certain deadline and before the deadline was passed, the KYC status of the user was revoked using the `removeKYCAddresses` function. In this case, a malicious user can submit the original signature again to the `addKYCAddressViaSignature` function which will forcefully grant the KYC status to the malicious user again. This bug can also result in privileged accounts not being able to revoke the KYC status of a KYC granted user until the deadline has passed, leading to unwanted movement of funds by the user in/out of Ondo protocol.\n\nThe bug was tested using a test file called `BugTest.t.sol` which was run by `forge test --mp ./forge-tests/BugTest1.t.sol`. The test was successful in replicating the bug.\n\nRecommended mitigation steps for this bug include maintaining a nonce mapping for message signers which can be incremented for every successful signature validation. A more detailed usage example can be found in OpenZeppelin's EIP-2612 implementation.",
+      "report_date": {},
+      "contest_prize_txt": "$60,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2023-01-ondo-finance-contest",
+      "sponsor_name": "Ondo Finance",
+      "sponsor_link": "https://twitter.com/OndoFinance",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2023-01-ondo",
+      "github_link": "https://github.com/code-423n4/2023-01-ondo-findings/issues/187",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "204",
+      "slug": "m-04-kycregistry-is-susceptible-to-signature-replay-attack-code4rena-ondo-finance-ondo-finance-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Ondo Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Ondo Finance",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Replay Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6449",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "271",
+      "title": "[M-03] Cross-Chain Signature Replay Attack",
+      "content": "\nUser operations can be replayed on smart accounts accross different chains. This can lead to user's losing funds or any unexpected behaviour that transaction replay attacks usually lead to.\n\n### Proof of Concept\n\nAs specified by the [EIP4337](https://eips.ethereum.org/EIPS/eip-4337) standard `to prevent replay attacks ... the signature should depend on chainid`. In [VerifyingSingletonPaymaster.sol#getHash](https://github.com/code-423n4/2023-01-biconomy/blob/main/scw-contracts/contracts/smart-contract-wallet/paymasters/verifying/singleton/VerifyingSingletonPaymaster.sol#L77-L90) the chainId is missing which means that the same UserOperation can be replayed on a different chain for the same smart contract account if the `verifyingSigner` is the same (and most likely this will be the case).\n\n### Recommended Mitigation Steps\n\nAdd the chainId in the calculation of the UserOperation hash in [VerifyingSingletonPaymaster.sol#getHash](https://github.com/code-423n4/2023-01-biconomy/blob/main/scw-contracts/contracts/smart-contract-wallet/paymasters/verifying/singleton/VerifyingSingletonPaymaster.sol#L77-L90)\n\n        function getHash(UserOperation calldata userOp)\n        public view returns (bytes32) { // @audit change to view\n            //can't use userOp.hash(), since it contains also the paymasterAndData itself.\n            return keccak256(abi.encode(\n                    userOp.getSender(),\n                    userOp.nonce,\n                    keccak256(userOp.initCode),\n                    keccak256(userOp.callData),\n                    userOp.callGasLimit,\n                    userOp.verificationGasLimit,\n                    userOp.preVerificationGas,\n                    userOp.maxFeePerGas,\n                    userOp.maxPriorityFeePerGas\n    \t\tblock.chainid // @audit add chain id\n                ));\n        }\n\n**[livingrockrises (Biconomy) confirmed](https://github.com/code-423n4/2023-01-biconomy-findings/issues/466#issuecomment-1421110204)**\n\n**[gzeon (judge) decreased severity to Medium](https://github.com/code-423n4/2023-01-biconomy-findings/issues/466#issuecomment-1425735635)**\n\n**[vlad\\_bochok (warden) commented](https://github.com/code-423n4/2023-01-biconomy-findings/issues/466#issuecomment-1426673710):**\n > @gzeon @livingrockrises \n> \n> > User operations can be replayed on smart accounts accross different chains\n> \n> The author refers that the operation may be replayed on a different chain. That is not true. The \"getHash\" function derives the hash of UserOp specifically for the paymaster's internal usage. While the paymaster doesn't sign the chainId, the UserOp may not be relayed on a different chain. So, the only paymaster may get hurt. In all other respects, the bug is valid.\n> \n> The real use case of this cross-chan replayability is described in issue [`#504`](https://github.com/code-423n4/2023-01-biconomy-findings/issues/504) (which, I believe, was mistakenly downgraded).\n\n**[livingrockrises (Biconomy) commented](https://github.com/code-423n4/2023-01-biconomy-findings/issues/466#issuecomment-1426685496):**\n > True. Besides chainId , address(this) should be hashed and contract must maintain it's own nonces per wallet otherwise wallet can replay the signature and use paymaster to sponsor! We're also planning to hash paymasterId as add-on on top of our off-chain validation for it.  \n> \n> I have't seen an issue which covers all above. Either cross chain replay or suggested paymaster nonce.\n\n\n\n***\n\n",
+      "summary": "\nA Cross-Chain Signature Replay Attack vulnerability has been identified in the lines of code provided in the report. This vulnerability can lead to users losing funds or any unexpected behaviour that transaction replay attacks usually lead to. The vulnerability is due to the fact that the chainId is missing from the calculation of the UserOperation hash in the specified code. This means that the same UserOperation can be replayed on a different chain for the same smart contract account if the verifyingSigner is the same. The recommended mitigation step is to add the chainId in the calculation of the UserOperation hash in the specified code. This will ensure that the same UserOperation cannot be replayed on a different chain for the same smart contract account.",
+      "report_date": {},
+      "contest_prize_txt": "$60,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2023-01-biconomy-smart-contract-wallet-contest",
+      "sponsor_name": "Biconomy",
+      "sponsor_link": "https://twitter.com/biconomy",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2023-01-biconomy",
+      "github_link": "https://github.com/code-423n4/2023-01-biconomy-findings/issues/466",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "200",
+      "slug": "m-03-cross-chain-signature-replay-attack-code4rena-biconomy-biconomy-smart-contract-wallet-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Biconomy",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Biconomy",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Account Abstraction"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Cross Chain"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Replay Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6839",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "MEDIUM",
+      "finders_count": 3,
+      "protocol_id": "113",
+      "title": "Lack of replay protection for mintAllowList andmintSigned",
+      "content": "## Severity: Medium Risk\n\n## Context\n- `SeaDrop.sol#L227`\n- `SeaDrop.sol#L318`\n\n## Description\nIn the case of `mintSigned` (minting via signatures) and `mintAllowList` (minting via merkle proofs), there are no checks that prevent re-using the same signature or Merkle proof multiple times. This is indirectly enforced by the `_checkMintQuantity` function that checks the mint statistics using `IERC721SeaDrop(nftContract).getMintStats(minter)` and reverting if the quantity exceeds `maxMintsPerWallet`.\n\nReplays can happen if a wallet does not claim all of `maxMintsPerWallet` in one transaction. For example, assume that `maxMintsPerWallet` is set to 2. A user can call `mintSigned` with a valid signature and `quantity = 1` twice. Typically, contracts try to avoid any forms of signature replays, i.e., a signature can only be used once. This simplifies the security properties. In the current implementation of the `ERC721Seadrop` contract, we couldn't see a way to exploit replay protection to mint beyond what could be minted in a single initial transaction with the maximum value of `quantity` supplied. However, this relies on the contract correctly implementing `IERC721SeaDrop.getMintStats`.\n\n## Recommendation\nWe recommend implementing replay protection for both cases. Here are some ideas to do this:\n\n1. Consider including the `tokenId` for the signature and passing that along in the `mintSeaDrop` call. This way, even if the signature is replayed, minting the same `tokenId` should not be possible—most ERC-721 libraries prevent this. However, some care should be made to check the following case: mint a fixed `tokenId` using the signature, then burn the `tokenId`, and resurrect the same `tokenId` by replaying the signature.\n2. Consider storing the digest, and if a digest is used once, then it shouldn't be able to be used again.\n3. Do not use the signature as a way to check if something was consumed, as they are malleable.\n\n## OpenSea\nWe discussed replay protection here and decided it was a more or less acceptable risk for the following reasons:\n\n1. Allow-lists, which also check `mintQuantity` are likewise not redeemed, so Merkle proofs can be re-used in the same way, up to the maximum mint quantity.\n2. Also, like allow-lists, the supplied `MintParams` specify a `startTime` and `endTime`; a signature can supply a short window (minutes) for consumption before a new signature needs to be generated.\n3. A broken `_checkMintQuantity` or unreasonably large `maxTokensMintable` quantity is likely (though not always) exploitable the first time a signature (or Merkle proof) is used.\n\nHowever! Riffing off of the `tokenId` suggestion (we don't think it's possible to know exactly which starting token ID a given transaction will mint), since we're already checking `minterNumMinted`, we could include that as part of the signature to prevent re-use.\n\n## Spearbit\n1. A malicious user can always get around the `startTime` and `endTime` limits, using some automation.\n2. We think that most ERC-721 contracts would assume that OpenSea would handle the signature verification and replay protection—the burden of the sale mechanism should be on the SeaDrop contract. Also, because this requires the ERC-721 contract to keep track of the number of tokens minted by an address. `ERC721A` tracks this, but neither `Solmate` nor `OpenZeppelin` do this currently. We'd expect some user errors because of this problem.",
+      "summary": "\nThis bug report is regarding the SeaDrop.sol contract, which is used to mint tokens via signatures and Merkle proofs. The issue is that there are no checks in place to prevent the same signature or Merkle proof from being used multiple times. This can be exploited if a wallet does not claim all of the maximum mints per wallet in one transaction. To prevent this, the contract should implement replay protection for both cases. Suggestions for this include including the token ID in the mintSeaDrop call, storing the digest, and not using signature as a way to check if something was consumed. OpenSea discussed replay protection and decided it was an acceptable risk, as long as the startTime and endTime limits are respected, and the maxTokensMintable quantity is not unreasonably large. Spearbit suggested that the ERC-721 contracts should assume that OpenSea would handle the signature verification and replay protection, and that they should keep track of the number of tokens minted by an address.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Seadrop-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Seadrop-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/Seadrop-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 10,
+      "contest_id": "",
+      "slug": "lack-of-replay-protection-for-mintallowlist-andmintsigned-spearbit-seadrop-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "SeaDrop",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "SeaDrop",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Replay Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3381",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "151",
+      "title": "M-9: Nonces not used in signed data",
+      "content": "Source: https://github.com/sherlock-audit/2022-09-harpie-judging/tree/main/160-M \n\n## Found by \nIllIllI\n\n## Summary\nNonces are not used in the signature checks\n\n## Vulnerability Detail\nA nonce can prevent an old value from being used when a new value exists. Without one, two transactions submitted in one order, can appear in a block in a different order\n\n## Impact\nIf a user is attacked, then tries to change the recipient address to a more secure address, initially chooses an insecure compromised one, but immediately notices the problem, then re-submits as a different, uncompromised address, a malicious miner can change the order of the transactions, so the insecure one is the one that ends up taking effect, letting the attacker transfer the funds\n\n## Code Snippet\nhttps://github.com/Harpieio/contracts/blob/97083d7ce8ae9d85e29a139b1e981464ff92b89e/contracts/Vault.sol#L67-L71\n\n## Tool used\n\nManual Review\n\n## Recommendation\nInclude a nonce in what is signed\n\n## Harpie Team\nFixed by changing nonce system to an incremental system. Fix [here](https://github.com/Harpieio/contracts/pull/4/commits/ee6f5cdf52fa5604d4693331189edff6558c9b8a).\n\n## Lead Senior Watson\nNot an issue AFAIK, miners can't reorder txs unless they are signed with the same nonce. There would have to be some serious mis-use of this function by the recipient address, i.e. they would have to ask the server to sign for two different addresses and then broadcast the txs with the same nonce for this call. The proposed fix could probably be safely removed but doesn't hurt to keep it there.",
+      "summary": "\nThis bug report is about a vulnerability found in the code of the Harpie platform. The issue, M-9, is that nonces are not used in the signature checks. A nonce is a value that is used to prevent an old value from being used when a new value exists. Without one, two transactions submitted in one order can appear in a block in a different order, which can be exploited by malicious miners. In this case, if a user is attacked and then tries to change the recipient address to a more secure address, the malicious miner can reorder the transactions and the insecure address will take effect, allowing the attacker to transfer the funds. The Harpie team fixed this issue by changing the nonce system to an incremental system. Lead Senior Watson also concluded that this fix was not necessary, as miners can't reorder transactions unless they are signed with the same nonce.",
+      "report_date": {},
+      "contest_prize_txt": "8000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/3",
+      "sponsor_name": "Harpie",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-09-harpie-judging/tree/main/160-M",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "3",
+      "slug": "m-9-nonces-not-used-in-signed-data-sherlock-harpie-harpie-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Harpie",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Harpie",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Oracle"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Nonce"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Replay Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3374",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 3,
+      "protocol_id": "151",
+      "title": "M-2: Cross-chain replay attacks are possible with `changeRecipientAddress()`",
+      "content": "Source: https://github.com/sherlock-audit/2022-09-harpie-judging/tree/main/004-M \n\n## Found by \nminhquanym, JohnSmith, IllIllI\n\n## Summary\nMistakes made on one chain can be re-applied to a new chain\n\n## Vulnerability Detail\nThere is no `chain.id` in the signed data\n\n## Impact\nIf a user does a `changeRecipientAddress()` using the wrong network, an attacker can replay the action on the correct chain, and steal the funds a-la the wintermute gnosis safe attack, where the attacker can create the same address that the user tried to, and steal the funds from there\n\n## Code Snippet\nhttps://github.com/Harpieio/contracts/blob/97083d7ce8ae9d85e29a139b1e981464ff92b89e/contracts/Vault.sol#L60-L73\n\n## Tool used\n\nManual Review\n\n## Recommendation\nInclude the `chain.id` in what's hashed\n\n## Harpie Team\nAdded chainId to signature and signature validation. Fix [here](https://github.com/Harpieio/contracts/pull/4/commits/de24a50349ec014163180ba60b5305098f42eb14).\n\n## Lead Senior Watson\nThis is true assuming the contract address is the same across other chains. Confirmed fix.",
+      "summary": "\nThis bug report is about a vulnerability found in the `changeRecipientAddress()` function of the Harpie Vault smart contract. It was found by minhquanym, JohnSmith, and IllIllI, and was tested using manual review. \n\nThe vulnerability is that there is no `chain.id` in the signed data, which means that mistakes made on one chain can be re-applied to a new chain. This could lead to a cross-chain replay attack, where an attacker could create the same address that the user tried to, and steal the funds from there. \n\nThe Harpie Team fixed the vulnerability by adding the `chain.id` to the signature and signature validation, and this fix was confirmed by Lead Senior Watson. The fix can be found in the link provided in the report.",
+      "report_date": {},
+      "contest_prize_txt": "8000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/3",
+      "sponsor_name": "Harpie",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-09-harpie-judging/tree/main/004-M",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "3",
+      "slug": "m-2-cross-chain-replay-attacks-are-possible-with-changerecipientaddress-sherlock-harpie-harpie-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Harpie",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Harpie",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Oracle"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Replay Attack"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Cross Chain"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7234",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "72",
+      "title": "Router signatures can be replayed when executing messages on the destination domain",
+      "content": "## Risk Assessment\n\n## Severity\n**Medium Risk**\n\n## Context\nBridgeFacet.sol#L476-496\n\n## Description\nConnext bridge supports near-instant transfers by allowing users to pay a small fee to routers for providing them with liquidity. Gelato relayers are tasked with taking in bids from liquidity providers who sign a message consisting of the `transferId` and path length. The path length variable only guarantees that the message they signed will only be valid if `_args.routers.length - 1` routers are also selected. However, it does not prevent Gelato relayers from re-using the same signature multiple times. As a result, routers may unintentionally provide more liquidity than expected.\n\n## Recommendation\nConsider ensuring that a router’s signed message can only be used once for a given `transferId`. It may be useful to track these in a boolean mapping.\n\n## Connext\nSolved in PR 1626.\n\n## Spearbit\nVerified.\n\n## Note\nThis still assumes that the sequencer is a centralized role maintained by the Connext team. We understand that this will be addressed in future on-chain changes to incentivize honest behavior and further decentralize the sequencer role. Currently, the sequencer is a centralized role, and will be decentralized in the future.\n\nConsider that the only \"attack vector\" here (really more of a griefing vector) is that the sequencer has only the potential to favor certain routers over others and cannot steal anyone’s funds. Additionally, we know that the “randomness” of the sequencer selection - while not strictly enforceable on-chain - will at the very least be demonstrated publicly; anyone can check to see that our sequencer has been behaving politely (simply check the distribution of router usage over time, it should be relatively even). \n\nSo it should be okay to continue this in a centralized manner for the time being since funds are not jeopardized, and the only trust vector here is that we continue to select routers fairly to make sure everyone gets a fair share of profits.\n\nFor clarity’s sake: the model towards decentralization will probably involve \"fair selection\" being enforceable through staking/slashing in the future.",
+      "summary": "\nThis bug report is about Connext bridge which allows users to pay a fee to routers for providing them with liquidity. The bug is that the path length variable does not prevent Gelato relayers from re-using the same signature multiple times, resulting in routers providing more liquidity than expected. To solve this bug, Connext proposed a boolean mapping to ensure that a router's signed message can only be used once for a given transferId. This was solved in PR 1626 and Spearbit verified it. The sequencer role is currently centralized and will be decentralized in the future. This will be done through staking/slashing to enforce fair selection. Funds are not jeopardized and the trust vector is that Connext continues to select routers fairly.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Connext-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Connext-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/Connext-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 24,
+      "contest_id": "",
+      "slug": "router-signatures-can-be-replayed-when-executing-messages-on-the-destination-domain-spearbit-connext-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Connext",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Connext",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Replay Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3102",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 14,
+      "protocol_id": "176",
+      "title": "[H-04] Project funds can be drained by reusing signatures, in some cases",
+      "content": "_Submitted by 0xA5DF, also found by Bahurum, bin2chen, byndooa, cryptphi, hansfriese, horsefacts, kaden, Lambda, neumo, panprog, rokinot, scaraven, and sseefried_\n\n[Project.sol#L386-L490](https://github.com/code-423n4/2022-08-rigor/blob/5ab7ea84a1516cb726421ef690af5bc41029f88f/contracts/Project.sol#L386-L490)<br>\n[Project.sol#L330-L359](https://github.com/code-423n4/2022-08-rigor/blob/5ab7ea84a1516cb726421ef690af5bc41029f88f/contracts/Project.sol#L330-L359)<br>\n[Tasks.sol#L153-L164](https://github.com/code-423n4/2022-08-rigor/blob/5ab7ea84a1516cb726421ef690af5bc41029f88f/contracts/libraries/Tasks.sol#L153-L164)<br>\n\nThis attack path is the results of signatures reusing in 2 functions - `changeOrder()` and `setComplete()`, and a missing modifier at `Tasks.unApprove()` library function.\n\n### Impact\n\n#### Draining the project from funds\n\nCurrent or previous subcontractor of a task can drain the project out of its funds by running `setComplete()` multiple times.\n\nThis can be exploited in 3 scenarios:\n\n*   The price of a task was changed to a price higher than available funds (i.e. `totalLent - _totalAllocated`, and therefore gets unapproved), and than changed back to the original price (or any price that's not higher than available funds)\n*   The subcontractor for a task was changed via `changeOrder` and then changed back to the original subcontractor\n    *   e.g. - Bob was the original SC, it was changed to Alice, and then back to Bob\n*   Similar to the case above, but even if the current SC is different from the original SC - it can still work if the current and previous SCs are teaming up to run the attack\n    *   e.g. Bob was the original SC, it was changed to Alice, and changed again to Eve. And now Alice and Eve are teaming up to drain funds from the project\n\nAfter `setComplete()` ran once by the legitimate users (i.e. signed by contractor, SC and builder), the attackers can now run it multiple times:\n\n*   Reuse signatures to run `changeOrder()` - changing SC or setting the price to higher than available funds\n    *   The only signer that might change is the subcontractor, he's either teaming up with the attacker (scenario #3) or he was the SC when it was first called (scenario #2)\n*   In case of price change:\n    *   change it back to the original price via `changeOrder()`, reusing signatures\n    *   Run `allocateFunds()` to mark it as funded again\n*   SC runs `acceptInvite()` to mark task as active\n*   Run `setComplete()` reusing signatures\n    *   If SC has changed - replace his signature with the current one (current SC should be one of the attackers)\n*   Repeat till the project runs out of funds\n\n#### Changing tasks costs/subcontractor by external users\n\nThis can also be used by external users (you don't need to be builder/GC/SC in order to run `changeOrder()`) to troll the system (This still requires the task to be changed at least twice, otherwise re-running `changeOrder()` with the same data would have no effect).\n\n*   Changing the task cost up or down, getting the SC paid a different amount than intended (if it goes unnoticed, or front-run the `setComplete()` function)\n*   Unapproving a task by setting a different SC or a price higher than available funds\n    *   The legitimate users can change it back, but the attacker can change it again, both sides playing around till someone gets tired :)\n\n### Proof of Concept\n\nSince the tests depend on each other, the PoC tests were created by adding them to the file `test/utils/projectTests.ts`, after the function `it('should be able to complete a task'` ([Line 1143](https://github.com/code-423n4/2022-08-rigor/blob/5ab7ea84a1516cb726421ef690af5bc41029f88f/test/utils/projectTests.ts#L1143)).\n\nIn the first test - a subcontractor is changed and then changed back.<br>\nIn the second scenario a price is changed to the new price (that is higher than the total available funds, and therefore is unapproved) and then back to its original price (it can actually be any price that is not higher than the available funds).<br>\nIn both cases I'm demonstrating how the project can be drained out of fund.\n\n*Note: see warden's [original submission](https://github.com/code-423n4/2022-08-rigor-findings/issues/95) for full proof of concept.*\n\n### Tools Used\n\nHardhat\n\n### Recommended Mitigation Steps\n\n*   Use nonce to protect `setComplete()` and `changeOrder()` from signatures reuse\n*   Add the `onlyActive()` modifier to `Tasks.unApprove()`\n*   Consider limiting `allocateFunds()` for builder only (this is not necessary to resolve the bug, just for hardening security)\n\n**[zgorizzo69 (Rigor) confirmed and commented](https://github.com/code-423n4/2022-08-rigor-findings/issues/95#issuecomment-1210501767):**\n > Very nice wrap up.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about an attack path that is the result of signatures reusing in two functions - `changeOrder()` and `setComplete()`, and a missing modifier at `Tasks.unApprove()` library function. This attack can be used to drain the project out of its funds by running `setComplete()` multiple times. It can be exploited in three scenarios: \n\n1. The price of a task was changed to a price higher than available funds (i.e. `totalLent - _totalAllocated`, and therefore gets unapproved), and than changed back to the original price (or any price that's not higher than available funds).\n2. The subcontractor for a task was changed via `changeOrder` and then changed back to the original subcontractor.\n3. Similar to the case above, but even if the current SC is different from the original SC - it can still work if the current and previous SCs are teaming up to run the attack.\n\nExternal users can also use this attack to troll the system by changing the task cost up or down, or unapproving a task by setting a different SC or a price higher than available funds.\n\nThe proof of concept tests were created by adding them to the file `test/utils/projectTests.ts`, after the function `it('should be able to complete a task'` ( [Line 1143](https://github.com/code-423n4/2022-08-rigor/blob/5ab7ea84a1516cb726421ef690af5bc41029f88f/test/utils/projectTests.ts#L1143) ). The tools used were Hardhat.\n\nTo mitigate this attack, it is recommended to use nonce to protect `setComplete()` and `changeOrder()` from signatures reuse, add the `onlyActive()` modifier to `Tasks.unApprove()` and consider limiting `allocateFunds()` for builder only.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-08-rigor-protocol-contest",
+      "sponsor_name": "Rigor Protocol",
+      "sponsor_link": "https://twitter.com/Rigor_HQ",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2022-08-rigor",
+      "github_link": "https://github.com/code-423n4/2022-08-rigor-findings/issues/95",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "151",
+      "slug": "h-04-project-funds-can-be-drained-by-reusing-signatures-in-some-cases-code4rena-rigor-protocol-rigor-protocol-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Rigor Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Rigor Protocol",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Replay Attack"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Nonce"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3101",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 11,
+      "protocol_id": "176",
+      "title": "[H-03] Builder can call `Community.escrow` again to reduce debt further using same signatures",
+      "content": "_Submitted by sseefried, also found by 0xA5DF, Bahurum, bin2chen, byndooa, cccz, GalloDaSballo, hyh, kankodu, Lambda, and minhquanym_\n\n[Community.sol#L509](https://github.com/code-423n4/2022-08-rigor/blob/5ab7ea84a1516cb726421ef690af5bc41029f88f/contracts/Community.sol#L509)<br>\n\nSince there is no nonce in the data decoded at the beginning of function `escrow`, a builder can call the function multiple times reducing their debt as much as they wish.\n\n### Proof of Concept\n\n*   A builder has a debt of $50,000\n*   A lender, a builder, and an escrow agent all ~~enter a bar~~ sign a message that will reduce the debt of the builder by $5,000, upon receipt of physical cash.\n*   Function `escrow` is called and debt is reduced to $45,000.\n*   The builder, using the same `_data` and `_signature` then calls `escrow` a further 9 times reducing their debt to zero.\n\n### Recommended Mitigation Steps\n\n1.  Similar to function `publishProject`, add a new field into the [ProjectDetails](https://github.com/code-423n4/2022-08-rigor/blob/5ab7ea84a1516cb726421ef690af5bc41029f88f/contracts/interfaces/ICommunity.sol#L19-L32) struct called `escrowNonce`.\n\n2.  Modify function `escrow` to check this nonce and update it after the debt has been reduced.\n\nSee the diff below for full changes.\n\n```diff\ndiff --git a/contracts/Community.sol b/contracts/Community.sol\nindex 1585670..b834d0e 100644\n--- a/contracts/Community.sol\n+++ b/contracts/Community.sol\n@@ -15,7 +15,7 @@ import {SignatureDecoder} from \"./libraries/SignatureDecoder.sol\";\n\n /**\n  * @title Community Contract for HomeFi v2.5.0\n-\n+\n  * @notice Module for coordinating lending groups on HomeFi protocol\n  */\n contract Community is\n@@ -520,10 +520,11 @@ contract Community is\n             address _agent,\n             address _project,\n             uint256 _repayAmount,\n+            uint256 _escrowNonce,\n             bytes memory _details\n         ) = abi.decode(\n                 _data,\n-                (uint256, address, address, address, address, uint256, bytes)\n+                (uint256, address, address, address, address, uint256, uint256, bytes)\n             );\n\n         // Compute hash from bytes\n@@ -540,6 +541,12 @@ contract Community is\n             _lender == _communities[_communityID].owner,\n             \"Community::!Owner\"\n         );\n+        ProjectDetails storage _communityProject =\n+          _communities[_communityID].projectDetails[_project];\n+        require(\n+            _escrowNonce == _communityProject.escrowNonce,\n+            \"Community::invalid escrowNonce\"\n+        );\n\n         // check signatures\n         checkSignatureValidity(_lender, _hash, _signature, 0); // must be lender\n@@ -548,6 +555,7 @@ contract Community is\n\n         // Internal call to reduce debt\n         _reduceDebt(_communityID, _project, _repayAmount, _details);\n+        _communityProject.escrowNonce = _communityProject.escrowNonce + 1;\n         emit DebtReducedByEscrow(_agent);\n     }\n\ndiff --git a/contracts/interfaces/ICommunity.sol b/contracts/interfaces/ICommunity.sol\nindex c45bbf0..652f51c 100644\n--- a/contracts/interfaces/ICommunity.sol\n+++ b/contracts/interfaces/ICommunity.sol\n@@ -29,6 +29,7 @@ interface ICommunity {\n         uint256 lentAmount; // current principal lent to project (needs to be repaid by project's builder)\n         uint256 interest; // total accrued interest on `lentAmount`\n         uint256 lastTimestamp; // timestamp when last lending / repayment was made\n+        uint256 escrowNonce; // signing nonce to use when reducing debt by escrow\n     }\n```\n\n**[zgorizzo69 (Rigor) confirmed](https://github.com/code-423n4/2022-08-rigor-findings/issues/161)**\n\n\n\n***\n\n",
+      "summary": "\nA bug report has been submitted for the Community Contract for HomeFi v2.5.0. The bug is related to the function `escrow` in the Community.sol file. The bug is that since there is no nonce in the data decoded at the beginning of the function, a builder can call the function multiple times reducing their debt as much as they wish. \n\nThe proof of concept is that a builder has a debt of $50,000, a lender, a builder, and an escrow agent all sign a message that will reduce the debt of the builder by $5,000, upon receipt of physical cash. The function `escrow` is then called and debt is reduced to $45,000. The builder then calls `escrow` a further 9 times reducing their debt to zero.\n\nThe recommended mitigation steps are to add a new field into the ProjectDetails struct called `escrowNonce` and modify function `escrow` to check this nonce and update it after the debt has been reduced. A diff has been provided for the full changes.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-08-rigor-protocol-contest",
+      "sponsor_name": "Rigor Protocol",
+      "sponsor_link": "https://twitter.com/Rigor_HQ",
+      "quality_score": 3,
+      "general_score": 2,
+      "source_link": "https://code4rena.com/reports/2022-08-rigor",
+      "github_link": "https://github.com/code-423n4/2022-08-rigor-findings/issues/161",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "151",
+      "slug": "h-03-builder-can-call-communityescrow-again-to-reduce-debt-further-using-same-signatures-code4rena-rigor-protocol-rigor-protocol-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Rigor Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Rigor Protocol",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Replay Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "1685",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "268",
+      "title": "[H-04] EIP712MetaTransaction.executeMetaTransaction() failed txs are open to replay attacks",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2022-03-rolla/blob/efe4a3c1af8d77c5dfb5ba110c3507e67a061bdd/quant-protocol/contracts/utils/EIP712MetaTransaction.sol#L86\n\n\n## Vulnerability details\n\nAny transactions that fail based on some conditions that may change in the future are not safe to be executed again later (e.g. transactions that are based on others actions, or time-dependent etc).\n\nIn the current implementation, once the low-level call is failed, the whole tx will be reverted and so that `_nonces[metaAction.from]` will remain unchanged.\n\nAs a result, the same tx can be replayed by anyone, using the same signature.\n\nhttps://github.com/code-423n4/2022-03-rolla/blob/efe4a3c1af8d77c5dfb5ba110c3507e67a061bdd/quant-protocol/contracts/utils/EIP712MetaTransaction.sol#L86\n\n```solidity\n    function executeMetaTransaction(\n        MetaAction memory metaAction,\n        bytes32 r,\n        bytes32 s,\n        uint8 v\n    ) external payable returns (bytes memory) {\n        require(\n            _verify(metaAction.from, metaAction, r, s, v),\n            \"signer and signature don't match\"\n        );\n\n        uint256 currentNonce = _nonces[metaAction.from];\n\n        // intentionally allow this to overflow to save gas,\n        // and it's impossible for someone to do 2 ^ 256 - 1 meta txs\n        unchecked {\n            _nonces[metaAction.from] = currentNonce + 1;\n        }\n\n        // Append the metaAction.from at the end so that it can be extracted later\n        // from the calling context (see _msgSender() below)\n        (bool success, bytes memory returnData) = address(this).call(\n            abi.encodePacked(\n                abi.encodeWithSelector(\n                    IController(address(this)).operate.selector,\n                    metaAction.actions\n                ),\n                metaAction.from\n            )\n        );\n\n        require(success, \"unsuccessful function call\");\n        emit MetaTransactionExecuted(\n            metaAction.from,\n            payable(msg.sender),\n            currentNonce\n        );\n        return returnData;\n    }\n```\n\nSee also the implementation of OpenZeppelin's `MinimalForwarder`:\n\nhttps://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.5.0/contracts/metatx/MinimalForwarder.sol#L42-L66\n\n### PoC\n\nGiven:\n\n- The collateral is USDC;\n- Alice got `10,000 USDC` in the wallet.\n\n1. Alice submitted a MetaTransaction to `operate()` and `_mintOptionsPosition()` with `10,000 USDC`;\n2. Before the MetaTransaction get executed, Alice sent `1,000 USDC` to Bob;\n3. The MetaTransaction submited by Alice in step 1 get executed but failed;\n4. A few days later, Bob sent `1,000 USDC` to Alice;\n5. The attacker can replay the MetaTransaction failed to execute at step 3 and succeed.\n\nAlice's `10,000 USDC` is now been spent unexpectedly against her will and can potentially cause fund loss depends on the market situation.\n\n### Recommendation\n\nFailed txs should still increase the nonce.\n\nWhile implementating the change above, consider adding one more check to require sufficient gas to be paid, to prevent \"insufficient gas griefing attack\" as described in [this article](https://ipfs.io/ipfs/QmbbYTGTeot9ic4hVrsvnvVuHw4b5P7F5SeMSNX9TYPGjY/blog/ethereum-gas-dangers/).",
+      "summary": "\nThis bug report is about an issue found in the implementation of the EIP712MetaTransaction.sol contract. The issue is that when a transaction fails due to certain conditions, the nonce of the transaction does not get incremented. This allows anyone to replay the same transaction with the same signature, which can lead to unexpected fund loss.\n\nTo demonstrate the issue, an example is given. Alice has 10,000 USDC in her wallet. She submits a MetaTransaction to operate and _mintOptionsPosition with 10,000 USDC. Before the MetaTransaction is executed, Alice sends 1,000 USDC to Bob. The MetaTransaction submitted by Alice fails, and a few days later Bob sends 1,000 USDC to Alice. The attacker can then replay the MetaTransaction that failed to execute and succeed, leading to Alice's 10,000 USDC being spent unexpectedly and potentially causing fund loss.\n\nThe recommendation given to resolve this issue is to ensure that failed transactions still increase the nonce. Additionally, it is suggested to add a check to require sufficient gas to be paid to prevent \"insufficient gas griefing attack\".",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-03-rolla-contest",
+      "sponsor_name": "Rolla",
+      "sponsor_link": "https://twitter.com/RollaFinance",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-03-rolla",
+      "github_link": "https://github.com/code-423n4/2022-03-rolla-findings/issues/45",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "98",
+      "slug": "h-04-eip712metatransactionexecutemetatransaction-failed-txs-are-open-to-replay-attacks-code4rena-rolla-rolla-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Rolla",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Rolla",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Options Vault"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Replay Attack"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Nonce"
+          }
+        }
+      ]
+    },
+    {
+      "id": "1579",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "277",
+      "title": "[M-01] EIP-712 signatures can be re-used in private sales",
+      "content": "_Submitted by thankthedark, also found by Afanasyevich and cmichel_\n\n[NFTMarketPrivateSale.sol#L123-L174](https://github.com/code-423n4/2022-02-foundation/blob/main/contracts/mixins/NFTMarketPrivateSale.sol#L123-L174)<br>\n\nWithin a NFTMarketPrivateSale contract, buyers are allowed to purchase a seller's NFT. This is done through a seller providing a buyer a EIP-712 signature. The buyer can then call `#buyFromPrivateSaleFor` providing the v, r, and s values of the signature as well as any additional details to generate the message hash. If the signature is valid, then the NFT is transferred to the buyer.\n\nThe problem with the code is that EIP-712 signatures can be re-used within a small range of time assuming that the original seller takes back ownership of the NFT. This is because the NFTMarketPrivateSale#buyFromPrivateSaleFor method has no checks to determine if the EIP-712 signature has been used before.\n\n### Proof of Concept\n\nConsider the following example:\n\n1.  Joe the NFT owner sells a NFT to the malicious buyer Rachel via a private sale.\n2.  Rachel through this private sale obtains the EIP-712 signature and uses it to purchase a NFT.\n3.  Joe the NFT owner purchases back the NFT within two days of the original sale to Rachel.\n4.  Joe the NFT owner puts the NFT back on sale.\n5.  Rachel, who has the original EIP-712 signature, can re-purchase the NFT by calling `#buyFromPrivateSaleFor` again with the same parameters they provided in the original private sale purchase in step 1.\n\nThe `#buyFromPrivateSaleFor` [function](https://github.com/code-423n4/2022-02-foundation/blob/main/contracts/mixins/NFTMarketPrivateSale.sol#L123) runs several validation checks before transferring the NFT over to the buyer. The validations are as follows:\n\n1.  L#132 - The signature has expired.\n2.  L#135 - The deadline is beyond 48 hours from now.\n3.  L#143 - The amount argument is greater than msg.value.\n4.  L#149 - The msg.value is greater than the amount set.\n5.  L#171 - This checks that the EIP-712 signature comes from the NFT seller.\n\nAs you can see, there are no checks that the EIP-712 signature has been used before. If the original NFT seller purchases back the NFT, then they are susceptible to having the original buyer taking back the NFT. This can be problematic if the NFT has risen in value, as the original buyer can utilize the same purchase amount from the first transaction in this malicious transaction.\n\n### Recommended Mitigation Steps\n\nMost contracts utilize nonces when generating EIP-712 signatures to ensure that the contract hasn't been used for. When a nonce is injected into a signature, it makes it impossible for re-use, assuming of course the nonce feature is done correctly.\n\n**[NickCuso (Foundation) confirmed and commented](https://github.com/code-423n4/2022-02-foundation-findings/issues/68#issuecomment-1057990473):**\n > Yes, this is a good point to raise and something like this could happen because it's not intuitive to think that the private sale remains valid after it's been used.\n> \n> This is mitigated by the short time window we use for Private Sales. Our frontend uses 24-hour expirations and in the contract we ensure the window is <= 48 hours.\n> \n> In order to remain backwards compatible with our existing integration and any signatures which are outstanding at the time of the upgrade, we decided not to use `nonce` as recommended. Instead we simply store a mapping tracking if the exact private sale terms have already been used.\n> \n> Here's the primary addition:\n> \n> ```solidity\n>     // Ensure that the offer can only be accepted once.\n>     if (privateSaleInvalidated[nftContract][tokenId][msg.sender][seller][amount][deadline]) {\n>       revert NFTMarketPrivateSale_Signature_Canceled_Or_Already_Claimed();\n>     }\n>     privateSaleInvalidated[nftContract][tokenId][msg.sender][seller][amount][deadline] = true;\n> ```\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability in a NFTMarketPrivateSale contract, which allows buyers to purchase a seller's NFT. The vulnerability is that the contract does not have checks to determine if the EIP-712 signature has been used before, so if the original NFT seller purchases back the NFT, then they are susceptible to having the original buyer taking back the NFT. This can be problematic if the NFT has risen in value, as the original buyer can utilize the same purchase amount from the first transaction in this malicious transaction. To mitigate this issue, most contracts utilize nonces when generating EIP-712 signatures to ensure that the contract hasn't been used for. When a nonce is injected into a signature, it makes it impossible for re-use, assuming of course the nonce feature is done correctly.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-02-foundation-contest",
+      "sponsor_name": "Foundation",
+      "sponsor_link": "https://twitter.com/foundation",
+      "quality_score": 3.005333333333333,
+      "general_score": 2.002666666666667,
+      "source_link": "https://code4rena.com/reports/2022-02-foundation",
+      "github_link": "https://github.com/code-423n4/2022-02-foundation-findings/issues/68",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "94",
+      "slug": "m-01-eip-712-signatures-can-be-re-used-in-private-sales-code4rena-foundation-foundation-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Foundation",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Foundation",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Indexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Data Validation"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Replay Attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "1309",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "313",
+      "title": "[M-03] Signature replay",
+      "content": "_Submitted by 0x1f8b_\n\nSignature replay in `PoolTemplate`.\n\n#### Proof of Concept\n\nThe `redeem` method of `PoolTemplate` verifies the data stored in `incident`, and the verification logic of this process is performed as following:\n```solidity\nrequire(\n    MerkleProof.verify(\n        _merkleProof,\n        _targets,\n        keccak256(\n            abi.encodePacked(_insurance.target, _insurance.insured)\n        )\n    ) ||\n        MerkleProof.verify(\n            _merkleProof,\n            _targets,\n            keccak256(abi.encodePacked(_insurance.target, address(0)))\n        ),\n    \"ERROR: INSURANCE_EXEMPTED\"\n);\n```\n\nAs can be seen, the only data related to the `_insurance` are`  target ` and `insured`, so as the incident has no relation with the`  Insurance `, apparently nothing prevents a user to call `insure` with high amounts, after receive the incident, the only thing that prevents this from being reused is that the owner creates the incident with an `_incidentTimestamp` from the past.\n\nSo if an owner create a incident from the future it's possible to create a new `insure` that could be reused by the same affected address.\n\nAnother lack of input verification that could facilitate this attack is the `_span=0` in the `insure` method.\n\n\n#### Recommended Mitigation Steps\n\nIt is mandatory to add a check in `applyCover` that`  _incidentTimestamp ` is less than the current date and the `span` argument is greater than 0 in the`  insure ` method.\n\n**[oishun1112 (Insure) confirmed and resolved, but disagreed with severity](https://github.com/code-423n4/2022-01-insure-findings/issues/184):**\n > agree on the _incidentTimestamp check.\n> disagree on span check since there already is\n> ```\n> require(\n>             parameters.getMinDate(msg.sender) <= _span,\n>             \"ERROR: INSURE_SPAN_BELOW_MIN\"\n>         );\n> ```\n> we are going to set default value of 1week for everyone\n\n**[oishun1112 (Insure) commented](https://github.com/code-423n4/2022-01-insure-findings/issues/184#issuecomment-1015081369):**\n > we assume ownership control works fine.\n> this can lose money in-proper way, but not at risk since onlyOwner modifier applied.\n\n**[0xean (judge) commented](https://github.com/code-423n4/2022-01-insure-findings/issues/184#issuecomment-1023674000):**\n > going to leave this as 2 \n> \n> `\n> 2 — Med: Assets not at direct risk, but the function of the protocol or its availability could be impacted, or leak value with a hypothetical attack path with stated assumptions, but external requirements.\n> `\n> \n> The external requirement here would be an incorrect timestamp from the owner which would cause assets to be at risk from the replay. \n\n**[oishun1112 (Insure) commented](https://github.com/code-423n4/2022-01-insure-findings/issues/184#issuecomment-1027599600):**\n > there is\n> ```\n> _span >= getMinDate() \n> ```\n> so we don't implement _span > 0\n\n\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the `PoolTemplate` of the system. The vulnerability allows for signature replay which can be exploited by a malicious user. The vulnerability is caused by the lack of verification of the data stored in `incident` and the lack of input verification of `_incidentTimestamp` and `span` argument in the `insure` method. The proof of concept was done manually. \n\nTo mitigate the vulnerability, it is recommended to add a check in `applyCover` that `_incidentTimestamp` is less than the current date and the `span` argument is greater than 0 in the `insure` method. This will ensure that the incident is not created with a timestamp from the past, and that the `span` argument is not set to 0.",
+      "report_date": {},
+      "contest_prize_txt": "$53,000 USDC (plus $27,000 in tokens)",
+      "contest_link": "https://code4rena.com/contests/2022-01-insuredao-contest",
+      "sponsor_name": "InsureDAO",
+      "sponsor_link": "https://twitter.com/insuredao",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2022-01-insure",
+      "github_link": "https://github.com/code-423n4/2022-01-insure-findings/issues/184",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "71",
+      "slug": "m-03-signature-replay-code4rena-insuredao-insuredao-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "InsureDAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "InsureDAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Indexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Insurance"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Replay Attack"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,515 @@
+{
+  "tag": "ERC2981",
+  "count": 6,
+  "metadata": {
+    "totalResults": 6,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 2,
+    "reset": 1771761060
+  },
+  "findings": [
+    {
+      "id": "16252",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 22,
+      "protocol_id": "76",
+      "title": "[M-07] Royalty recipients will not get fair share of royalties",
+      "content": "\nRecipients of NFTs who accept royalties will not get their fair share of royalties. This is because royalties are calculated by dividing the sales price equally amongst all sold NFTs in that purchase. The issue with this is that it assumes all NFTs cost the same amount when it comes time to deal out royalties. If NFTs cost different amounts, then they should be getting an amount of royalties based on that weight relative to the other NFTs. The impact of this is that Royalties will not be distributed evenly at the expense of the more expensive NFT. Meaning that recipients of the expensive NFT will always receive less than they are owed. And the cheaper ones will get more than owed. In short, this is a loss of funds or misdistribution of funds.\n\n### Proof of Concept\n\nThe easiest way to test this will to be add this snippet into Milady.sol.\n\nUsing this to have access to ERC2981's `setRoyaltyInfo()`:\n\n```solidity\nfile: Milady.sol\n    function setRoyaltyInfo(\n        uint256 _royaltyFeeRate,\n        address _royaltyRecipient\n    ) public {\n        royaltyFeeRate = _royaltyFeeRate;\n        royaltyRecipient = _royaltyRecipient;\n    }\n\n    function supportsInterface(\n        bytes4 interfaceId\n    ) public view override(ERC2981, ERC721) returns (bool) {\n        return super.supportsInterface(interfaceId);\n    }\n\n    function royaltyInfo(\n        uint256 id,\n        uint256 salePrice\n    ) public view override returns (address, uint256) {\n        return super.royaltyInfo(id, salePrice);\n    }\n\n    function setRoyaltyInfo(uint256 id, address reciever, uint96 fee) public {\n        super._setTokenRoyalty(id, reciever, fee);\n    }\n}\n\n```\n\nThen add this snippet to Fixture.sol:\n\n```solidity\nfile: Fixture.sol\n\n    GodsUnchained public gu = new GodsUnchained();\n\n```\n\nThen add this snippet to token-weights.json:\n\nChanging the weights to represent the two NFT's being bought in this case.\n\n```json\n[\n  [\n    1,\n    1\n  ],\n  [\n    2,\n    10\n  ]\n]\n```\n\nLastly to test this, you need to add this test to Buy.t.sol:\n\n```solidity\n    // forge test --match-test test_unevenRoyalties --ffi\n    function test_unevenRoyalties() public {\n        // arrange\n        privatePool = new PrivatePool(\n            address(factory),\n            address(royaltyRegistry),\n            address(stolenNftOracle)\n        );\n        privatePool.initialize(\n            baseToken,\n            address(gu),\n            virtualBaseTokenReserves,\n            12e18,\n            changeFee,\n            feeRate,\n            generateMerkleRoot(),\n            true,\n            true\n        );\n        //> owner of nft's\n        address user1 = address(0xbeefbeef);\n        address user2 = address(0xfeebfeeb);\n\n        //> mint and push nft's one is 1x one is 10x\n        gu.mint(address(privatePool), 1);\n        tokenIds.push(1);\n        tokenWeights.push(1e18);\n\n        gu.mint(address(privatePool), 2);\n        tokenIds.push(2);\n        tokenWeights.push(10e18);\n\n        //> set fees. 1% for one user, 10% for the other\n        gu.setRoyaltyInfo(1, user1, 100);\n        gu.setRoyaltyInfo(2, user2, 1000);\n\n        //> set up\n        proofs = generateMerkleProofs(tokenIds, tokenWeights);\n        uint256 weightSum = privatePool.sumWeightsAndValidateProof(\n            tokenIds,\n            tokenWeights,\n            proofs\n        );\n        (uint256 netInputAmount, , ) = privatePool.buyQuote(weightSum);\n\n        //> buy\n        privatePool.buy{value: netInputAmount * 2}( \n            tokenIds,\n            tokenWeights,\n            proofs\n        );\n\n        //> assert that users got equal reserves. with different weights and royalty fees users should NOT be getting the same amount of royalties\n        //> the royalty fee of user2 is 10 times greater than user one. This shows that user2 is getting 10 times as much royaltys when user 2 should be getting 100 times as much as user one.\n        //> user 1: 1% of 1 eth = 0.01 eth\n        //> user 2: 10% of 10 eth = 1 eth\n        //> 0.01 eth * 100 = 1eth.\n        //> user 2 should be getting 100 times more royalties than user 1 but is only getting 10 times the amount.\n        assertEq(user1.balance * 10, address(user2).balance);\n    }\n\n```\n\n### Tools Used\n\nFoundry\n\n### Recommended Mitigation Steps\n\nTo address this issue, it is recommended that the weight of NFTs relative to other NFTs being purchased should be taken into consideration when calculating royalties.\n\n**[outdoteth (Caviar) acknowledged, but disagreed with severity and commented](https://github.com/code-423n4/2023-04-caviar-findings/issues/669#issuecomment-1518657766):**\n > It is commented in the code that it's assumed all NFTs in the purchase are of the same price: https://github.com/code-423n4/2023-04-caviar/blob/main/src/PrivatePool.sol#L334\n> \n> Assuming that the recipient is the same for each NFTs royalty payment (which it almost always is in practice), then this makes sense.\n> \n> NFT 1 is worth 1 ETH<br>\n> NFT 2 is worth 2 ETH<\n> \n> (1 + 2) / 2 = 1.5 ETH<br>\n> 1 / 2 + 2 / 2 = 1.5 ETH\n> \n> The output is the same. The additional complexity of individually calculating each price is not worth it.\n\n**[Alex the Entreprenerd (judge) decreased severity to Medium and commented](https://github.com/code-423n4/2023-04-caviar-findings/issues/669#issuecomment-1529055395):**\n > I believe that the finding is valid because the EIP specifies that each NFT may have a different royalty, the contract is still fetching the specific royalty for each NFT id, leading me to believe that this will cause incorrect royalty payouts in specific cases in which a collection has different royalties based on the NFT id.\n> \n> As a developer, I agree with the Sponsor with a nofix and believe in practice that this should not be an issue.\n>\n> As a Judge, I believe the finding meets the requirements of improperly implementing an EIP, which can cause a loss of yield. For this reason, I think Medium Severity to be appropriate.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a misdistribution of funds when dealing out royalties to recipients of Non-Fungible Tokens (NFTs). The issue is that royalties are currently calculated by dividing the sales price equally amongst all sold NFT's in that purchase, assuming they all cost the same amount. This can lead to the more expensive NFTs receiving less than they are owed, and the cheaper ones getting more than owed. \n\nTo test this bug, the tester added snippets to Milady.sol, Fixture.sol, and token-weights.json, and added a test to Buy.t.sol.\n\nTo address this issue, the tester recommends that the weight of NFTs relative to other NFTs being purchased should be taken into consideration when calculating royalties. This would ensure that recipients of the more expensive NFTs receive the correct amount of royalties.",
+      "report_date": {},
+      "contest_prize_txt": "$47,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2023-04-caviar-private-pools",
+      "sponsor_name": "Caviar",
+      "sponsor_link": "https://twitter.com/caviarAMM",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2023-04-caviar",
+      "github_link": "https://github.com/code-423n4/2023-04-caviar-findings/issues/669",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "230",
+      "slug": "m-07-royalty-recipients-will-not-get-fair-share-of-royalties-code4rena-caviar-caviar-private-pools-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Caviar",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Caviar",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Indexes"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Wrong Math"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Royalty"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "NFT"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC2981"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3550",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 12,
+      "protocol_id": "125",
+      "title": "M-5: Template implementations doesn't validate configurations properly",
+      "content": "Source: https://github.com/sherlock-audit/2022-10-nftport-judging/issues/83 \n\n## Found by \nElKu, rvierdiiev, obront, pashov, ctf\\_sec, joestakey, ak1, JohnnyTime, GimelSec, Dravee, JohnSmith, cccz\n\n## Summary\n\nIn past audits, we have seen contract admins claim that invalidated configuration setters are fine since “admins are trustworthy”. However, cases such as [Nomad got drained for over $150M](https://twitter.com/samczsun/status/1554260106107179010) and [Misconfiguration in the Acala stablecoin project allows attacker to steal 1.2 billion aUSD](https://web3isgoinggreat.com/single/misconfiguration-in-the-acala-stablecoin-project-allows-attacker-to-steal-1-2-billion-ausd) have shown again and again that even trustable entities can make mistakes. Thus any fields that might potentially result in insolvency of protocol should be thoroughly checked.\n\nNftPort template implementations often ignore checks for config fields. For the rest of the issue, we take `royalty` related fields as an example to illustrate potential consequences of misconfigurations. Notably, lack of check is not limited to `royalty`, but exists among most config fields.\n\nAdmins are allowed to set a wrong `royaltiesBps` which is higher than `ROYALTIES_BASIS`. `royaltyInfo()` will accept this invalid `royaltiesBps` and users will pay a large amount of royalty.\n\n## Vulnerability Detail\n\nEIP-2981 (NFT Royalty Standard) defines `royaltyInfo()` function that specifies how much to pay for a given sale price. In general, royalty should not be higher than 100%. [NFTCollection.sol](https://github.com/sherlock-audit/2022-10-nftport/blob/main/evm-minting-master/contracts/templates/NFTCollection.sol#L348) checks that admins can't set royalties to more than 100%:\n```solidity\n    /// Validate a runtime configuration change\n    function _validateRuntimeConfig(RuntimeConfig calldata config)\n        internal\n        view\n    {\n        // Can't set royalties to more than 100%\n        require(config.royaltiesBps <= ROYALTIES_BASIS, \"Royalties too high\");\n\n        ...\n```\n\nBut `NFTCollection` only check `royaltiesBps` when admins call `updateConfig()`, it doesn't check `royaltiesBps` in `initialize()` function, leading to admins could set an invalid `royaltiesBps` (higher than 100%) when initializing contracts.\n\nThe same problem exists in ERC721NFTProduct and ERC1155NFTProduct. Both ERC721NFTProduct and ERC1155NFTProduct don't check `royaltiesBasisPoints` in `initialize()` function. Furthermore, these contracts also don't check `royaltiesBasisPoints` when admins call `update()` function. It means that admins could set an invalid `royaltiesBasisPoints` which may be higher than 100% in any time.\n\n## Impact\n\nEIP-2981 only defines `royaltyInfo()` that it should return royalty amount rather than royalty percentage. It means that if the contract has an invalid royalty percentage which is higher than 100%, `royaltyInfo()` doesn't revert and users will pay a large amount of royalty.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2022-10-nftport/blob/main/evm-minting-master/contracts/templates/NFTCollection.sol#L348\nhttps://github.com/sherlock-audit/2022-10-nftport/blob/main/evm-minting-master/contracts/templates/NFTCollection.sol#L153\nhttps://github.com/sherlock-audit/2022-10-nftport/blob/main/evm-minting-master/contracts/templates/ERC721NFTProduct.sol#L91\nhttps://github.com/sherlock-audit/2022-10-nftport/blob/main/evm-minting-master/contracts/templates/ERC721NFTProduct.sol#L201\nhttps://github.com/sherlock-audit/2022-10-nftport/blob/main/evm-minting-master/contracts/templates/ERC1155NFTProduct.sol#L96\nhttps://github.com/sherlock-audit/2022-10-nftport/blob/main/evm-minting-master/contracts/templates/ERC1155NFTProduct.sol#L238\n\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nCheck `royaltiesBps <= ROYALTIES_BASIS` both in `initialize()` and `update()` functions.\n\n## Discussion\n\n**hyperspacebunny**\n\nFixed in https://github.com/nftport/evm-minting-sherlock-fixes/pull/11\n\n**rayn731**\n\nLGTM, It checks `royaltiesBps` both in `initialize()` and `update()` functions.\nAnd uses `_validatePropertyChange()` to check values both in `initialize()` and `updateConfig()` functions.",
+      "summary": "\nThis bug report is about a vulnerability in the NftPort template implementations which allows admins to set an invalid configuration, such as a royalty percentage higher than 100%, when initializing or updating contracts. This could lead to users paying a large amount of royalty, which could potentially result in insolvency of the protocol. \n\nThe bug was found by ElKu, rvierdiiev, obront, pashov, ctf\\_sec, joestakey, ak1, JohnnyTime, GimelSec, Dravee, JohnSmith, and cccz. It was identified through manual review.\n\nThe bug was fixed by hyperspacebunny in a pull request which checks `royaltiesBps` both in `initialize()` and `update()` functions, and uses `_validatePropertyChange()` to check values both in `initialize()` and `updateConfig()` functions. This was confirmed by rayn731. \n\nThe issue serves as a reminder that even trustable entities can make mistakes, and any fields that might potentially result in insolvency of protocol should be thoroughly checked.",
+      "report_date": {},
+      "contest_prize_txt": "25000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/14",
+      "sponsor_name": "NFTPort",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-10-nftport-judging/issues/83",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "14",
+      "slug": "m-5-template-implementations-doesnt-validate-configurations-properly-sherlock-nftport-nftport-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "NFTPort",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "NFTPort",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Payments"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Royalty"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC2981"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3166",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "277",
+      "title": "[M-03] Forget to check \"Some manifolds contracts of ERC-2981 return (address(this), 0) when royalties are not defined\" in 3rd priority - MarketFees.sol",
+      "content": "_Submitted by KIntern&#95;NA, also found by bin2chen and Lambda_\n\nWrong return of `cretorShares` and `creatorRecipients` can make real royalties party can't gain the revenue of sale.\n\n### Proof of concept\n\nFunction `getFees()` firstly [call](https://github.com/code-423n4/2022-08-foundation/blob/792e00df429b0df9ee5d909a0a5a6e72bd07cf79/contracts/mixins/shared/MarketFees.sol#L422-L430) to function `internalGetImmutableRoyalties` to get the list of `creatorRecipients` and `creatorShares` if the `nftContract` define ERC2981 royalties.\n\n```solidity\ntry implementationAddress.internalGetImmutableRoyalties(nftContract, tokenId) returns (\n  address payable[] memory _recipients,\n  uint256[] memory _splitPerRecipientInBasisPoints\n) {\n  (creatorRecipients, creatorShares) = (_recipients, _splitPerRecipientInBasisPoints);\n} catch // solhint-disable-next-line no-empty-blocks\n{\n  // Fall through\n}\n```\n\n***\n\nIn the [1st priority](https://github.com/code-423n4/2022-08-foundation/blob/792e00df429b0df9ee5d909a0a5a6e72bd07cf79/contracts/mixins/shared/MarketFees.sol#L236-L255) it check the `nftContract` define the function `royaltyInfo` or not. If yes, it get the return value `receiver` and `royaltyAmount`. In some manifold contracts of erc2981, it `return (address(this), 0)` when royalties are not defined. So we ignore it when the `royaltyAmount = 0`\n\n```solidity\n  try IRoyaltyInfo(nftContract).royaltyInfo{ gas: READ_ONLY_GAS_LIMIT }(tokenId, BASIS_POINTS) returns (\n    address receiver,\n    uint256 royaltyAmount\n  ) {\n    // Manifold contracts return (address(this), 0) when royalties are not defined\n    // - so ignore results when the amount is 0\n    if (royaltyAmount > 0) {\n      recipients = new address payable[](1);\n      recipients[0] = payable(receiver);\n      splitPerRecipientInBasisPoints = new uint256[](1);\n      // The split amount is assumed to be 100% when only 1 recipient is returned\n      return (recipients, splitPerRecipientInBasisPoints);\n    }\n```\n\n***\n\nIn the same sense, the [3rd priority](https://github.com/code-423n4/2022-08-foundation/blob/792e00df429b0df9ee5d909a0a5a6e72bd07cf79/contracts/mixins/shared/MarketFees.sol#L297-L312) (it can reach to 3rd priority when function `internalGetImmutableRoyalies` fail to return some royalties) should check same as the 1st priority with the `royaltyRegistry.getRoyaltyLookupAddress`. But the 3rd priority forget to check the case when `royaltyAmount == 0`.\n\n```solidity\n  try IRoyaltyInfo(nftContract).royaltyInfo{ gas: READ_ONLY_GAS_LIMIT }(tokenId, BASIS_POINTS) returns (\n    address receiver,\n    uint256 /* royaltyAmount */\n  ) {\n    recipients = new address payable[](1);\n    recipients[0] = payable(receiver);\n    splitPerRecipientInBasisPoints = new uint256[](1);\n    // The split amount is assumed to be 100% when only 1 recipient is returned\n    return (recipients, splitPerRecipientInBasisPoints);\n  } \n```\n\nIt will make [function](https://github.com/code-423n4/2022-08-foundation/blob/792e00df429b0df9ee5d909a0a5a6e72bd07cf79/contracts/mixins/shared/MarketFees.sol#L98) `_distributeFunds()` transfer to the wrong `creatorRecipients` (for example erc2981 return `(address(this), 0)`, market will transfer creator revenue to `address(this)` - market contract, and make the fund freeze in contract forever).\n\nThis case just happen when\n\n*   `nftContract` doesn't have any support for royalties info\n*   `overrideContract` which was fetched from`royaltyRegistry.getRoyaltyLookupAddress(nftContract)` implements both function `getRoyalties` and `royaltyInfo` but doesn't support `royaltyInfo` by returning `(address(this), 0)`.\n\n### Recommended Mitigation Steps\n\nAdd check if `royaltyAmount > 0` or not in 3rd priority.\n\n**[HardlyDifficult (Foundation) confirmed and commented](https://github.com/code-423n4/2022-08-foundation-findings/issues/147#issuecomment-1220593088):**\n > This was a great catch. We will be making the recommended change.\n> \n> Medium risk seems correct as this is a form of potentially leaking value.\n> \n> We agree that any contract returning `(address(this), 0)` should be treated as no royalties defined instead of paying to `address(this)`. \n\n**[HickupHH3 (judge) commented](https://github.com/code-423n4/2022-08-foundation-findings/issues/147#issuecomment-1228039151):**\n > Yes, agree that zero royalty amount check is missing for 3rd priority.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the code of the MarketFees.sol contract, which is part of the 2022-08-foundation repository on GitHub. The vulnerability can cause real royalties parties to not receive their revenue from sales. The root cause of the issue is that when the nftContract does not have any support for royalties info, and the overrideContract fetched from royaltyRegistry.getRoyaltyLookupAddress(nftContract) implements both getRoyalties and royaltyInfo but does not support royaltyInfo by returning (address(this), 0), the 3rd priority of the getFees() function fails to check if royaltyAmount is greater than 0. This can cause the function _distributeFunds() to transfer the creator revenue to the market contract, which would freeze the funds in the contract forever. The recommended mitigation step is to add a check to the 3rd priority to see if royaltyAmount is greater than 0.",
+      "report_date": {},
+      "contest_prize_txt": "$40,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-08-foundation-drop-contest",
+      "sponsor_name": "Foundation",
+      "sponsor_link": "https://twitter.com/foundation",
+      "quality_score": 2,
+      "general_score": 2,
+      "source_link": "https://code4rena.com/reports/2022-08-foundation",
+      "github_link": "https://github.com/code-423n4/2022-08-foundation-findings/issues/147",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "152",
+      "slug": "m-03-forget-to-check-some-manifolds-contracts-of-erc-2981-return-addressthis-0-when-royalties-are-not-defined-in-3rd-priority-marketfeessol-code4rena-foundation-foundation-drop-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Foundation",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Foundation",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Indexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC2981"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Royalty"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3005",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "187",
+      "title": "[M-04] The `FERC1155.sol` don't respect the EIP2981",
+      "content": "_Submitted by 0x29A_\n\nThe [EIP-2981: NFT Royalty Standard](https://eips.ethereum.org/EIPS/eip-2981) implementation is incomplete, missing the implementation of `function supportsInterface(bytes4 interfaceID) external view returns (bool);` from the [EIP-165: Standard Interface Detection](https://eips.ethereum.org/EIPS/eip-165).\n\n### Proof of Concept\n\nA marketplace that implemented royalties could check if the NFT has royalties, but if they don't, add the interface of `ERC2981` on the `_registerInterface`, the marketplace can't know if this NFT has royalties.\n\n### Recommended Mitigation Steps\n\nLike in [solmate ERC1155.sol](https://github.com/Rari-Capital/solmate/blob/03e425421b24c4f75e4a3209b019b367847b7708/src/tokens/ERC1155.sol#L137-L146) add the `ERC2981` interfaceId on the `FERC1155` contract\n\n```solidity\n    /*//////////////////////////////////////////////////////////////\n                              ERC165 LOGIC\n    //////////////////////////////////////////////////////////////*/\n\n    function supportsInterface(bytes4 interfaceId) public view  override returns (bool) {\n        return\n            super.supportsInterface(interfaceId) ||\n            interfaceId == 0x2a55205a; // ERC165 Interface ID for ERC2981\n    }\n```\n\n**[aklatham (Fractional) confirmed](https://github.com/code-423n4/2022-07-fractional-findings/issues/544)** \n\n**[HardlyDifficult (judge) commented](https://github.com/code-423n4/2022-07-fractional-findings/issues/544#issuecomment-1208112166):**\n > The contract implements the ERC2981 getter but does not register it as a 165 interface. Agree with the warden that this is a Medium risk issue. This is a function of the protocol and it may not work with many external marketplaces because it does not yet follow the standard as expected.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about an incomplete implementation of the EIP-2981: NFT Royalty Standard. The implementation is missing the implementation of `function supportsInterface(bytes4 interfaceID) external view returns (bool);` from the EIP-165: Standard Interface Detection. This means that a marketplace implemented royalties could check if the NFT have royalties, but if the `ERC2981` interface is not added to the `_registerInterface`, the marketplace will not be able to know if the NFT has royalties. The bug was identified manually and the recommended mitigation step is to add the `ERC2981` interfaceId on the `FERC1155` contract, like in the `solmate ERC1155.sol` from the Rari-Capital repository.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-07-fractional-v2-contest",
+      "sponsor_name": "Fractional",
+      "sponsor_link": "https://twitter.com/fractional_art",
+      "quality_score": 4,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2022-07-fractional",
+      "github_link": "https://github.com/code-423n4/2022-07-fractional-findings/issues/544",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "144",
+      "slug": "m-04-the-ferc1155sol-dont-respect-the-eip2981-code4rena-fractional-fractional-v2-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Fractional",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Fractional",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "supportsInterface"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC2981"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "EIP-2981"
+          }
+        }
+      ]
+    },
+    {
+      "id": "1763",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "258",
+      "title": "[M-03] `RoyaltyVault.sol` is Not Equipped to Handle On-Chain Royalties From Secondary Sales",
+      "content": "_Submitted by leastwood_\n\n<https://github.com/code-423n4/2022-03-joyn/blob/main/core-contracts/contracts/CoreCollection.sol>\n\n<https://github.com/code-423n4/2022-03-joyn/blob/main/royalty-vault/contracts/RoyaltyVault.sol>\n\n### Impact\n\nThe Joyn documentation mentions that Joyn royalty vaults should be equipped to handle revenue generated on a collection's primary and secondary sales. Currently, `CoreCollection.sol` allows the collection owner to receive a fee on each token mint, however, there is no existing implementation which allows the owner of a collection to receive fees on secondary sales.\n\nAfter discussion with the Joyn team, it appears that this will be gathered from Opensea which does not have an on-chain royalty mechanism. As such, each collection will need to be added manually on Opensea, introducing further centralisation risk. It is also possible for users to avoid paying the secondary fee by using other marketplaces such as Foundation.\n\n### Recommended Mitigation Steps\n\nConsider implementing the necessary functionality to allow for the collection of fees through an on-chain mechanism. `ERC2981` outlines the appropriate behaviour for this.\n\n\n**[sofianeOuafir (Joyn) confirmed and commented](https://github.com/code-423n4/2022-03-joyn-findings/issues/130#issuecomment-1099679515):**\n > This is a great observation. Something we are aware of and intend to fix as well. 👍 \n\n\n\n***\n\n",
+      "summary": "\nA bug has been identified in the Joyn documentation which states that Joyn royalty vaults should be equipped to handle revenue generated on a collection's primary and secondary sales. Currently, `CoreCollection.sol` allows the collection owner to receive a fee on each token mint, but there is no existing implementation which allows the owner of a collection to receive fees on secondary sales. After discussion with the Joyn team, it appears that this will be gathered from Opensea which does not have an on-chain royalty mechanism. This introduces further centralisation risk and users can avoid paying the secondary fee by using other marketplaces such as Foundation. \n\nTo address this, it is recommended to implement the necessary functionality to allow for the collection of fees through an on-chain mechanism. `ERC2981` outlines the appropriate behaviour for this.",
+      "report_date": {},
+      "contest_prize_txt": "$30,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-03-joyn-contest",
+      "sponsor_name": "Joyn",
+      "sponsor_link": "https://twitter.com/joynxyz",
+      "quality_score": 3,
+      "general_score": 2,
+      "source_link": "https://code4rena.com/reports/2022-03-joyn",
+      "github_link": "https://github.com/code-423n4/2022-03-joyn-findings/issues/130",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "104",
+      "slug": "m-03-royaltyvaultsol-is-not-equipped-to-handle-on-chain-royalties-from-secondary-sales-code4rena-joyn-joyn-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Joyn",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Joyn",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC2981"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Royalty"
+          }
+        }
+      ]
+    },
+    {
+      "id": "1594",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "277",
+      "title": "[M-16] Inappropriate support of EIP-2981",
+      "content": "_Submitted by WatchPug_\n\n[NFTMarketCreators.sol#L65-L82](https://github.com/code-423n4/2022-02-foundation/blob/4d8c8931baffae31c7506872bf1100e1598f2754/contracts/mixins/NFTMarketCreators.sol#L65-L82)<br>\n\n```solidity\nif (nftContract.supportsERC165Interface(type(IRoyaltyInfo).interfaceId)) {\n  try IRoyaltyInfo(nftContract).royaltyInfo{ gas: READ_ONLY_GAS_LIMIT }(tokenId, BASIS_POINTS) returns (\n    address receiver,\n    uint256 /* royaltyAmount */\n  ) {\n    if (receiver != address(0)) {\n      recipients = new address payable[](1);\n      recipients[0] = payable(receiver);\n      // splitPerRecipientInBasisPoints is not relevant when only 1 recipient is defined\n      if (receiver == seller) {\n        return (recipients, splitPerRecipientInBasisPoints, true);\n      }\n    }\n  } catch // solhint-disable-next-line no-empty-blocks\n  {\n    // Fall through\n  }\n}\n```\n\nThe current implementation of EIP-2981 support will always pass a constant `BASIS_POINTS` as the `_salePrice`.\n\nAs a result, the recipients that are supposed to receive less than 1 BPS of the salePrice may end up not receiving any royalties.\n\nFurthermore, for the NFTs with the total royalties rate set less than 10% for some reason, the current implementation will scale it up to 10%.\n\n### Recommended Mitigation Steps\n\n1.  Instead of passing a constant of 10,000 as the `_salePrice`, we suggest using the actual `_salePrice`, so there the royalties can be paid for recipients with less than 1 BPS of the royalties.\n2.  When the total royalties cut is lower than 10%, it should be honored. It's capped at 10% only when the total royalties cut is higher than 10%.\n\n**[NickCuso (Foundation) acknowledged and commented](https://github.com/code-423n4/2022-02-foundation-findings/issues/58#issuecomment-1062159151):**\n > Yes, these are valid points and something we will consider revisiting in the future.\n> \n> RE recommendations:\n>  1) This can only impact < 0.01% of the payment so not a concern ATM. It may be more appropriate to better honor exact amounts, but it's a non-trivial change to an important code path so we will leave it as-is for now. With payments that small, it's probably more appropriate to be using a contract to manage the payouts - e.g. https://www.0xsplits.xyz/ could handle this well.\n>  2) I agree. ATM we always enforce exactly 10% so that there is a consistent experience with our market and on our website. We will revisit this in the future, and the idea of capping it to 10% but accepting lower is a great one.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report details an issue with the implementation of EIP-2981 support in the code. Currently, the code always passes a constant of 10,000 as the '_salePrice', which means that recipients that are supposed to receive less than 1 BPS of the salePrice may end up not receiving any royalties. Additionally, if the total royalties cut is lower than 10%, the code will scale it up to 10%. The report recommends two changes to the code: use the actual '_salePrice' so that royalties can be paid for recipients with less than 1 BPS of the royalties, and honor the total royalties cut if it is lower than 10%.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-02-foundation-contest",
+      "sponsor_name": "Foundation",
+      "sponsor_link": "https://twitter.com/foundation",
+      "quality_score": 5,
+      "general_score": 3,
+      "source_link": "https://code4rena.com/reports/2022-02-foundation",
+      "github_link": "https://github.com/code-423n4/2022-02-foundation-findings/issues/58",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "94",
+      "slug": "m-16-inappropriate-support-of-eip-2981-code4rena-foundation-foundation-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Foundation",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Foundation",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Indexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Royalty"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC2981"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "EIP-2981"
+          }
+        }
+      ]
+    }
+  ]
+}

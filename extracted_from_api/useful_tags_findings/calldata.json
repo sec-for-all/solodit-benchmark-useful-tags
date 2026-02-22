@@ -1,0 +1,95 @@
+{
+  "tag": "Calldata",
+  "count": 1,
+  "metadata": {
+    "totalResults": 1,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 3,
+    "reset": 1771760940
+  },
+  "findings": [
+    {
+      "id": "3383",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "127",
+      "title": "M-1: `exchangeFee` can be escaped",
+      "content": "Source: https://github.com/sherlock-audit/2022-10-mover-judging/issues/120 \n\n## Found by \nWATCHPUG\n\n## Summary\n\nComparing the before and after balance of the swap call for the swapped amount can be exploited to escape the `exchangeFee` by wrapping the actual swap inside a fake swap.\n\n## Vulnerability Detail\n\nThe attacker can reenter with another `CardTopupPermit() -> _processTopup() -> IExchangeProxy#executeSwapDirect()` at L174 to claw back the fee:\n\n1. Swap minAmount with 1inch, inside the 1inch swap at `ExchangeProxy.sol#L174`, reenter and `HardenedTopupProxy.sol#CardTopupPermit()`;\n2. The inner swap is the actual amount: `$1M`, which should pay for `$1000` `exchangeFee`;\n3. After the inner swap, `amountReceived` includes the `$1000` `exchangeFee`, which will be sent back to the user.\n\nAs a result, the user successfully escaped most of the `exchangeFee`.\n\n## Impact\n\nUser can escape the `exchangeFee`.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2022-10-mover/blob/main/cardtopup_contract/contracts/HardenedTopupProxy.sol#L336-L343\n\nhttps://github.com/sherlock-audit/2022-10-mover/blob/main/cardtopup_contract/contracts/ExchangeProxy.sol#L160-L185\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nConsider adding `nonReentrant()` modifier to all the 3 non-view methods in the `HardenedTopupProxy`:\n\n- CardTopupPermit();\n- CardTopupTrusted();\n- CardTopupMPTProof().\n\n## Discussion\n\n**McMannaman**\n\nThis is a valid point. Would be fixed by adding nonReentrant modifiers.\n\n**jack-the-pug**\n\nFix confirmed\n\n**McMannaman**\n\nThe fixes are in https://github.com/viaMover/2022-10-mover/pull/2",
+      "summary": "\nThis bug report concerns a vulnerability found in the exchangeFee feature of the Mover platform. It was discovered by WATCHPUG and the issue is that it can be escaped. The attacker can reenter with another CardTopupPermit() -> _processTopup() -> IExchangeProxy#executeSwapDirect() at L174 to claw back the fee. This is done by swapping the minAmount with 1inch, then the inner swap is the actual amount, with the exchangeFee including the $1000. As a result, the user successfully escapes most of the exchangeFee. \n\nThe impact of this vulnerability is that users can escape the exchangeFee. The code snippet for this issue can be found at HardenedTopupProxy.sol#L336-L343 and ExchangeProxy.sol#L160-L185. The tool used to find this vulnerability was Manual Review. The recommendation to fix this vulnerability is to consider adding nonReentrant() modifiers to all 3 non-view methods in the HardenedTopupProxy. This suggestion was confirmed by jack-the-pug, and the fixes can be found at github.com/viaMover/2022-10-mover/pull/2.",
+      "report_date": {},
+      "contest_prize_txt": "25000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/10",
+      "sponsor_name": "Mover",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-10-mover-judging/issues/120",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "10",
+      "slug": "m-1-exchangefee-can-be-escaped-sherlock-mover-mover-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Mover",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Mover",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Reentrancy"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Calldata"
+          }
+        }
+      ]
+    }
+  ]
+}

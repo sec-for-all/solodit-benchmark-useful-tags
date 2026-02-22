@@ -1,0 +1,1930 @@
+{
+  "tag": "ERC20",
+  "count": 27,
+  "metadata": {
+    "totalResults": 27,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 3,
+    "reset": 1771761060
+  },
+  "findings": [
+    {
+      "id": "63946",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "16",
+      "impact": "LOW",
+      "finders_count": 1,
+      "protocol_id": "3606",
+      "title": "[L-08] `protocolCut` not actually burned during `_mintBox`",
+      "content": "\n_Resolved_\n\nCode comments suggest that the `WishWishManager::_mintBox` function calculates a `protocolCut` meant to be burned when users mint boxes. However, instead of invoking a burn function, the code simply transfers the tokens to `address(0)`, which does not reduce the `totalSupply`. As a result, the tokens remain in circulation.\n\n```solidity\n// WishWishManager.sol\n    function _mintBox(MintData calldata mintData, bytes calldata signature) internal {\n...\n        if (mintData.fee != 0) {\n            uint256 protocolCut = (mintData.fee * $.MINT_FEE_PERCENT) / 1 ether;\n            creatorCut = mintData.fee - protocolCut;\n            $.wishToken.transferFrom(msg.sender, address(0), protocolCut); // burn protocol fee\n            $.wishToken.transferFrom(msg.sender, c.creatorAddress, creatorCut);\n            WishWishToken(address($.wishToken)).creditCreator(c.creatorAddress, creatorCut);\n        }\n...\n```\n\n**Note that it is still possible for the protocol to recover the `protocolCut` tokens sent to `address(0)` since the `$.manager` state variable can be updated and the `ERC20::_transfer` function (inherited from Solady) does not have any restrictions against transferring to or from `address(0)`:**\n\n```solidity\n// WishWishToken.sol\n    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {\n        WishWishTokenStateStorage storage $ = _getStorage();\n        if (msg.sender != $.manager) revert TransfersRestricted();\n        _transfer(from, to, amount);\n        return true;\n    }\n```\n\n```solidity\n// ERC20.sol\n    /// @dev Moves `amount` of tokens from `from` to `to`.\n    function _transfer(address from, address to, uint256 amount) internal virtual {\n        _beforeTokenTransfer(from, to, amount);\n        /// @solidity memory-safe-assembly\n        assembly {\n            let from_ := shl(96, from)\n            // Compute the balance slot and load its value.\n            mstore(0x0c, or(from_, _BALANCE_SLOT_SEED))\n            let fromBalanceSlot := keccak256(0x0c, 0x20)\n            let fromBalance := sload(fromBalanceSlot)\n            // Revert if insufficient balance.\n            if gt(amount, fromBalance) {\n                mstore(0x00, 0xf4d678b8) // `InsufficientBalance()`.\n                revert(0x1c, 0x04)\n            }\n            // Subtract and store the updated balance.\n            sstore(fromBalanceSlot, sub(fromBalance, amount))\n            // Compute the balance slot of `to`.\n            mstore(0x00, to)\n            let toBalanceSlot := keccak256(0x0c, 0x20)\n            // Add and store the updated balance of `to`.\n            // Will not overflow because the sum of all user balances\n            // cannot exceed the maximum uint256 value.\n            sstore(toBalanceSlot, add(sload(toBalanceSlot), amount))\n            // Emit the {Transfer} event.\n            mstore(0x20, amount)\n            log3(0x20, 0x20, _TRANSFER_EVENT_SIGNATURE, shr(96, from_), shr(96, mload(0x0c)))\n        }\n        _afterTokenTransfer(from, to, amount);\n    }\n```\n\nIf the intention is to actually burn the `protocolCut`, then consider introducing a `burnFrom` function in `WishWishToken.sol`, callable only by the manager, that internally invokes `ERC20::_burn()` to properly destroy tokens and decrement the total supply. \n\n\n\n",
+      "summary": "",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/pashov/audits/blob/master/team/md/WishWish-security-review_2025-11-04.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "l-08-protocolcut-not-actually-burned-during-_mintbox-pashov-audit-group-none-wishwish_2025-11-04-markdown",
+      "firm_name": "Pashov Audit Group",
+      "firm_logo_square": "Pashov_square.png",
+      "protocol_name": "WishWish_2025-11-04",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Pashov Audit Group",
+        "logo_square": "Pashov_square.png"
+      },
+      "protocols_protocol": {
+        "name": "WishWish_2025-11-04",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Business Logic"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Fee On Transfer"
+          }
+        }
+      ]
+    },
+    {
+      "id": "63922",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "16",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "3600",
+      "title": "[H-01] Deprecated `safeApprove()` usage blocks collateral approval to pool",
+      "content": "\n_Resolved_\n\n## Severity\n\n**Impact:** Medium\n\n**Likelihood:** High\n\n## Description\n\nProject uses Openzeppelin@v4.9.6, which deprecates `safeApprove()`. Safe approve usage is not safe here because it blocks every approval if approval for the collateral is non-zero:\n\n```solidity\n//    function executeOperation()\n\n        for (uint256 i = 0; i < _collateralActions.length; ++i){\n            uint256 amount = _collateralActions[i].amount;\n            IERC20 token = _collateralActions[i].token;\n\n            //transfer tokens from the caller & approve pool contract to spend them\n            token.safeTransferFrom(msg.sender, address(this), amount);\n@>          token.safeApprove(address(pool), type(uint256).max);\n\n            //supply tokens on behalf of the msg.sender\n            pool.supply(address(token), amount, msg.sender, 0);\n        }\n```\n\nhttps://github.com/OpenZeppelin/openzeppelin-contracts/blob/dc44c9f1a4c3b10af99492eed84f83ed244203f6/contracts/token/ERC20/utils/SafeERC20.sol#L45-L54\n\n```solidity\n    function safeApprove(IERC20 token, address spender, uint256 value) internal {\n        // safeApprove should only be called when setting an initial allowance,\n        // or when resetting it to zero. To increase and decrease it, use\n        // 'safeIncreaseAllowance' and 'safeDecreaseAllowance'\n        require(\n            (value == 0) || (token.allowance(address(this), spender) == 0),\n            \"SafeERC20: approve from non-zero to non-zero allowance\"\n        );\n        _callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, value));\n    }\n```\n\nAfter the first approval for collateral, every other call will fail because of the `require` line in `safeApprove()`.\n\n## Recommendations\n\nConsider using `forceApprove()` instead of `safeApprove()`.\n\n\n\n",
+      "summary": "\nThis bug report is about a medium severity issue in a project that uses Openzeppelin@v4.9.6. The problem is that the project is using a deprecated function called `safeApprove()` which is not safe to use in this case. This is because it blocks every approval if the approval for the collateral is non-zero. The report suggests using a different function called `forceApprove()` instead of `safeApprove()`.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 4.333333333333333,
+      "general_score": 3.5,
+      "source_link": "https://github.com/pashov/audits/blob/master/team/md/Hyperlend-security-review_2025-11-21.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "h-01-deprecated-safeapprove-usage-blocks-collateral-approval-to-pool-pashov-audit-group-none-hyperlend_2025-11-21-markdown",
+      "firm_name": "Pashov Audit Group",
+      "firm_logo_square": "Pashov_square.png",
+      "protocol_name": "Hyperlend_2025-11-21",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Pashov Audit Group",
+        "logo_square": "Pashov_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Hyperlend_2025-11-21",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "55533",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "30",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "2886",
+      "title": "[M-02] Use `safeTransfer()` and `safeTransferFrom()` Instead of `transfer()` and `transferFrom()`",
+      "content": "## Severity\n\nMedium Risk\n\n## Description\n\nTokens that do not comply with the ERC20 specification could return false from the transfer\nfunction call to indicate the transfer fails, while the calling contract would not notice the failure if the return\nvalue is not checked. Checking the return value is a requirement, as written in the EIP-20 specification:\n\n\"Callers MUST handle false from returns (bool success). Callers MUST NOT assume that\nfalse is never returned!\"\n\nSome tokens do not return a bool (e.g. USDT, BNB, OMG) on ERC20 methods. This will make the call break,\nmaking it impossible to use these tokens.\n\n## Location of Affected Code\n\nFile: [src/Swappee.sol](https://github.com/smilee-finance/swappee-smart-contracts/blob/16315aa674ffce54e36fadca66da3cf6785150de/src/Swappee.sol)\n\n```solidity\nIERC20(inputToken).transferFrom(msg.sender, address(this), amount);\n```\n\n```solidity\nIERC20(outputToken).transfer(msg.sender, amountOut);\n```\n\n```solidity\nIERC20(token).transfer(msg.sender, amount);\n```\n\n## Impact\n\nIt would not revert even though the transaction failed.\n\n## Recommendation\n\nUse `SafeTransferLib` or `SafeERC20`, replace transfer with `safeTransfer()` and `transferFrom()` with `safeTransferFrom()` when transferring `ERC20` tokens.\n\n## Team Response\n\nFixed.",
+      "summary": "\nThis bug report discusses an issue with tokens that do not follow the ERC20 specification. When the transfer function is called, these tokens may return a false value to indicate a failed transfer, but the calling contract may not notice this failure if it does not check the return value. This can cause problems when trying to use these tokens. The affected code is located in a file called Swappee.sol and the impact is that the transaction will not revert even if it fails. The recommendation is to use SafeTransferLib or SafeERC20 and replace the transfer function with safeTransfer() and transferFrom() with safeTransferFrom() when transferring ERC20 tokens. The team has responded that they have fixed the issue.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/shieldify-security/audits-portfolio-md/blob/main/Swappee-Security-Review.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "m-02-use-safetransfer-and-safetransferfrom-instead-of-transfer-and-transferfrom-shieldify-none-swappee-markdown",
+      "firm_name": "Shieldify",
+      "firm_logo_square": "Shieldify_square.png",
+      "protocol_name": "Swappee",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Shieldify",
+        "logo_square": "Shieldify_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Swappee",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "51129",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "4",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "2651",
+      "title": "NON-STANDARD ERC20 TOKENS WILL REVERT",
+      "content": "##### Description\n\nThe library `TokenTransfersLibrary.sol` contains the function to perform ERC20 tokens transfers in the protocol. However, this library uses the interface of `IERC20` from OpenZeppelin which enforces the return value on transfer.\n\nThis pattern is not followed by all ERC20 tokens, as for example USDT. If attempting to transfer these tokens, the contract will revert, preventing the transaction to be executed.\n\nCode Location\n-------------\n\n[TokenTransfersLibrary.sol#L12-L19](https://github.com/primex-finance/primex_contracts/blob/f809cc0471935013699407dcd9eab63b60cd2e22/src/contracts/libraries/TokenTransfersLibrary.sol#L12-L19)\n\n#### TokenTransfersLibrary.sol\n\n```\nfunction doTransferFromTo(address token, address from, address to, uint256 amount) public returns (uint256) {\n    uint256 balanceBefore = IERC20(token).balanceOf(to);\n    // The returned value is checked in the assembly code below.\n    // Arbitrary `from` should be checked at a higher level. The library function cannot be called by the user.\n    // slither-disable-next-line unchecked-transfer arbitrary-send-erc20\n    IERC20(token).transferFrom(from, to, amount);\n\n    bool success;\n\n```\n\n[TokenTransfersLibrary.sol#L46-L51](https://github.com/primex-finance/primex_contracts/blob/f809cc0471935013699407dcd9eab63b60cd2e22/src/contracts/libraries/TokenTransfersLibrary.sol#L46-L51)\n\n#### TokenTransfersLibrary.sol\n\n```\nfunction doTransferOut(address token, address to, uint256 amount) public {\n    // The returned value is checked in the assembly code below.\n    // slither-disable-next-line unchecked-transfer\n    IERC20(token).transfer(to, amount);\n\n    bool success;\n\n```\n\n##### BVSS\n\n[AO:A/AC:L/AX:L/C:N/I:N/A:N/D:M/Y:L/R:N/S:U (5.6)](/bvss?q=AO:A/AC:L/AX:L/C:N/I:N/A:N/D:M/Y:L/R:N/S:U)\n\n##### Recommendation\n\nConsider using a non-strict interface, as compound does, to transfer ERC20 tokens.\n\n##### Remediation\n\n**SOLVED**: The **Primex team** solved the issue by using a non-strict interface.\n\n`Commit ID:` [88d33deeebf9c169d21e333ef871c518b10e0b33](https://github.com/primex-finance/primex_contracts/pull/956/commits/88d33deeebf9c169d21e333ef871c518b10e0b33)",
+      "summary": "\nThe bug report concerns a function in the `TokenTransfersLibrary.sol` library that is used for transferring ERC20 tokens in the protocol. The library uses the interface of `IERC20` from OpenZeppelin, which enforces a return value on transfer. However, this pattern is not followed by all ERC20 tokens, such as USDT, which causes the contract to revert and prevent the transaction from being executed. The code location of the issue is specified in the report. The BVSS score for this bug is 5.6, and the recommendation is to consider using a non-strict interface, as Compound does, for transferring ERC20 tokens. The Primex team has solved the issue by using a non-strict interface, and the commit ID for the solution is provided.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://www.halborn.com/audits/primex/primex-contracts",
+      "sponsor_name": "Primex",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://www.halborn.com/audits/primex/primex-contracts",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "non-standard-erc20-tokens-will-revert-halborn-primex-primex-contracts-markdown",
+      "firm_name": "Halborn",
+      "firm_logo_square": "halborn_square.png",
+      "protocol_name": "Primex Contracts",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Halborn",
+        "logo_square": "halborn_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Primex Contracts",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Change Validation"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Check Return Value"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Transfer Result Check"
+          }
+        }
+      ]
+    },
+    {
+      "id": "30675",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "LOW",
+      "finders_count": 0,
+      "protocol_id": "471",
+      "title": "[01] `PrizeVault._tryGetAssetDecimals()` may return erroneous decimals",
+      "content": "\nSome ERC20 assets do not have `decimals()` implemented. As such, when calling `PrizeVault._tryGetAssetDecimals()`, `success == false` when returned by `staticcall()` and `_tryGetAssetDecimals()` returns (false, 0):  \n\nhttps://github.com/code-423n4/2024-03-pooltogether/blob/main/pt-v5-vault/src/PrizeVault.sol#L772-L783\n\n```solidity\n    function _tryGetAssetDecimals(IERC20 asset_) internal view returns (bool, uint8) {\n        (bool success, bytes memory encodedDecimals) = address(asset_).staticcall(\n            abi.encodeWithSelector(IERC20Metadata.decimals.selector)\n        );\n        if (success && encodedDecimals.length >= 32) {\n            uint256 returnedDecimals = abi.decode(encodedDecimals, (uint256));\n            if (returnedDecimals <= type(uint8).max) {\n                return (true, uint8(returnedDecimals));\n            }\n        }\n        return (false, 0);\n    }\n```\n\nAccording to the logic implemented in the constructor, `_underlyingDecimals` would default to 18:\n\nhttps://github.com/code-423n4/2024-03-pooltogether/blob/main/pt-v5-vault/src/PrizeVault.sol#L303-L305\n\n```solidity\n        IERC20 asset_ = IERC20(yieldVault_.asset());\n        (bool success, uint8 assetDecimals) = _tryGetAssetDecimals(asset_);\n        _underlyingDecimals = success ? assetDecimals : 18;\n```\n\nThis can lead to significant discrepancy if the non-standard asset decimals is different than 18. It can affect various contract functionalities, such as asset calculations and distributions, especially for tokens with non-standard decimal values when accessing `PrizeVault.decimals()`:\n\nhttps://github.com/code-423n4/2024-03-pooltogether/blob/main/pt-v5-vault/src/PrizeVault.sol#L320-L322\n\n```solidity\n    function decimals() public view override(ERC20, IERC20Metadata) returns (uint8) {\n        return _underlyingDecimals;\n    }\n```\n\nTo mitigate this, contracts should be designed with mechanisms to accurately determine and use the correct decimal value; either by requiring decimal specification upon initialization, implementing fallback mechanisms with predefined mappings, or including validation checks to ensure compatibility and accuracy in token-related operations. Addressing this challenge is crucial for maintaining the reliability and fairness of smart contract transactions involving a diverse range of ERC20 tokens. \n\n",
+      "summary": "",
+      "report_date": {},
+      "contest_prize_txt": "37700",
+      "contest_link": "https://code4rena.com/reports/2024-03-pooltogether",
+      "sponsor_name": "PoolTogether",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2024-03-pooltogether",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "332",
+      "slug": "01-prizevault_trygetassetdecimals-may-return-erroneous-decimals-code4rena-pooltogether-pooltogether-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "PoolTogether",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "PoolTogether",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Decimals"
+          }
+        }
+      ]
+    },
+    {
+      "id": "30672",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 5,
+      "protocol_id": "471",
+      "title": "[M-06] Funds locked due to missing transfer check",
+      "content": "\nAll of the user's funds are unretrievably locked in the `PrizeVault` contract.\n\nA combination of issues allows for the following scenario:\n\n1. Alice invokes [`_withdraw(receiver, assets)`](https://github.com/code-423n4/2024-03-pooltogether/blob/480d58b9e8611c13587f28811864aea138a0021a/pt-v5-vault/src/PrizeVault.sol#L925-L941) (via `burn()` or `withdraw()`).\n2. The contract [computes the number of shares to redeem](https://github.com/code-423n4/2024-03-pooltogether/blob/480d58b9e8611c13587f28811864aea138a0021a/pt-v5-vault/src/PrizeVault.sol#L933-L934), via `previewWithdraw(assets)`.\n3. The contract [redeems as many shares](https://github.com/code-423n4/2024-03-pooltogether/blob/480d58b9e8611c13587f28811864aea138a0021a/pt-v5-vault/src/PrizeVault.sol#L935-L936), but the ERC 4626-compliant vault returns fewer shares than expected. At this point, the contract holds fewer than `assets` tokens.\n4. The contract [attempts to `transfer` assets to the receiver](https://github.com/code-423n4/2024-03-pooltogether/blob/480d58b9e8611c13587f28811864aea138a0021a/pt-v5-vault/src/PrizeVault.sol#L939). This fails due to insufficient funds, but the ERC 20-compliant token does not revert (only returns `false`).\n5. At this point, Alice's assets are locked in the `PrizeVault` contract. They cannot be withdrawn at a later point, because the corresponding prize vault and yield vault shares have been burned.\n\nThe exploit relies on insufficient handling of two corner cases of [ERC-20](https://eips.ethereum.org/EIPS/eip-20) and [ERC-4246](https://eips.ethereum.org/EIPS/eip-4626):\n\n- [ERC-20](https://eips.ethereum.org/EIPS/eip-20) does not stipulate that `transfer` must throw if the message sender holds insufficient balance. Instead, returning `false` is compliant with ERC-20 and implemented by many tokens, including [BAT](https://etherscan.io/token/0x0d8775f648430679a709e98d2b0cb6250d2887ef), [cUSDC](https://etherscan.io/token/0x39aa39c021dfbae8fac545936693ac917d5e7563), [EURS](https://etherscan.io/token/0xdb25f211ab05b1c97d595516f45794528a807ad8), [HuobiToken](https://etherscan.io/token/0x6f259637dcd74c767781e37bc6133cd6a68aa161), [ZRX](https://etherscan.io/token/0xe41d2489571d322189246dafa5ebde1f4699f498) and many more.\n- [ERC-4626](https://eips.ethereum.org/EIPS/eip-4626) does not stipulate that `redeem(previewWithdraw(assets))` transfers at least `assets`. In particular, [`redeem(shares, ...)`](https://eips.ethereum.org/EIPS/eip-4626#redeem) only guarantees that exactly `shares` are burned. The only guaranteed way to gain a certain amount of assets is by calling [`withdraw(assets, ...)`](https://eips.ethereum.org/EIPS/eip-4626#withdraw).\\\n\nWhile this is the most standards-compliant scenario, a malicious vault could simply not transfer the required tokens on purpose, and still trigger the same effect as described above.\n\n### Proof of Concept\n\nWe provide a proof of concept that results in all of Alice's assets locked in the `PrizeVault` contract and all her shares burned.\n\nPlace the file below in `test/unit/PrizeVault/PoCLockedFunds.t.sol` and run the test with:\n\n```\n    $ forge test --mt test_poc_lockedFundsOnLossyWithdrawal\n```\n\n<details>\n\n```solidity\n// Place in test/unit/PrizeVault/PoCLockedFunds.t.sol\npragma solidity ^0.8.24;\n\nimport { UnitBaseSetup } from \"./UnitBaseSetup.t.sol\";\n\nimport { IERC20, IERC4626 } from \"openzeppelin/token/ERC20/extensions/ERC4626.sol\";\nimport { ERC20PermitMock } from \"../../contracts/mock/ERC20PermitMock.sol\";\nimport { ERC4626Mock } from \"openzeppelin/mocks/ERC4626Mock.sol\";\nimport { Math } from \"openzeppelin/utils/math/Math.sol\";\n\n// An ERC20-compliant token that does not throw on insufficient balance.\ncontract NoRevertToken is IERC20 {\n    uint8   public decimals = 18;\n    uint256 public totalSupply;\n\n    mapping (address => uint)                      public balanceOf;\n    mapping (address => mapping (address => uint)) public allowance;\n\n    constructor(uint _totalSupply) {\n        totalSupply = _totalSupply;\n        balanceOf[msg.sender] = _totalSupply;\n        emit Transfer(address(0), msg.sender, _totalSupply);\n    }\n\n    function transfer(address dst, uint wad) external returns (bool) {\n        return transferFrom(msg.sender, dst, wad);\n    }\n    function transferFrom(address src, address dst, uint wad) virtual public returns (bool) {\n        if (balanceOf[src] < wad) return false;                        // insufficient src bal\n\n        if (src != msg.sender && allowance[src][msg.sender] != type(uint).max) {\n            if (allowance[src][msg.sender] < wad) return false;        // insufficient allowance\n            allowance[src][msg.sender] = allowance[src][msg.sender] - wad;\n        }\n\n        balanceOf[src] -= wad;\n        balanceOf[dst] += wad;\n\n        emit Transfer(src, dst, wad);\n        return true;\n    }\n    function approve(address usr, uint wad) virtual external returns (bool) {\n        allowance[msg.sender][usr] = wad;\n        emit Approval(msg.sender, usr, wad);\n        return true;\n    }\n}\n\n\n// An ERC4626-compliant (yield) vault.\n// `withdraw(assets)` burns `assets * totalSupply / (totalAssets + 1)` shares.\n// `redeem(shares)` transfers `shares * (totalAssets + 1) / (totalSupply + 1)` assets.\ncontract YieldVault is ERC4626Mock {\n    using Math for uint256;\n    constructor(address _asset) ERC4626Mock(_asset) {}\n\n    function previewWithdraw(uint256 assets) public view virtual override returns (uint256) {\n        return assets.mulDiv(totalSupply(), totalAssets() + 1);\n    }\n}\n\n// Demonstrate that all of Alice's funds are locked in the PrizeVault,\n// with all corresponding shares burned.\ncontract PoCLockedFunds is UnitBaseSetup {\n    NoRevertToken asset;\n\n    function setUpUnderlyingAsset() public view override returns (ERC20PermitMock) {\n        return ERC20PermitMock(address(asset));\n    }\n\n    function setUpYieldVault() public override returns (IERC4626) {\n        return new YieldVault(address(underlyingAsset));\n    }\n\n    function setUp() public override {\n        return;\n    }\n\n    function test_poc_lockedFundsOnLossyWithdrawal() public {\n        uint256 deposited = 1e18;\n\n        // Mint 10^18 tokens and transfer them to Alice.\n        asset = new NoRevertToken(deposited);\n        super.setUp();\n        asset.transfer(alice, deposited);\n\n        // Alice holds all tokens, the yield vault and the price vaults are empty.\n        assertEq(underlyingAsset.balanceOf(alice), deposited);\n        assertEq(underlyingAsset.balanceOf(address(vault)), 0);\n        assertEq(underlyingAsset.balanceOf(address(yieldVault)), 0);\n        assertEq(yieldVault.totalSupply(), 0);\n        assertEq(yieldVault.balanceOf(address(vault)), 0);\n        assertEq(vault.totalSupply(), 0);\n        assertEq(vault.balanceOf(alice), 0);\n\n        // Alice enters the vault.\n        vm.startPrank(alice);\n        underlyingAsset.approve(address(vault), deposited);\n        vault.deposit(deposited, alice);\n\n        // All assets were transferred into the yield vault,\n        // as many yield vault shares were minted to the prize vault, and\n        // as many prize vault shares were minted to Alice.\n        assertEq(underlyingAsset.balanceOf(alice), 0);\n        assertEq(underlyingAsset.balanceOf(address(vault)), 0);\n        assertEq(underlyingAsset.balanceOf(address(yieldVault)), deposited);\n        assertEq(yieldVault.totalSupply(), deposited);\n        assertEq(yieldVault.balanceOf(address(vault)), deposited);\n        assertEq(vault.totalSupply(), deposited);\n        assertEq(vault.balanceOf(alice), deposited);\n\n        // Perform the lossy withdraw.\n        vault.withdraw(deposited, alice, alice);\n\n        // At this point Alice should've received all her assets back,\n        // and all prize/yield vault shares should've been burned.\n        // In contrast, no assets were transferred to Alice,\n        // but (almost) all shares have been burned.\n        assertEq(underlyingAsset.balanceOf(alice), 0);\n        assertEq(underlyingAsset.balanceOf(address(vault)), 999999999999999999);\n        assertEq(underlyingAsset.balanceOf(address(yieldVault)), 1);\n        assertEq(yieldVault.totalSupply(), 1);\n        assertEq(yieldVault.balanceOf(address(vault)), 1);\n        assertEq(vault.totalSupply(), 0);\n        assertEq(vault.balanceOf(alice), 0);\n\n        // As a result, Alice's funds are locked in the vault;\n        // she cannot even withdraw a single asset.\n        vm.expectRevert();\n        vault.withdraw(1, alice, alice);\n        vm.expectRevert();\n        vault.redeem(1, alice, alice);\n    }\n}\n```\n\n</details>\n\n### Recommended Mitigation Steps\n\nWe recommend to fix both the ERC-20 transfer and ERC-4626 withdrawal.\n\nFor the first, it is easiest to rely on OpenZeppelin's [SafeERC20 `safeTransfer`](https://github.com/OpenZeppelin/openzeppelin-contracts/blob/8cc7f2dcbf368f2a7ea491389dae41f01c16e352/contracts/token/ERC20/utils/SafeERC20.sol#L32-L38) function:\n\n```diff\ndiff --git a/pt-v5-vault/src/PrizeVault.sol b/pt-v5-vault/src/PrizeVault.sol\nindex fafcff3..de69915 100644\n--- a/pt-v5-vault/src/PrizeVault.sol\n+++ b/pt-v5-vault/src/PrizeVault.sol\n@@ -936,7 +936,7 @@ contract PrizeVault is TwabERC20, Claimable, IERC4626, ILiquidationSource, Ownab\n             yieldVault.redeem(_yieldVaultShares, address(this), address(this));\n         }\n         if (_receiver != address(this)) {\n-            _asset.transfer(_receiver, _assets);\n+            _asset.safeTransfer(_receiver, _assets);\n         }\n     }\n```\n\nThis already mitigates the erroneous locking of assets.\n\nIn addition, we recommend to ensure that at least the necessary amount of shares is withdrawn from the yield vault.\nIn the simplest form, this can be ensured by invoking `withdraw` directly:\n\n```diff\ndiff --git a/pt-v5-vault/src/PrizeVault.sol b/pt-v5-vault/src/PrizeVault.sol\nindex fafcff3..9bb0653 100644\n--- a/pt-v5-vault/src/PrizeVault.sol\n+++ b/pt-v5-vault/src/PrizeVault.sol\n@@ -930,10 +930,7 @@ contract PrizeVault is TwabERC20, Claimable, IERC4626, ILiquidationSource, Ownab\n         // latent balance, we don't need to redeem any yield vault shares.\n         uint256 _latentAssets = _asset.balanceOf(address(this));\n         if (_assets > _latentAssets) {\n-            // The latent balance is subtracted from the withdrawal so we don't withdraw more than we need.\n-            uint256 _yieldVaultShares = yieldVault.previewWithdraw(_assets - _latentAssets);\n-            // Assets are sent to this contract so any leftover dust can be redeposited later.\n-            yieldVault.redeem(_yieldVaultShares, address(this), address(this));\n+            yieldVault.withdraw(_assets - _latentAssets, address(this), address(this));\n         }\n         if (_receiver != address(this)) {\n             _asset.transfer(_receiver, _assets);\n```\n\nIf a tighter bound on redeemed shares is desired, the call to `previewWithdraw`/`redeem` should be followed by a `withdraw` of the outstanding assets:\n\n```diff\ndiff --git a/pt-v5-vault/src/PrizeVault.sol b/pt-v5-vault/src/PrizeVault.sol\nindex fafcff3..622a7a6 100644\n--- a/pt-v5-vault/src/PrizeVault.sol\n+++ b/pt-v5-vault/src/PrizeVault.sol\n@@ -934,6 +934,13 @@ contract PrizeVault is TwabERC20, Claimable, IERC4626, ILiquidationSource, Ownab\n             uint256 _yieldVaultShares = yieldVault.previewWithdraw(_assets - _latentAssets);\n             // Assets are sent to this contract so any leftover dust can be redeposited later.\n             yieldVault.redeem(_yieldVaultShares, address(this), address(this));\n+            \n+            // Redeeming `_yieldVaultShares` may have transferred fewer than the required assets.\n+            // Ask for the outstanding assets directly.\n+            _latentAssets = _asset.balanceOf(address(this));\n+            if (_assets > _latentAssets) {\n+                yieldVault.withdraw(_assets - _latentAssets);\n+            }\n         }\n         if (_receiver != address(this)) {\n             _asset.transfer(_receiver, _assets);\n```\n\n### Assessed type\n\nERC20\n\n**[trmid (PoolTogether) confirmed and commented](https://github.com/code-423n4/2024-03-pooltogether-findings/issues/235#issuecomment-1996001801):**\n > I would like to add that if a \"compatible ERC4626 yield vault returns less assets than expected\", then it is not actually ERC4626 compatible as these behaviors are required in the spec. That being said, there are likely to be some yield vaults that have errors like this and it is a good thing if we can protect against it without inhibiting the default experience!\n> \n> The `safeTransfer` addition seems sufficient, while the other recommended mitigations are unnecessary and would break the \"dust collector\" strategy that the prize vault employs.\n>\n> Mitigation [here](https://github.com/GenerationSoftware/pt-v5-vault/pull/86).\n\n**[hansfriese (judge) decreased severity to Medium and commented](https://github.com/code-423n4/2024-03-pooltogether-findings/issues/235#issuecomment-2002771823):**\n > The impact is critical if `_asset.transfer()` fails silently and it will be mitigated from [this known issue](https://github.com/code-423n4/2024-03-pooltogether/blob/main/bot-report.md#m-02-erc-20-transfertransferfrom-return-values-should-be-checked).\n> So according to [this criteria](https://docs.code4rena.com/awarding/judging-criteria/supreme-court-decisions-fall-2023#verdict-similar-exploits-under-a-single-issue), this issue might be OOS if it's fully mitigated by adding `safeTransfer`.\n> \n> But another impact is `withdraw()` might revert when `yieldVault.redeem()` returns fewer assets than requested and Medium is appropriate.\n\n***\n\n",
+      "summary": "\nThe bug report describes a scenario where a user's funds are locked in a contract called `PrizeVault`. This happens due to a combination of issues where the contract does not handle certain cases properly. The bug can be triggered when a user tries to withdraw their funds using a function called `_withdraw()`, which calculates the number of shares to redeem and then tries to transfer the assets to the user. However, due to errors in the contract's code and the way some tokens work, the transfer fails but does not revert, leaving the user's funds locked in the contract. This exploit relies on the fact that some tokens do not throw an error when the user does not have enough funds, and that the contract does not always transfer the correct amount of shares. A proof of concept is provided to demonstrate the bug, and mitigation steps are recommended to fix the issue. The bug is assessed as Medium severity, as it can cause the user's funds to be locked and the contract to revert in certain situations. ",
+      "report_date": {},
+      "contest_prize_txt": "37700",
+      "contest_link": "https://code4rena.com/reports/2024-03-pooltogether",
+      "sponsor_name": "PoolTogether",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2024-03-pooltogether",
+      "github_link": "https://github.com/code-423n4/2024-03-pooltogether-findings/issues/235",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "332",
+      "slug": "m-06-funds-locked-due-to-missing-transfer-check-code4rena-pooltogether-pooltogether-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "PoolTogether",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "PoolTogether",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Transfer Result Check"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC4626"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "30542",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 30,
+      "protocol_id": "1238",
+      "title": "[M-15]  Blocklisting in payment ERC20 can cause rented NFT to be stuck in Safe",
+      "content": "\nWhen a rental is stopped, [`Stop.stopRent()`](https://github.com/re-nft/smart-contracts/blob/3ddd32455a849c3c6dc3c3aad7a33a6c9b44c291/src/policies/Stop.sol#L265) transfers the rented NFT back from the renter's Safe to the lender's wallet and transfers the ERC20 payments from the payment escrow contract to the respective recipients (depending on the type of rental, those can be the renter, the lender, or both).\n\nTo transfer the ERC20 payments, [`PaymentEscrow.settlePayment()`](https://github.com/re-nft/smart-contracts/blob/3ddd32455a849c3c6dc3c3aad7a33a6c9b44c291/src/modules/PaymentEscrow.sol#L320) is called.\n\n`PaymentEscrow.settlePayment()` will use [`_safeTransfer()`](https://github.com/re-nft/smart-contracts/blob/3ddd32455a849c3c6dc3c3aad7a33a6c9b44c291/src/modules/PaymentEscrow.sol#L100) (via `_settlePayment()` and `_settlePaymentProRata()` or `_settlePaymentInFull()`) to transfer the ERC20 payments to the recipients:\n\n*   If the rental was a BASE order, the payment is sent to the lender.\n*   If the rental was a PAY order and the rental period is over, the payment is sent to the renter.\n*   If the rental was a PAY order and the rental period is not over, the payment is split between the lender and the renter.\n\nIf either the payment recipient or the payment escrow contract are blocklisted in the payment ERC20, the transfer will fail and `_safeTransfer()` will revert. In this case the rental is not stopped, the rented NFT will still be in the renter's Safe, and the payment will still be in the payment escrow contract.\n\nBlocklisting is implemented by several stablecoins issued by centralized entities (e.g. USDC and USDT) to be able to comply with regulatory requirements (freeze funds that are connected to illegal activities).\n\nThere are multiple scenarios that can have impact here:\n\nA. The renter of a PAY order rental is blocklisted: Even if the renter is already blocklisted before making the rental, the rental can still start, but ending the rental will not be possible, so the lender loses the rented NFT (it will be stuck in the Safe) and at least temporarily loses access to the payment (it will be stuck in the payment escrow, but a protocol admin could recover it).\n\nB. The lender of a BASE order rental is blocklisted: Ending the rental will not be possible, so the lender loses the rented NFT and the payment. However, it is unlikely that the lender has been blocklisted arbitrarily during the rental or wasn't aware of the blocklisting before the rental, so this scenario seems unlikely.\n\nC. The payment escrow contract becomes blocklisted during the rental (if it were blocklisted before the rental, the rental couldn't start): In this case the lender loses the rented NFT and the payment is lost. However, it seems unlikely that the payment escrow contract becomes blocklisted.\n\n### Impact\n\nOut of the scenarios listed above, scenario A has the highest impact. Anyone who is blocklisted by a ERC20 contract can grief any lender of a PAY order lending offer that offers this ERC20 as payment of their rental NFT. The attacker only has to pay the gas fee to start the rental to carry out this attack.\n\nScenarios B and C are less severe (due to low likelihood) but still relevant, as the blocklisting carried out in the external payment ERC20 contract causes the loss of the rental NFT.\n\n### Proof of Concept\n\nAdd blocklisting to the [MockERC20 contract](https://github.com/re-nft/smart-contracts/blob/3ddd32455a849c3c6dc3c3aad7a33a6c9b44c291/test/mocks/tokens/standard/MockERC20.sol):\n\n<details>\n\n```diff\ndiff --git a/test/mocks/tokens/standard/MockERC20.sol b/test/mocks/tokens/standard/MockERC20.sol\nindex 3e170c1..abcfaf7 100644\n--- a/test/mocks/tokens/standard/MockERC20.sol\n+++ b/test/mocks/tokens/standard/MockERC20.sol\n@@ -4,8 +4,26 @@ pragma solidity ^0.8.20;\n import {ERC20} from \"@openzeppelin-contracts/token/ERC20/ERC20.sol\";\n\n contract MockERC20 is ERC20 {\n+    mapping(address => bool) public isBlocklisted;\n+\n     constructor() ERC20(\"MockERC20\", \"MERC20\") {}\n\n+    function setBlock(address account, bool status) public {\n+        isBlocklisted[account] = status;\n+    }\n+\n+    function transfer(address to, uint256 value) public override returns (bool) {\n+        if (isBlocklisted[to] || isBlocklisted[msg.sender])\n+          revert(\"You are blocked\");\n+        return super.transfer(to, value);\n+    }\n+\n+    function transferFrom(address from, address to, uint256 value) public override returns (bool) {\n+        if (isBlocklisted[to] || isBlocklisted[from])\n+          revert(\"You are blocked\");\n+        return super.transferFrom(from, to, value);\n+    }\n+\n     function mint(address to, uint256 amount) public {\n         _mint(to, amount);\n     }\n```\n\n</details>\n\nAdd the following import to [`StopRent.t.sol`](https://github.com/re-nft/smart-contracts/blob/3ddd32455a849c3c6dc3c3aad7a33a6c9b44c291/test/integration/StopRent.t.sol):\n\n```solidity\nimport {Errors} from \"@src/libraries/Errors.sol\";\n```\n\nAdd the following test to `StopRent.t.sol`:\n\n<Details>\n\n```solidity\n    function test_StopRent_PayOrder_InFull_StoppedByLender_RenterBlocklisted() public {\n        // Blocklist the renter\n        erc20s[0].setBlock(bob.addr, true);\n\n        // create a PAY order\n        createOrder({\n            offerer: alice,\n            orderType: OrderType.PAY,\n            erc721Offers: 1,\n            erc1155Offers: 0,\n            erc20Offers: 1,\n            erc721Considerations: 0,\n            erc1155Considerations: 0,\n            erc20Considerations: 0\n        });\n\n        // finalize the pay order creation\n        (\n            Order memory payOrder,\n            bytes32 payOrderHash,\n            OrderMetadata memory payOrderMetadata\n        ) = finalizeOrder();\n\n        // create a PAYEE order. The fulfiller will be the offerer.\n        createOrder({\n            offerer: bob,\n            orderType: OrderType.PAYEE,\n            erc721Offers: 0,\n            erc1155Offers: 0,\n            erc20Offers: 0,\n            erc721Considerations: 1,\n            erc1155Considerations: 0,\n            erc20Considerations: 1\n        });\n\n        // finalize the pay order creation\n        (\n            Order memory payeeOrder,\n            bytes32 payeeOrderHash,\n            OrderMetadata memory payeeOrderMetadata\n        ) = finalizeOrder();\n\n        // create an order fulfillment for the pay order\n        createOrderFulfillment({\n            _fulfiller: bob,\n            order: payOrder,\n            orderHash: payOrderHash,\n            metadata: payOrderMetadata\n        });\n\n        // create an order fulfillment for the payee order\n        createOrderFulfillment({\n            _fulfiller: bob,\n            order: payeeOrder,\n            orderHash: payeeOrderHash,\n            metadata: payeeOrderMetadata\n        });\n\n        // add an amendment to include the seaport fulfillment structs\n        withLinkedPayAndPayeeOrders({payOrderIndex: 0, payeeOrderIndex: 1});\n\n        // finalize the order pay/payee order fulfillment\n        (RentalOrder memory payRentalOrder, ) = finalizePayOrderFulfillment();\n\n        // speed up in time past the rental expiration\n        vm.warp(block.timestamp + 750);\n\n        // try to stop the rental order (will revert)\n        vm.prank(alice.addr);\n        vm.expectRevert(\n          abi.encodeWithSelector(\n            Errors.PaymentEscrowModule_PaymentTransferFailed.selector,\n            address(erc20s[0]),\n            bob.addr,\n            100\n          )\n        );\n        stop.stopRent(payRentalOrder);\n\n        // get the rental order hashes\n        bytes32 payRentalOrderHash = create.getRentalOrderHash(payRentalOrder);\n\n        // assert that the rental order still exists in storage\n        assertEq(STORE.orders(payRentalOrderHash), true);\n\n        // assert that the token are still rented out in storage\n        assertEq(STORE.isRentedOut(address(bob.safe), address(erc721s[0]), 0), true);\n\n        // assert that the ERC721 is still in the safe\n        assertEq(erc721s[0].ownerOf(0), address(bob.safe));\n\n        // assert that the offerer made a payment\n        assertEq(erc20s[0].balanceOf(alice.addr), uint256(9900));\n\n        // assert that the fulfiller did not received the payment\n        assertEq(erc20s[0].balanceOf(bob.addr), uint256(10000));\n\n        // assert that a payment is still in the escrow contract\n        assertEq(erc20s[0].balanceOf(address(ESCRW)), uint256(100));\n    }\n```\n</details>\n\nNow the PoC can be run with:\n\n    forge test --match-path test/integration/StopRent.t.sol --match-test test_StopRent_PayOrder_InFull_StoppedByLender_RenterBlocklisted -vvv\n\n### Recommended Mitigation Steps\n\nI see two ways to mitigate this:\n\n*   Implement a non-reverting transfer helper function used for payments when stopping the rental. In case of blocklisting, the NFT would still be returned to the lender while the payment ERC20 stays in the payment escrow contract (but could be recovered by an admin unless the payment escrow contract itself is blocklisted).\n*   Split stopping the rental and transferring the assets into separate steps, so that after stopping the rental, the lender and the renter have to call separate functions to claim their assets.\n\n**[Alec1017 (reNFT) confirmed](https://github.com/code-423n4/2024-01-renft-findings/issues/64#issuecomment-1908303940)**\n\n**[0xean (Judge) decreased severity to Medium](https://github.com/code-423n4/2024-01-renft-findings/issues/64#issuecomment-1913270795)**\n\n***\n\n",
+      "summary": "\nThis bug report discusses a potential issue with the transfer of ERC20 payments when a rental is stopped. This transfer is done through the `PaymentEscrow.settlePayment()` function, which uses `_safeTransfer()` to transfer the payments to the appropriate recipients. However, if either the payment recipient or the payment escrow contract is blocklisted in the payment ERC20, the transfer will fail and the rental will not be stopped. This can result in the rented NFT remaining in the renter's Safe and the payment remaining in the payment escrow contract. This issue can be exploited by someone who is blocklisted in the ERC20 contract, causing a loss of the rental NFT and temporary loss of access to the payment for the lender. The report suggests two potential mitigation steps to address this issue.",
+      "report_date": {},
+      "contest_prize_txt": "83600",
+      "contest_link": "https://code4rena.com/reports/2024-01-renft",
+      "sponsor_name": "reNFT",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 2,
+      "source_link": "https://code4rena.com/reports/2024-01-renft",
+      "github_link": "https://github.com/code-423n4/2024-01-renft-findings/issues/64",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "317",
+      "slug": "m-15-blocklisting-in-payment-erc20-can-cause-rented-nft-to-be-stuck-in-safe-code4rena-renft-renft-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "reNFT",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "reNFT",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 1391.208791137663
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Blacklisted"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Weird ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "29698",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 3,
+      "protocol_id": "924",
+      "title": "[M-01] Zero amount token transfers may cause a denial of service during liquidations",
+      "content": "\nSome ERC20 implementations revert on zero value transfers. Since liquidation rewards are based on a fraction of the available position's premiums, this may cause an accidental denial of service that prevents the successful execution of liquidations.\n\n### Impact\n\nLiquidations in the LAMM protocol are incentivized by a reward that is calculated as a fraction of the premiums available in the position.\n\n<https://github.com/code-423n4/2023-12-particle/blob/a3af40839b24aa13f5764d4f84933dbfa8bc8134/contracts/protocol/ParticlePositionManager.sol#L348-L354>\n\n```solidity\n348:         // calculate liquidation reward\n349:         liquidateCache.liquidationRewardFrom =\n350:             ((closeCache.tokenFromPremium) * LIQUIDATION_REWARD_FACTOR) /\n351:             uint128(Base.BASIS_POINT);\n352:         liquidateCache.liquidationRewardTo =\n353:             ((closeCache.tokenToPremium) * LIQUIDATION_REWARD_FACTOR) /\n354:             uint128(Base.BASIS_POINT);\n```\n\nThese amounts are later transferred to the caller, the liquidator, at the end of the `liquidatePosition()` function.\n\n<https://github.com/code-423n4/2023-12-particle/blob/a3af40839b24aa13f5764d4f84933dbfa8bc8134/contracts/protocol/ParticlePositionManager.sol#L376-L378>\n\n```solidity\n376:         // reward liquidator\n377:         TransferHelper.safeTransfer(closeCache.tokenFrom, msg.sender, liquidateCache.liquidationRewardFrom);\n378:         TransferHelper.safeTransfer(closeCache.tokenTo, msg.sender, liquidateCache.liquidationRewardTo);\n```\n\nReward amounts, `liquidationRewardFrom` and `liquidationRewardTo`, can be calculated as zero if `tokenFromPremium` or `tokenToPremium` are zero, if the liquidation ratio gets rounded down to zero, or if `LIQUIDATION_REWARD_FACTOR` is zero.\n\nCoupled with that fact that some ERC20 implementations [revert on zero value transfers](https://github.com/d-xo/weird-erc20?tab=readme-ov-file#revert-on-zero-value-transfers), this can cause an accidental denial of service in the implementation of `liquidatePosition()`, blocking certain positions from being liquidated.\n\n### Recommendation\n\nCheck that the amounts are greater than zero before executing the transfer.\n\n```diff\n        // reward liquidator\n+       if (liquidateCache.liquidationRewardFrom > 0) {\n          TransferHelper.safeTransfer(closeCache.tokenFrom, msg.sender, liquidateCache.liquidationRewardFrom);\n+       }\n+       if (liquidateCache.liquidationRewardTo > 0) {\n          TransferHelper.safeTransfer(closeCache.tokenTo, msg.sender, liquidateCache.liquidationRewardTo);\n+       }\n```\n\n\n**[0xleastwood (Judge) commented](https://github.com/code-423n4/2023-12-particle-findings/issues/61#issuecomment-1866972456):**\n > Unlikely token type to even support in the first place. Probably more of a QA issue.\n\n**[wukong-particle (Particle) commented](https://github.com/code-423n4/2023-12-particle-findings/issues/61#issuecomment-1868223734):**\n > Agree with the judge. Though we can add a zero check to all transfers to potentially save gas. \n\n**[adriro (Warden) commented](https://github.com/code-423n4/2023-12-particle-findings/issues/61#issuecomment-1872538647):**\n > I believe this is similar to the issue that mentions tokens with blocklists (#31, judged as high) as both of these are non standard (in the strict sense of the standard), though it is of course fair to say that blocklists are more frequent (eg usdc, usdt). \n> \n> Note that the protocol doesn't have any sort of allow list to control which ERC20 tokens are supported inside the protocol, and anyone can open a position using any Uniswap pool, which also means any token. The main problem here is that liquidations can be blocked after a position is open, that's why I consider the med severity justified.\n\n**[0xleastwood (Judge) commented](https://github.com/code-423n4/2023-12-particle-findings/issues/61#issuecomment-1872943231):**\n > The difference being that there are little to no tokens supported across all lending platforms which revert on zero token transfer where there are almost always tokens supported with blocklists. \n >\n > I guess this can remain medium because anyone can LP into a position and protocol liveness should be highlighted here.\n\n **[wukong-particle (Particle) confirmed](https://github.com/code-423n4/2023-12-particle-findings/issues/61#issuecomment-1889804514)**\n\n***\n\n",
+      "summary": "\nThis bug report discusses an issue with some ERC20 implementations that revert on zero value transfers. This can cause an accidental denial of service in the LAMM protocol, preventing successful liquidations. The impact of this bug is that liquidations may not be properly incentivized, leading to potential issues with protocol liveness. The recommendation is to check that transfer amounts are greater than zero before executing them. The severity of this bug is considered medium, as it can affect the protocol's functionality, but it is not as severe as other issues with blocklisted tokens.",
+      "report_date": {},
+      "contest_prize_txt": "24150",
+      "contest_link": "https://code4rena.com/reports/2023-12-particle",
+      "sponsor_name": "Particle Protocol",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-12-particle",
+      "github_link": "https://github.com/code-423n4/2023-12-particle-findings/issues/61",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "312",
+      "slug": "m-01-zero-amount-token-transfers-may-cause-a-denial-of-service-during-liquidations-code4rena-particle-protocol-particle-protocol-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Particle Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Particle Protocol",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 666.5487911376631
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Weird ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Revert On 0 Transfer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Liquidation"
+          }
+        }
+      ]
+    },
+    {
+      "id": "27293",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "11",
+      "impact": "HIGH",
+      "finders_count": 2,
+      "protocol_id": "1161",
+      "title": "`TokenSaleProposal::buy` implicitly assumes that buy token has 18 decimals resulting in a potential total loss scenario for Dao Pool",
+      "content": "**Description:** `TokenSaleProposalBuy::buy` is called by users looking to buy the DAO token using a pre-approved token. The exchange rate for this sale is pre-assigned for the specific tier. This function internally calls `TokenSaleProposalBuy::_purchaseWithCommission` to transfer funds from the buyer to the gov pool. Part of the transferred funds are used to pay the DexeDAO commission and balance funds are transferred to the `GovPool` address. To do this, `TokenSaleProposalBuy::_sendFunds` is called.\n\n```solidity\n    function _sendFunds(address token, address to, uint256 amount) internal {\n        if (token == ETHEREUM_ADDRESS) {\n            (bool success, ) = to.call{value: amount}(\"\");\n            require(success, \"TSP: failed to transfer ether\");\n        } else {\n  >>          IERC20(token).safeTransferFrom(msg.sender, to, amount.from18(token.decimals())); //@audit -> amount is assumed to be 18 decimals\n        }\n    }\n```\n\nNote that this function assumes that the `amount` of ERC20 token is always 18 decimals. The `DecimalsConverter::from18` function converts from a base decimal (18) to token decimals. Note that the amount is directly passed by the buyer and there is no prior normalisation done to ensure the token decimals are converted to 18 decimals before the `_sendFunds` is called.\n\n\n**Impact:** It is easy to see that for tokens with smaller decimals, eg. USDC with 6 decimals, will cause a total loss to the DAO. In such cases amount is presumed to be 18 decimals & on converting to token decimals(6), this number can round down to 0.\n\n**Proof of Concept:**\n- Tier 1 allows users to buy DAO token at exchange rate, 1 DAO token = 1 USDC.\n-  User intends to buy 1000 Dao Tokens and calls `TokenSaleProposal::buy` with `buy(1, USDC, 1000*10**6)\n- Dexe DAO Comission is assumed 0% for simplicity- > `sendFunds` is called with `sendFunds(USDC, govPool, 1000* 10**6)`\n- `DecimalConverter::from18` function is called on amount with base decimals 18, destination decimals 6:  `from18(1000*10**6, 18, 6)`\n- this gives `1000*10**6/10*(18-6) = 1000/ 10**6` which rounds to 0\n\nBuyer can claim 1000 DAO tokens for free. This is a total loss to the DAO.\n\nAdd PoC to `TokenSaleProposal.test.js`:\n\nFirst add a new line around [L76](https://github.com/dexe-network/DeXe-Protocol/tree/f2fe12eeac0c4c63ac39670912640dc91d94bda5/test/gov/proposals/TokenSaleProposal.test.js#L76) to add new `purchaseToken3`:\n```javascript\n      let purchaseToken3;\n```\n\nThen add a new line around [L528](https://github.com/dexe-network/DeXe-Protocol/tree/f2fe12eeac0c4c63ac39670912640dc91d94bda5/test/gov/proposals/TokenSaleProposal.test.js#L528):\n```javascript\n      purchaseToken3 = await ERC20Mock.new(\"PurchaseMockedToken3\", \"PMT3\", 6);\n```\n\nThen add a new tier around [L712](https://github.com/dexe-network/DeXe-Protocol/tree/f2fe12eeac0c4c63ac39670912640dc91d94bda5/test/gov/proposals/TokenSaleProposal.test.js#L712):\n```javascript\n        {\n          metadata: {\n            name: \"tier 9\",\n            description: \"the ninth tier\",\n          },\n          totalTokenProvided: wei(1000),\n          saleStartTime: timeNow.toString(),\n          saleEndTime: (timeNow + 10000).toString(),\n          claimLockDuration: \"0\",\n          saleTokenAddress: saleToken.address,\n          purchaseTokenAddresses: [purchaseToken3.address],\n          exchangeRates: [PRECISION.times(1).toFixed()],\n          minAllocationPerUser: 0,\n          maxAllocationPerUser: 0,\n          vestingSettings: {\n            vestingPercentage: \"0\",\n            vestingDuration: \"0\",\n            cliffPeriod: \"0\",\n            unlockStep: \"0\",\n          },\n          participationDetails: [],\n        },\n```\n\nThen add the test itself under the section `describe(\"if added to whitelist\", () => {`:\n```javascript\n          it(\"audit buy implicitly assumes that buy token has 18 decimals resulting in loss to DAO\", async () => {\n            await purchaseToken3.approve(tsp.address, wei(1000));\n\n            // tier9 has the following parameters:\n            // totalTokenProvided   : wei(1000)\n            // minAllocationPerUser : 0 (no min)\n            // maxAllocationPerUser : 0 (no max)\n            // exchangeRate         : 1 sale token for every 1 purchaseToken\n            //\n            // purchaseToken3 has 6 decimal places\n            //\n            // mint purchase tokens to owner 1000 in 6 decimal places\n            //                        1000 000000\n            let buyerInitTokens6Dec = 1000000000;\n\n            await purchaseToken3.mint(OWNER, buyerInitTokens6Dec);\n            await purchaseToken3.approve(tsp.address, buyerInitTokens6Dec, { from: OWNER });\n\n            //\n            // start: buyer has bought no tokens\n            let TIER9 = 9;\n            let purchaseView = userViewsToObjects(await tsp.getUserViews(OWNER, [TIER9]))[0].purchaseView;\n            assert.equal(purchaseView.claimTotalAmount, wei(0));\n\n            // buyer attempts to purchase using 100 purchaseToken3 tokens\n            // purchaseToken3 has 6 decimals but all inputs to Dexe should be in\n            // 18 decimals, so buyer formats input amount to 18 decimals\n            // doing this first to verify it works correctly\n            let buyInput18Dec = wei(\"100\");\n            await tsp.buy(TIER9, purchaseToken3.address, buyInput18Dec);\n\n            // buyer has bought wei(100) sale tokens\n            purchaseView = userViewsToObjects(await tsp.getUserViews(OWNER, [TIER9]))[0].purchaseView;\n            assert.equal(purchaseView.claimTotalAmount, buyInput18Dec);\n\n            // buyer has 900 000000 remaining purchaseToken3 tokens\n            assert.equal((await purchaseToken3.balanceOf(OWNER)).toFixed(), \"900000000\");\n\n            // next buyer attempts to purchase using 100 purchaseToken3 tokens\n            // but sends input formatted into native 6 decimals\n            // sends 6 decimal input: 100 000000\n            let buyInput6Dec = 100000000;\n            await tsp.buy(TIER9, purchaseToken3.address, buyInput6Dec);\n\n            // buyer has bought an additional 100000000 sale tokens\n            purchaseView = userViewsToObjects(await tsp.getUserViews(OWNER, [TIER9]))[0].purchaseView;\n            assert.equal(purchaseView.claimTotalAmount, \"100000000000100000000\");\n\n            // but the buyer still has 900 000000 remaining purchasetoken3 tokens\n            assert.equal((await purchaseToken3.balanceOf(OWNER)).toFixed(), \"900000000\");\n\n            // by sending the input amount formatted to 6 decimal places,\n            // the buyer was able to buy small amounts of the token being sold\n            // for free!\n          });\n```\n\nFinally run the test with: `npx hardhat test --grep \"audit buy implicitly assumes that buy token has 18 decimals resulting in loss to DAO\"`\n\n**Recommended Mitigation:** There are at least 2 options for mitigating this issue:\n\nOption 1 - revise the design decision that all token amounts must be sent in 18 decimals even if the underlying token decimals are not 18, to instead that all token amounts should be sent in their native decimals and Dexe will convert everything.\n\nOption 2 - keep current design but revert if `amount.from18(token.decimals()) == 0` in [L90](https://github.com/dexe-network/DeXe-Protocol/tree/f2fe12eeac0c4c63ac39670912640dc91d94bda5/contracts/libs/gov/token-sale-proposal/TokenSaleProposalBuy.sol#L90) or alternatively use the [`from18Safe()`](https://github.com/dl-solarity/solidity-lib/blob/master/contracts/libs/utils/DecimalsConverter.sol#L124) function which uses [`_convertSafe()`](https://github.com/dl-solarity/solidity-lib/blob/master/contracts/libs/utils/DecimalsConverter.sol#L248) that reverts if the conversion is 0.\n\nThe project team should also examine other areas where the same pattern occurs which may have the same vulnerability and where it may be required to revert if the conversion returns 0:\n\n* `GovUserKeeper` [L92](https://github.com/dexe-network/DeXe-Protocol/tree/f2fe12eeac0c4c63ac39670912640dc91d94bda5/contracts/gov/user-keeper/GovUserKeeper.sol#L92), [L116](https://github.com/dexe-network/DeXe-Protocol/tree/f2fe12eeac0c4c63ac39670912640dc91d94bda5/contracts/gov/user-keeper/GovUserKeeper.sol#L116), [L183](https://github.com/dexe-network/DeXe-Protocol/tree/f2fe12eeac0c4c63ac39670912640dc91d94bda5/contracts/gov/user-keeper/GovUserKeeper.sol#L183)\n* `GovPool` [L248](https://github.com/dexe-network/DeXe-Protocol/tree/f2fe12eeac0c4c63ac39670912640dc91d94bda5/contracts/gov/GovPool.sol#L248)\n* `TokenSaleProposalWhitelist` [L50](https://github.com/dexe-network/DeXe-Protocol/blob/f2fe12eeac0c4c63ac39670912640dc91d94bda5/contracts/libs/gov/token-sale-proposal/TokenSaleProposalWhitelist.sol#L50)\n* `ERC721Power` [L113](https://github.com/dexe-network/DeXe-Protocol/blob/f2fe12eeac0c4c63ac39670912640dc91d94bda5/contracts/gov/ERC721/ERC721Power.sol#L113), [L139](https://github.com/dexe-network/DeXe-Protocol/blob/f2fe12eeac0c4c63ac39670912640dc91d94bda5/contracts/gov/ERC721/ERC721Power.sol#L139)\n* `TokenBalance` [L35](https://github.com/dexe-network/DeXe-Protocol/blob/f2fe12eeac0c4c63ac39670912640dc91d94bda5/contracts/libs/utils/TokenBalance.sol#L35), [L62](https://github.com/dexe-network/DeXe-Protocol/blob/f2fe12eeac0c4c63ac39670912640dc91d94bda5/contracts/libs/utils/TokenBalance.sol#L62)\n\n**Dexe:**\nFixed in commit [c700d9f](https://github.com/dexe-network/DeXe-Protocol/commit/c700d9f9f328d1df853891b52fd3527b56a6f1df).\n\n**Cyfrin:** Verified. While other places have been changed, `TokenBalance::sendFunds()` still uses `from18()` instead of `from18Safe()` & other parts of the codebase which allow user input when calling `TokenBalance::sendFunds()` directly could be impacted by a similar issue.\n\nFor example `TokenSaleProposalWhitelist::unlockParticipationTokens()` - if users try to unlock a small enough amount of locked tokens which are in 6 decimal precision, state will be updated as if the unlock was successful but the resulting conversion in `TokenBalance::sendFunds()` will round down to 0. Execution will continue & zero tokens will be transferred to the user but since storage has been updated those tokens will remain forever locked.\n\nDexe should carefully consider if there exists any valid situations where the `from18()` conversion in `TokenBalance::sendFunds()` should round an input > 0 to 0, and the transaction should not revert but continue executing transferring 0 tokens? Cyfrin recommends that the \"default\" conversion to use is `from18Safe()` and that `from18()` should only be used where conversions to 0 are explicitly allowed.",
+      "summary": "\nA bug report has been submitted for the `TokenSaleProposalBuy::buy` function in the Dexe Network Protocol. This function is called by users looking to buy the DAO token using a pre-approved token. The exchange rate for this sale is pre-assigned for the specific tier. This function internally calls `TokenSaleProposalBuy::_purchaseWithCommission` to transfer funds from the buyer to the gov pool. Part of the transferred funds are used to pay the DexeDAO commission and balance funds are transferred to the `GovPool` address. To do this, `TokenSaleProposalBuy::_sendFunds` is called.\n\nThis function assumes that the `amount` of ERC20 token is always 18 decimals. The `DecimalsConverter::from18` function converts from a base decimal (18) to token decimals. Note that the amount is directly passed by the buyer and there is no prior normalisation done to ensure the token decimals are converted to 18 decimals before the `_sendFunds` is called. This can lead to a total loss to the DAO when tokens with smaller decimals, such as USDC with 6 decimals, are used.\n\nThe impact of this bug is that a buyer can claim DAO tokens for free. A proof of concept has been included in the report.\n\nTwo options have been recommended for mitigation. Option 1 is to revise the design decision that all token amounts must be sent in 18 decimals even if the underlying token decimals are not 18, to instead that all token amounts should be sent in their native decimals and Dexe will convert everything. Option 2 is to keep the current design but revert if `amount.from18(token.decimals()) == 0` or alternatively use the `from18Safe()` function which uses `_convertSafe()` that reverts if the conversion is 0.\n\nThe project team should also examine other areas where the same pattern occurs which may have the same vulnerability and where it may be required to revert if the conversion returns 0.\n\nThe bug has been fixed in commit [c700d9f](https://github.com/dexe-network/DeXe-Protocol/commit/c700d9f9f328d1df853891b",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 1.007154661394276,
+      "general_score": 3.0007154661394275,
+      "source_link": "https://github.com/solodit/solodit_content/blob/main/reports/Cyfrin/2023-11-10-cyfrin-dexe.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "tokensaleproposalbuy-implicitly-assumes-that-buy-token-has-18-decimals-resulting-in-a-potential-total-loss-scenario-for-dao-pool-cyfrin-none-cyfrin-dexe-markdown",
+      "firm_name": "Cyfrin",
+      "firm_logo_square": "Cyfrin_square.jpg",
+      "protocol_name": "Dexe",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Cyfrin",
+        "logo_square": "Cyfrin_square.jpg"
+      },
+      "protocols_protocol": {
+        "name": "Dexe",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Algo-Stables"
+            },
+            "score": 1
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Precision Loss"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Wrong Math"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Decimals"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Weird ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "26173",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "11",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "1082",
+      "title": "Fee-on-transfer tokens are not supported",
+      "content": "**Severity:** Medium\n\n**Description:** The protocol intends to support all ERC20 tokens but does not support fee-on-transfer tokens.\nThe protocol utilizes the functions `TransferUtils::_transferERC20()` and `TransferUtils::_transferFromERC20()` to transfer ERC20 tokens.\n\n```solidity\nTransferUtils.sol\n34:     function _transferERC20(address token, address to, uint256 amount) internal {\n35:         IERC20 erc20 = IERC20(token);\n36:         require(erc20 != IERC20(address(0)), \"Token Address is not an ERC20\");\n37:         uint256 initialBalance = erc20.balanceOf(to);\n38:         require(erc20.transfer(to, amount), \"ERC20 Transfer failed\");\n39:         uint256 balance = erc20.balanceOf(to);\n40:         require(balance >= (initialBalance + amount), \"ERC20 Balance check failed\");//@audit-issue reverts for fee on transfer token\n41:     }\n```\n\nThe implementation verifies that the transfer was successful by checking that the balance of the recipient is greater than or equal to the initial balance plus the amount transferred. This check will fail for fee-on-transfer tokens because the actual received amount will be less than the input amount. (Read [here](https://github.com/d-xo/weird-erc20#fee-on-transfer) about fee-on-transfer tokens)\n\nAlthough there are very few fee-on-transfer tokens, the protocol can't say it supports all ERC20 tokens if it doesn't support these weird ERC20 tokens.\n\n**Impact:** Fee-on-transfer tokens can not be used for the protocol.\nBecause of the rarity of these tokens, we evaluate this finding as a Medium risk.\n\n**Recommended Mitigation:** The transfer utility functions can be updated to return the actually received amount.\nOr clearly document that only standard ERC20 tokens are supported.\n\n**Protocol:** We are choosing not to implement this at this stage.\n\n**Cyfrin:** Acknowledged. As recommended, please mention this in user documentation.",
+      "summary": "\nThis bug report is about the protocol not supporting fee-on-transfer tokens, which are a type of ERC20 tokens. The protocol utilizes functions `TransferUtils::_transferERC20()` and `TransferUtils::_transferFromERC20()` to transfer ERC20 tokens. The implementation verifies that the transfer was successful by checking that the balance of the recipient is greater than or equal to the initial balance plus the amount transferred. However, this check will fail for fee-on-transfer tokens because the actual received amount will be less than the input amount. As a result, fee-on-transfer tokens cannot be used for the protocol. The impact of this bug is evaluated as medium risk due to the rarity of these tokens. The recommended mitigation is to update the transfer utility functions to return the actually received amount or to clearly document that only standard ERC20 tokens are supported. The protocol has chosen not to implement this at this stage, but they have acknowledged the recommendation to mention this in user documentation.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/solodit/solodit_content/blob/main/reports/Cyfrin/2023-09-19-cyfrin-swapexchange.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "fee-on-transfer-tokens-are-not-supported-cyfrin-none-cyfrin-swapexchange-markdown",
+      "firm_name": "Cyfrin",
+      "firm_logo_square": "Cyfrin_square.jpg",
+      "protocol_name": "Swapexchange",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Cyfrin",
+        "logo_square": "Cyfrin_square.jpg"
+      },
+      "protocols_protocol": {
+        "name": "Swapexchange",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Weird ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Fee On Transfer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "26172",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "11",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "1082",
+      "title": "Use safe transfer for ERC20 tokens",
+      "content": "**Severity:** Medium\n\n**Description:** The protocol intends to support all ERC20 tokens but the implementation uses the original transfer functions.\nSome tokens (like USDT) do not implement the EIP20 standard correctly and their transfer/transferFrom function return void instead of a success boolean. Calling these functions with the correct EIP20 function signatures will revert.\n\n```solidity\nTransferUtils.sol\n34:     function _transferERC20(address token, address to, uint256 amount) internal {\n35:         IERC20 erc20 = IERC20(token);\n36:         require(erc20 != IERC20(address(0)), \"Token Address is not an ERC20\");\n37:         uint256 initialBalance = erc20.balanceOf(to);\n38:         require(erc20.transfer(to, amount), \"ERC20 Transfer failed\");//@audit-issue will revert for USDT\n39:         uint256 balance = erc20.balanceOf(to);\n40:         require(balance >= (initialBalance + amount), \"ERC20 Balance check failed\");\n41:     }\n```\n\n**Impact:** Tokens that do not correctly implement the EIP20 like USDT, will be unusable in the protocol as they revert the transaction because of the missing return value.\n\n**Recommended Mitigation:** We recommend using OpenZeppelin's SafeERC20 versions with the safeTransfer and safeTransferFrom functions that handle the return value check as well as non-standard-compliant tokens.\n\n**Protocol:** Fixed in commit [564f711](https://github.com/SwapExchangeio/Contracts/commit/564f711c6f915f5a7696739266a1f8059ee9a172)\n\n**Cyfrin:** Verified.",
+      "summary": "\nThis bug report is about the protocol of a certain system not supporting all ERC20 tokens. The protocol uses the original transfer functions, and some tokens (like USDT) do not implement the EIP20 standard correctly, making their transfer/transferFrom functions return void instead of a success boolean. This causes the transaction to revert, making the tokens unusable in the protocol.\n\nThe impact of this bug is that tokens that do not correctly implement the EIP20, like USDT, will be unusable in the protocol as they revert the transaction because of the missing return value.\n\nThe recommended mitigation for this bug is to use OpenZeppelin's SafeERC20 versions with the safeTransfer and safeTransferFrom functions that handle the return value check as well as non-standard-compliant tokens. The protocol has been fixed in the commit 564f711c6f915f5a7696739266a1f8059ee9a172, and has been verified by Cyfrin.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/solodit/solodit_content/blob/main/reports/Cyfrin/2023-09-19-cyfrin-swapexchange.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "use-safe-transfer-for-erc20-tokens-cyfrin-none-cyfrin-swapexchange-markdown",
+      "firm_name": "Cyfrin",
+      "firm_logo_square": "Cyfrin_square.jpg",
+      "protocol_name": "Swapexchange",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Cyfrin",
+        "logo_square": "Cyfrin_square.jpg"
+      },
+      "protocols_protocol": {
+        "name": "Swapexchange",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Weird ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "SafeTransfer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "transferFrom vs safeTransferFrom"
+          }
+        }
+      ]
+    },
+    {
+      "id": "18600",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 16,
+      "protocol_id": "643",
+      "title": "H-1: Escrow approvals are not cleared when club is transferred allowing for abuse after transfer",
+      "content": "Source: https://github.com/sherlock-audit/2023-04-footium-judging/issues/289 \n\n## Found by \n0x52, BenRai, Brenzee, CMierez, J4de, MiloTruck, PokemonAuditSimulator, Quantish, cergyk, ctf\\_sec, mstpr-brainbot, pengun, sashik\\_eth, shaka, shogoki, toshii\n## Summary\n\nEscrow approvals remain even across club token transfers. This allows a malicious club owners to sell their club then drain everything after sale due to previous approvals.\n\n## Vulnerability Detail\n\nERC20 and ERC721 token approval persist regardless of the owner of the club. The result is that approvals set by one owner can be accessed after a token has been sold or transferred. This allows the following attack:\n\n1) User A owns clubId = 1\n2) User A sets approval to themselves\n3) User A sells clubId = 1 to User B\n4) User A uses persistent approval to drain all players and tokens\n\n## Impact\n\nMalicious approvals can be used to drain club after sale\n\n## Code Snippet\n\n[FootiumEscrow.sol#L75-L81](https://github.com/sherlock-audit/2023-04-footium/blob/main/footium-eth-shareable/contracts/FootiumEscrow.sol#L75-L81)\n\n[FootiumEscrow.sol#L90-L96](https://github.com/sherlock-audit/2023-04-footium/blob/main/footium-eth-shareable/contracts/FootiumEscrow.sol#L90-L96)\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nClub escrow system needs to be redesigned",
+      "summary": "\nA bug was discovered in FootiumEscrow.sol that allows malicious club owners to abuse their club after it has been sold or transferred. The bug is that ERC20 and ERC721 token approval persist regardless of the owner of the club. This means that any approvals set by the original owner can be accessed after the club is sold or transferred. This allows the original owner to use the persistent approval to drain all players and tokens from the club after the sale.\n\nThis bug was discovered by 0x52, BenRai, Brenzee, CMierez, J4de, MiloTruck, PokemonAuditSimulator, Quantish, cergyk, ctf_sec, mstpr-brainbot, pengun, sashik_eth, shaka, shogoki, and toshii. The impact of this bug is that malicious approvals can be used to drain club after sale.\n\nThe code snippet that was used to find the bug can be found at FootiumEscrow.sol#L75-L81 and FootiumEscrow.sol#L90-L96. The bug was found using manual review. The recommendation is that the club escrow system needs to be redesigned.",
+      "report_date": {},
+      "contest_prize_txt": "11000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/71",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-04-footium-judging/issues/289",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "71",
+      "slug": "h-1-escrow-approvals-are-not-cleared-when-club-is-transferred-allowing-for-abuse-after-transfer-sherlock-none-footium-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Footium",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Footium",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC721"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        }
+      ]
+    },
+    {
+      "id": "18618",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 21,
+      "protocol_id": "23",
+      "title": "M-7: Approve and transferFrom functions of Pool tokens are subject to front-run attack.",
+      "content": "Source: https://github.com/sherlock-audit/2023-02-surge-judging/issues/154 \n\n## Found by \n0xhacksmithh, 0xnuel, ABA, Cryptor, Delvir0, Dug, Handle, Kaiziron, MalfurionWhitehat, RaymondFam, Respx, Tomo, Tricko, ahmedovv, ast3ros, bytes032, dipp, kiki\\_dev, menox, weeeh\\_, wzrdk3lly\n## Summary\n\n`Approve` and `transferFrom` functions of Pool tokens are subject to front-run attack because the `approve` method overwrites the current allowance regardless of whether the spender already used it or not. In case the spender spent the amonut, the `approve` function will approve a new amount.\n\n## Vulnerability Detail\n\nThe `approve` method overwrites the current allowance regardless of whether the spender already used it or not. It allows the spender to front-run and spend the amount before the new allowance is set.\n\nScenario:\n\n- Alice allows Bob to transfer N of Alice's tokens (N>0)  by calling the `pool.approve` method, passing the Bob's address and N as the method arguments\n- After some time, Alice decides to change from N to M (M>0) the number of Alice's tokens Bob is allowed to transfer, so she calls the `pool.approve` method again, this time passing the Bob's address and M as the method arguments\n- Bob notices the Alice's second transaction before it was mined and quickly sends another transaction that calls the `pool.transferFrom` method to transfer N Alice's tokens somewhere\n- If the Bob's transaction will be executed before the Alice's transaction, then Bob will successfully transfer N Alice's tokens and will gain an ability to transfer another M tokens\nBefore Alice noticed that something went wrong, Bob calls the `pool.transferFrom` method again, this time to transfer M Alice's tokens.\n- So, an Alice's attempt to change the Bob's allowance from N to M (N>0 and M>0) made it possible for Bob to transfer N+M of Alice's tokens, while Alice never wanted to allow so many of her tokens to be transferred by Bob.\n\n## Impact\n\nIt can result in losing pool tokens of users when he approve pool tokens to any malicious account.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2023-02-surge/blob/main/surge-protocol-v1/src/Pool.sol#L284\nhttps://github.com/sherlock-audit/2023-02-surge/blob/main/surge-protocol-v1/src/Pool.sol#L299\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nUse `increaseAllowance` and `decreaseAllowance` instead of approve as OpenZeppelin ERC20 implementation. Please see details here:\n\nhttps://forum.openzeppelin.com/t/explain-the-practical-use-of-increaseallowance-and-decreaseallowance-functions-on-erc20/15103/4\n\n\n\n## Discussion\n\n**xeious**\n\nFixed\n\n**xeious**\n\nhttps://github.com/Surge-fi/surge-protocol-v1/commit/1d1c412cf78d9c8515e621d5aabd400402a24035\n\n**IAm0x52**\n\nFix looks good. Functions to increase or decrease approval have been added to Pool.sol",
+      "summary": "\nThis bug report is about the `approve` and `transferFrom` functions of Pool tokens being subject to a front-run attack. This attack occurs when the `approve` method overwrites the current allowance regardless of whether the spender already used it or not. This allows the spender to front-run and spend the amount before the new allowance is set. In this way, a malicious account can gain access to more tokens than the user originally allowed them. \n\nThe vulnerability was found by 0xhacksmithh, 0xnuel, ABA, Cryptor, Delvir0, Dug, Handle, Kaiziron, MalfurionWhitehat, RaymondFam, Respx, Tomo, Tricko, ahmedovv, ast3ros, bytes032, dipp, kiki\\_dev, menox, weeeh\\_, and wzrdk3lly. The code snippets related to this vulnerability can be found in the Pool.sol file on the Github repo.\n\nThe fix for this vulnerability was implemented by xeious, who added functions to increase or decrease the approval of Pool tokens. This fix was approved by IAm0x52, and can be found in the commit 1d1c412cf78d9c8515e621d5aabd400402a24035 on the Github repo. \n\nThe recommended fix for this issue is to use `increaseAllowance` and `decreaseAllowance` instead of `approve` as OpenZeppelin ERC20 implementation. Details can be found on the OpenZeppelin Forum.",
+      "report_date": {},
+      "contest_prize_txt": "10000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/51",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-02-surge-judging/issues/154",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "51",
+      "slug": "m-7-approve-and-transferfrom-functions-of-pool-tokens-are-subject-to-front-run-attack-sherlock-none-surge-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Surge",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Surge",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Front-Running"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3630",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 10,
+      "protocol_id": "100",
+      "title": "M-4: Insufficient support for fee-on-transfer tokens",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-buffer-judging/issues/76 \n\n## Found by \neierina, dipp, KingNFT, rvierdiiev, cccz, supernova, Deivitto, \\_\\_141345\\_\\_, jonatascm, pashov\n\n## Summary\n\nThe ```BufferBinaryPool.sol``` and ```BufferRouter.sol``` do not support fee-on-transfer tokens. If ```tokenX``` is a fee-on-transfer token, tokens received from users could be less than the amount specified in the transfer.\n\n## Vulnerability Detail\n\nThe ```initiateTrade``` function in ```BufferRouter.sol``` receives tokens from the user with amount set to ```initiateTrade```'s ```totalFee``` input. If tokenX is a fee-on-transfer token then the actual amount received by ```BufferRouter.sol``` is less than ```totalFee```. When a trade is opened, the protocol will [send a settlementFee to ```settlementFeeDisbursalContract```](https://github.com/sherlock-audit/2022-11-buffer/blob/main/contracts/contracts/core/BufferBinaryOptions.sol#L137-L141) and a [premium to ```BufferBinaryPool.sol```](), where the settlementFee is calculated using the incorrect, inflated totalFee amount. When the totalFee is greater than the fee required [the user is reimbursed the difference](https://github.com/sherlock-audit/2022-11-buffer/blob/main/contracts/contracts/core/BufferRouter.sol#L333-L339). Since the settlementFee is greater than it should be the user receives less reimbursement.\n\nIn ```BufferBinaryPool.sol```'s ```lock``` function, the premium for the order is sent from the Options contract to the Pool. The totalPremium state variable would be updated incorrectly if fee-on-transfer tokens were used.\n\nThe ```_provide``` function in ```BufferBinaryPool.sol```receives tokenXAmount of tokenX tokens from the user and calculates the amount of shares to mint using the tokenXAmount. If fee-on-transfer tokens are used then the user would receive more shares than they should.\n\n## Impact\n\nThe protocol and users could suffer a loss of funds.\n\n## Code Snippet\n\n[BufferRouter.sol#L86-L90](https://github.com/sherlock-audit/2022-11-buffer/blob/main/contracts/contracts/core/BufferRouter.sol#L86-L90)\n\n[BufferBinaryPool.sol#L161](https://github.com/sherlock-audit/2022-11-buffer/blob/main/contracts/contracts/core/BufferBinaryPool.sol#L161)\n\n[BufferBinaryPool.sol#L236-L240](https://github.com/sherlock-audit/2022-11-buffer/blob/main/contracts/contracts/core/BufferBinaryPool.sol#L161)\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nConsider checking the balance of the contract before and after token transfers and using instead of the amount specified in the contract.\n\n## Discussion\n\n**0x00052**\n\nOnly an issue if project intends to support fee-on-transfer tokens as underlying\n\n**bufferfinance**\n\nNot supporting fee-on-transfer tokens for now.",
+      "summary": "\nThis bug report is about the ```BufferBinaryPool.sol``` and ```BufferRouter.sol``` not supporting fee-on-transfer tokens. Fee-on-transfer tokens are tokens that take a fee from the amount sent by the user, meaning the contract receives less than the amount specified in the transfer. This could lead to the protocol and users suffering a loss of funds.\n\nThe issue was found by a team of 10 people, and the code snippets linked in the report were reviewed manually. The recommendation is to check the balance of the contract before and after token transfers. It is not intended to support fee-on-transfer tokens for now.",
+      "report_date": {},
+      "contest_prize_txt": "21800 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/24",
+      "sponsor_name": "Buffer Finance",
+      "sponsor_link": "",
+      "quality_score": 3,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-buffer-judging/issues/76",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "24",
+      "slug": "m-4-insufficient-support-for-fee-on-transfer-tokens-sherlock-buffer-finance-buffer-finance-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Buffer Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Buffer Finance",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Options Vault"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Fee On Transfer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3521",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "105",
+      "title": "M-3: `universalApproveMax` will not work for some tokens that don't support approve `type(uint256).max` amount.",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-dodo-judging/issues/41 \n\n## Found by \nTomo, jayphbee\n\n## Summary\n`universalApproveMax` will not work for some tokens that don't support approve `type(uint256).max` amount.\n\n## Vulnerability Detail\nThere are tokens that doesn't support approve spender `type(uint256).max` amount. So the `universalApproveMax` will not work for some tokens like `UNI` or `COMP` who will revert when approve `type(uint256).max` amount.\n\n## Impact\nTokens that don't support approve `type(uint256).max` amount could not be swapped by calling `externalSwap` function.\n\n## Code Snippet\nhttps://github.com/sherlock-audit/2022-11-dodo/blob/main/contracts/SmartRoute/DODORouteProxy.sol#L181-L183\n```solidity\n            if (approveTarget != address(0)) {\n                IERC20(fromToken).universalApproveMax(approveTarget, fromTokenAmount);\n            }\n```\nhttps://github.com/sherlock-audit/2022-11-dodo/blob/main/contracts/SmartRoute/lib/UniversalERC20.sol#L36-L48\n```solidity\nfunction universalApproveMax(\n        IERC20 token,\n        address to,\n        uint256 amount\n    ) internal {\n        uint256 allowance = token.allowance(address(this), to);\n        if (allowance < amount) {\n            if (allowance > 0) {\n                token.safeApprove(to, 0);\n            }\n            token.safeApprove(to, type(uint256).max);\n        }\n    }\n```\n\n## Tool used\n\nManual Review\n\n## Recommendation\nI would suggest approve only the necessay amount of token to the `approveTarget` instead of the `type(uint256).max` amount.",
+      "summary": "\nThis bug report is about an issue found in the `universalApproveMax` function, which is part of the DODORouteProxy.sol contract. The issue is that `universalApproveMax` will not work for some tokens that don't support approve `type(uint256).max` amount. This means that tokens such as UNI or COMP, which will revert when approve `type(uint256).max` amount, will not be able to be swapped by calling the `externalSwap` function. The bug was found by Tomo and jayphbee and was confirmed through manual review. \n\nThe code snippet provided in the report includes two parts. The first is from the DODORouteProxy.sol contract, which contains the `universalApproveMax` function call. The second is from the UniversalERC20.sol contract, which contains the actual implementation of the `universalApproveMax` function. \n\nThe recommendation for this issue is to approve only the necessary amount of token to the `approveTarget` instead of the `type(uint256).max` amount. This should help to ensure that the tokens can be swapped properly.",
+      "report_date": {},
+      "contest_prize_txt": "10000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/21",
+      "sponsor_name": "dodo",
+      "sponsor_link": "",
+      "quality_score": 2,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-dodo-judging/issues/41",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "21",
+      "slug": "m-3-universalapprovemax-will-not-work-for-some-tokens-that-dont-support-approve-typeuint256max-amount-sherlock-dodo-dodo-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "DODO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "DODO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Approve Max"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3519",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 5,
+      "protocol_id": "105",
+      "title": "M-1: Use safeTransferFrom() instead of transferFrom().",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-dodo-judging/issues/47 \n\n## Found by \nsach1r0, Nyx, yixxas, 0x4non, Tomo\n\n## Summary\n\nThe ERC20.transfer() and ERC20.transferFrom() functions return a boolean value indicating success. This parameter needs to be checked for success. Some tokens do not revert if the transfer failed but return false instead.\n\n## Vulnerability Detail\nSome tokens (like USDT) don't correctly implement the EIP20 standard and their transfer/ transferFrom function return void instead of a success boolean. Calling these functions with the correct EIP20 function signatures will always revert.\n## Impact\nTokens that don't actually perform the transfer and return false are still counted as a correct transfer and tokens that don't correctly implement the latest EIP20 spec, like USDT, will be unusable in the protocol as they revert the transaction because of the missing return value.\n## Code Snippet\nhttps://github.com/sherlock-audit/2022-11-dodo/blob/main/contracts/SmartRoute/DODORouteProxy.sol#L420\n\nhttps://github.com/sherlock-audit/2022-11-dodo/blob/main/contracts/SmartRoute/DODORouteProxy.sol#L423\n## Tool used\n\nManual Review\n\n## Recommendation\nRecommend using OpenZeppelin's SafeERC20 versions with the safeTransfer and safeTransferFrom functions that handle the return value check as well as non-standard-compliant tokens.\n\n## Discussion\n\n**Evert0x**\n\nWe think a medium is still valid, although no direct loss of funds, a failed token transfer should be catched.",
+      "summary": "\nThis bug report is about a vulnerability in some tokens that do not correctly implement the EIP20 standard. These tokens do not correctly handle the return value of the transfer and transferFrom functions, which should be checked for success. This means that some tokens (like USDT) do not actually perform the transfer and return false, while others revert the transaction due to the missing return value. This can cause issues with the protocol as the tokens that don't correctly implement the EIP20 spec will be unusable. To solve this issue, OpenZeppelin's SafeERC20 versions with the safeTransfer and safeTransferFrom functions are recommended, as they handle the return value check as well as non-standard-compliant tokens. This bug was found by sach1r0, Nyx, yixxas, 0x4non, and Tomo using manual review. Although no direct loss of funds was found, Evert0x suggested that a failed token transfer should still be caught.",
+      "report_date": {},
+      "contest_prize_txt": "10000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/21",
+      "sponsor_name": "dodo",
+      "sponsor_link": "",
+      "quality_score": 2.9958817230870607,
+      "general_score": 0.010295692282349065,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-dodo-judging/issues/47",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "21",
+      "slug": "m-1-use-safetransferfrom-instead-of-transferfrom-sherlock-dodo-dodo-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "DODO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "DODO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "SafeTransfer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3565",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "109",
+      "title": "M-7: Code does not handle ERC20 tokens with special `transfer` implementation",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-sense-judging/issues/10 \n\n## Found by \ncryptphi, pashov\n\n## Summary\nCalls to ERC20::transfer method should always be checked\n\n## Vulnerability Detail\nSome ERC20 tokens do not revert on failure in `transfer` but instead return `false` as a return value (for example [ZRX](https://etherscan.io/address/0xe41d2489571d322189246dafa5ebde1f4699f498#code)). Because of this it has become a common practice to use OpenZeppelin's SafeERC20 to handle such weird tokens. If `transfer` fails, but does not revert it can leave tokens stuck in the contract - for example in `eject` in `AutoRoller` we have such a non-checked `transfer`, but if it failed the tokens would get stuck, before the shares used for `eject` were already burned.\n\n## Impact\nThe impact is potentially permanently lost (stuck) value for users of the protocol, but it needs a special ERC20 token to be used as `underlying` or to be sent in contract by mistake, hence Medium severity.\n\n## Code Snippet\nhttps://github.com/sherlock-audit/2022-11-sense/blob/main/contracts/src/AutoRoller.sol#L656\nhttps://github.com/sherlock-audit/2022-11-sense/blob/main/contracts/src/AutoRoller.sol#L659\nhttps://github.com/sherlock-audit/2022-11-sense/blob/main/contracts/src/AutoRoller.sol#L715\n\n## Tool used\n\nManual Review\n\n## Recommendation\nUse OpenZeppelin's SafeERC20 library to handle such tokens\n\n## Discussion\n\n**jparklev**\n\nWe will add the safe transfer functions to the remaining locations\n\n**jparklev**\n\nFix: https://github.com/sense-finance/auto-roller/pull/16\n\n**aktech297**\n\nThe fix is using `safeTransfer` from `solmate/utils/SafeTransferLib.sol` (asset, coin)\nAs a suggestion, following `transfer` also can be updated with `safeTransfer` Line - 654,656.",
+      "summary": "\nIssue M-7 is a bug found by cryptphi and pashov in the code of the AutoRoller contract, which is part of the Sherlock Audit project. Some ERC20 tokens do not revert on failure in the `transfer` method, but instead return `false` as a return value. This can lead to tokens getting stuck in the contract if the `transfer` fails, resulting in a potential permanent loss of value for users of the protocol.\n\nThe code snippet which is affected by the bug can be found at the following lines in the AutoRoller contract: 656, 659, and 715. The bug was discovered through manual review and the recommended solution is to use OpenZeppelin's SafeERC20 library to handle such tokens.\n\nThe bug was fixed by jparklev in the pull request #16, which uses the `safeTransfer` from `solmate/utils/SafeTransferLib.sol` (asset, coin). aktech297 suggested that following `transfer`s also can be updated with `safeTransfer`.",
+      "report_date": {},
+      "contest_prize_txt": "25333 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/19",
+      "sponsor_name": "Sense",
+      "sponsor_link": "",
+      "quality_score": 2,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-sense-judging/issues/10",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "19",
+      "slug": "m-7-code-does-not-handle-erc20-tokens-with-special-transfer-implementation-sherlock-sense-sense-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Sense",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Sense",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "SafeTransfer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3559",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 7,
+      "protocol_id": "109",
+      "title": "M-1: Anyone can spend on behalf of roller periphery",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-sense-judging/issues/48 \n\n## Found by \n8olidity, 0x52, supernova, ctf\\_sec, pashov, cryptphi, minhquanym\n\n## Summary\nThe approve() function in RollerPeriphery contract allows anyone to spend ERC20 token owned by the contract\n\n## Vulnerability Detail\nRollerPeriphery.approve() does not have any access control, this allows any user to be able to call the approve call which would make an ERC20 approve call to the token inputed, and allowing the 'to' address to spend. In the cases where RollerPeriphery owns some ERC20 tokens. The user will be able to transfer the tokens from the contract as a spender.\n\n## Impact\nLoss of funds\n\n## Code Snippet\nhttps://github.com/sherlock-audit/2022-11-sense/blob/main/contracts/src/RollerPeriphery.sol#L100-L102\n\n```solidity\nfunction approve(ERC20 token, address to, uint256 amount) public payable {\n        token.safeApprove(to, amount);\n    }\n```\n\nERC20 approve call is:\n```solidity\nfunction approve(address spender, uint256 amount) public virtual returns (bool) {\n        allowance[msg.sender][spender] = amount;\n\n        emit Approval(msg.sender, spender, amount);\n\n        return true;\n    }\n```\n\n## Tool used\nManual Review\n\n## Recommendation\nThere should be some access control, according to the provided contracts, this function is called by RollerFactory, this can be the only address allowed to call the RollerPeriphery.approve() function.\n\n## Discussion\n\n**jparklev**\n\nWe don't expect that the Periphery will ever hold onto funds of its own, so this is acceptable behavior to us. However, the DOS version of this ticket #46 might be valid as a `medium`\n\n**Evert0x**\n\nGrouping all as medium as they point out the same flaw with different impacts.",
+      "summary": "\nThis bug report is about the approve() function in the RollerPeriphery contract. This function allows anyone to spend ERC20 tokens owned by the contract, leading to a potential loss of funds. The code snippet provided shows that the approve call does not have any access control, meaning that any user can call the approve call and transfer the tokens from the contract as a spender. The bug was found by 8olidity, 0x52, supernova, ctf\\_sec, pashov, cryptphi, minhquanym and was confirmed by manual review. It was suggested to add access control to the approve call, so that only the RollerFactory can call it. Finally, it was decided to group all the issues as medium as they point out the same flaw with different impacts.",
+      "report_date": {},
+      "contest_prize_txt": "25333 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/19",
+      "sponsor_name": "Sense",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-sense-judging/issues/48",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "19",
+      "slug": "m-1-anyone-can-spend-on-behalf-of-roller-periphery-sherlock-sense-sense-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Sense",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Sense",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3185",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 11,
+      "protocol_id": "167",
+      "title": "[H-01] Unsafe usage of ERC20 transfer and transferFrom ",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2022-08-fiatdao/blob/fece3bdb79ccacb501099c24b60312cd0b2e4bb2/contracts/VotingEscrow.sol#L425-L428\nhttps://github.com/code-423n4/2022-08-fiatdao/blob/fece3bdb79ccacb501099c24b60312cd0b2e4bb2/contracts/VotingEscrow.sol#L485-L488\nhttps://github.com/code-423n4/2022-08-fiatdao/blob/fece3bdb79ccacb501099c24b60312cd0b2e4bb2/contracts/VotingEscrow.sol#L546\nhttps://github.com/code-423n4/2022-08-fiatdao/blob/fece3bdb79ccacb501099c24b60312cd0b2e4bb2/contracts/VotingEscrow.sol#L657\nhttps://github.com/code-423n4/2022-08-fiatdao/blob/fece3bdb79ccacb501099c24b60312cd0b2e4bb2/contracts/VotingEscrow.sol#L676\n\n\n## Vulnerability details\n\n## Impact\nSome ERC20 tokens functions don't return a boolean, for example USDT, BNB, OMG. So the `VotingEscrow` contract simply won't work with tokens like that as the `token`. \n\n## Proof of Concept\nThe USDT's `transfer` and `transferFrom` functions doesn't return a bool, so the call to these functions will revert although the user has enough balance and the `VotingEscrow` contract won't work, assuming that token is USDT.\n\n## Tools Used\nManual auditing - VS Code, some hardhat tests and me :)\n\n## Recommended Mitigation Steps\nUse the OpenZepplin's `safeTransfer` and `safeTransferFrom` functions",
+      "summary": "\nThis bug report is about the `VotingEscrow` contract, which is a part of the code-423n4/2022-08-fiatdao repository. The bug affects some ERC20 tokens, such as USDT, BNB, and OMG, which don't return a boolean value from their `transfer` and `transferFrom` functions. This means that the `VotingEscrow` contract won't work with these tokens, as the call to these functions will revert and the user won't be able to use them. The bug was discovered through manual auditing with the use of VS Code and hardhat tests.\n\nThe recommended mitigation step for this bug is to use the OpenZeppelin's `safeTransfer` and `safeTransferFrom` functions, which will return a boolean value and thus make the `VotingEscrow` contract work with the affected tokens.",
+      "report_date": {},
+      "contest_prize_txt": "$35,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-08-fiat-dao-vefdt-contest",
+      "sponsor_name": "FIAT DAO",
+      "sponsor_link": "https://twitter.com/fiatdao",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2022-08-fiatdao",
+      "github_link": "https://github.com/code-423n4/2022-08-fiatdao-findings/issues/231",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "154",
+      "slug": "h-01-unsafe-usage-of-erc20-transfer-and-transferfrom-code4rena-fiat-dao-fiat-dao-vefdt-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "FIAT DAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "FIAT DAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "SafeTransfer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3083",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 2,
+      "protocol_id": "423",
+      "title": "[H-01]  Someone can create non-liquidatable auction if the collateral asset fails on transferring to address(0)",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2022-07-yield/blob/main/contracts/Witch.sol#L176\nhttps://github.com/code-423n4/2022-07-yield/blob/6ab092b8c10e4dabb470918ae15c6451c861655f/contracts/Witch.sol#L399\n\n\n## Vulnerability details\n\n## Impact\nmight lead to systematic debt. Cause errors for liquidators to run normally.\n\n## Proof of Concept\nIn the function `auction`, there is on input validation around whether the `to` is `address(0)` or not. and if the `auctioneerReward` is set to an value > 0 (as default),  each liquidate call will call `Join` module to pay out to `auctioneer` with the following line:\n\n```jsx\nif (auctioneerCut > 0) {\n    ilkJoin.exit(auction_.auctioneer, auctioneerCut.u128());\n}\n```\n\nThis line will revert if `auctioneer` is set to `address(0)` on some tokens (revert on transferring to address(0) is a [default behaviour of the OpenZeppelin template](https://www.notion.so/Yield-Witch-555e6981c26b41008d03a504077b4770)). So if someone start an `auction` with `to = address(0)`, this auction becomes un-liquidatable.\n\nA malicious user can run a bot to monitor his own vault, and if the got underwater and they don’t have enough collateral to top up, they can immediately start an auction on their own vault and set actioneer to `0` to avoid actually being liquidated, which breaks the design of the system.\n\n\n## Recommended Mitigation Steps\n\nAdd check while starting an auction:\n\n```jsx\nfunction auction(bytes12 vaultId, address to)\n    external\n    returns (DataTypes.Auction memory auction_)\n{\n    require (to != address(0), \"invalid auctioneer\");\n\t\t...\n}\t\t\n```",
+      "summary": "\nThis bug report describes a vulnerability in the Witch contract code on the 2022-07-yield repository on GitHub. This vulnerability might lead to systematic debt and cause errors for liquidators to run normally. The vulnerability is caused by an absence of input validation when starting an auction. If an auction is started with the 'to' parameter set to 'address(0)', the auction is un-liquidatable and a malicious user can avoid liquidation of their own vault. The recommended mitigation step is to add a check while starting an auction to ensure that the 'to' parameter is not set to 'address(0)'.",
+      "report_date": {},
+      "contest_prize_txt": "$25,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-07-yield-witch-v2-contest",
+      "sponsor_name": "Yield",
+      "sponsor_link": "https://twitter.com/yield",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-07-yield",
+      "github_link": "https://github.com/code-423n4/2022-07-yield-findings/issues/116",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "147",
+      "slug": "h-01-someone-can-create-non-liquidatable-auction-if-the-collateral-asset-fails-on-transferring-to-address0-code4rena-yield-yield-witch-v2-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Yield",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Yield",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Weird ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2939",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "193",
+      "title": "[M-06] [Denial-of-Service] Contract Owner Could Block Users From Withdrawing Their Strike",
+      "content": "_Submitted by xiaoming90, also found by berndartmueller_\n\nWhen users withdraw their strike escrowed in Putty contract, Putty will charge a certain amount of fee from the strike amount. The fee will first be sent to the contract owner, and the remaining strike amount will then be sent to the users.\n\n<https://github.com/code-423n4/2022-06-putty/blob/3b6b844bc39e897bd0bbb69897f2deff12dc3893/contracts/src/PuttyV2.sol#L500>\n\n```solidity\nfunction withdraw(Order memory order) public {\n\t..SNIP..\n\n\t// transfer strike to owner if put is expired or call is exercised\n\tif ((order.isCall && isExercised) || (!order.isCall && !isExercised)) {\n\t\t// send the fee to the admin/DAO if fee is greater than 0%\n\t\tuint256 feeAmount = 0;\n\t\tif (fee > 0) {\n\t\t\tfeeAmount = (order.strike * fee) / 1000;\n\t\t\tERC20(order.baseAsset).safeTransfer(owner(), feeAmount);\n\t\t}\n\n\t\tERC20(order.baseAsset).safeTransfer(msg.sender, order.strike - feeAmount);\n\n\t\treturn;\n\t}\n\t..SNIP..\n}\n```\n\nThere are two methods on how the owner can deny user from withdrawing their strike amount from the contract\n\n#### Method #1 - Set the `owner()` to `zero` address\n\nMany of the token implementations do not allow transfer to `zero` address ([Reference](https://github.com/d-xo/weird-erc20#revert-on-transfer-to-the-zero-address)). Popular ERC20 implementations such as the following Openzeppelin's ERC20 implementation do not allow transfer to `zero` address, and will revert immediately if the `to` address (recipient) points to a `zero` address during a transfer.\n\n<https://github.com/OpenZeppelin/openzeppelin-contracts/blob/5fbf494511fd522b931f7f92e2df87d671ea8b0b/contracts/token/ERC20/ERC20.sol#L226>\n\n```solidity\nfunction _transfer(\n    address from,\n    address to,\n    uint256 amount\n) internal virtual {\n    require(from != address(0), \"ERC20: transfer from the zero address\");\n    require(to != address(0), \"ERC20: transfer to the zero address\");\n\n    _beforeTokenTransfer(from, to, amount);\n\n    uint256 fromBalance = _balances[from];\n    require(fromBalance >= amount, \"ERC20: transfer amount exceeds balance\");\n    unchecked {\n        _balances[from] = fromBalance - amount;\n        // Overflow not possible: the sum of all balances is capped by totalSupply, and the sum is preserved by\n        // decrementing then incrementing.\n        _balances[to] += amount;\n    }\n\n    emit Transfer(from, to, amount);\n\n    _afterTokenTransfer(from, to, amount);\n}\n```\n\nIt is possible for the owner to transfer the ownership to a `zero` address, thus causing the fee transfer to the contract owner to always revert. When the fee transfer always reverts, no one can withdraw their strike amount from the contract.\n\nThis issue will affect all orders that adopt a `baseAsset` that reverts when transferring to `zero` address.\n\n#### Method #2 - If `baseAsset` is a ERC777 token\n\n> Note: `owner()` could point to a contract or EOA account. By pointing to a contract, the contract could implement logic to revert whenever someone send tokens to it.\n\nERC777 contains a `tokensReceived` hook that will notify the recipient whenever someone sends some tokens to the recipient .\n\nAssuming that the `baseAsset` is a ERC77 token, the recipient, which is the `owner()` in this case, could always revert whenever `PuttyV2` contract attempts to send the fee to recipient. This will cause the `withdraw` function to revert too. As a result, no one can withdraw their strike amount from the contract.\n\nThis issue will affect all orders that has ERC777 token as its `baseAsset`.\n\n### Impact\n\nUser cannot withdraw their strike amount and their asset will be stuck in the contract.\n\n### Recommended Mitigation Steps\n\nIt is recommended to adopt a [withdrawal pattern](https://docs.soliditylang.org/en/v0.8.15/common-patterns.html#withdrawal-from-contracts) for retrieving owner fee.\n\nInstead of transferring the fee directly to owner address during withdrawal, save the amount of fee that the owner is entitled to in a state variable. Then, implement a new function that allows the owner to withdraw the fee from the `PuttyV2` contract.\n\nConsider the following implementation. In the following example, there is no way for the owner to perform denial-of-user because the outcome of the fee transfer (succeed or fail) to the owner will not affect the user's strike withdrawal process.\n\nThis will give users more assurance and confidence about the security of their funds stored within Putty.\n\n```solidity\nmapping(address => uint256) public ownerFees;\n\nfunction withdraw(Order memory order) public {\n\t..SNIP..\n    // transfer strike to owner if put is expired or call is exercised\n    if ((order.isCall && isExercised) || (!order.isCall && !isExercised)) {\n        // send the fee to the admin/DAO if fee is greater than 0%\n        uint256 feeAmount = 0;\n        if (fee > 0) {\n            feeAmount = (order.strike * fee) / 1000;\n            ownerFees[order.baseAsset] += feeAmount\n        }\n\n        ERC20(order.baseAsset).safeTransfer(msg.sender, order.strike - feeAmount);\n\n        return;\n    }\n    ..SNIP..\n}\n\nfunction withdrawFee(address baseAsset) public onlyOwner {\n\tuint256 _feeAmount = ownerFees[baseAsset];\n\townerFees[baseAsset] = 0;\n\tERC20(baseAsset).safeTransfer(owner(), _feeAmount);\n}\n```\n**[outdoteth (Putty Finance) disagreed with severity](https://github.com/code-423n4/2022-06-putty-findings/issues/296#issuecomment-1177678807)**\n\n**[HickupHH3 (judge) commented](https://github.com/code-423n4/2022-06-putty-findings/issues/296#issuecomment-1179936225):**\n > The scenarios provided are valid, especially for baseAssets that revert on zero-address transfer.\n> \n> While the likelihood is low, assets are lost and cannot be retrieved.<br>\n> `3 — High: Assets can be stolen/lost/compromised directly (or indirectly if there is a valid attack path that does not have hand-wavy hypotheticals).`\n\n**[HickupHH3 (judge) decreased severity to Medium and commented](https://github.com/code-423n4/2022-06-putty-findings/issues/296#issuecomment-1181754248):**\n > Thinking about it further, the external conditions / requirements needed for the DoS to happen are somewhat strong.\n> - the ERC777 attack requires `owner()` or the token to be engineered to be malicious and adopted.\n> - DoS via revoking ownership requires `fee` to be non-zero first, which is unlikely to happen. I can classify this as a \"user-prone\" bug, which would be similar to cases like including ETH when WETH is intended to be used (#226).\n> \n> Hence, I think medium severity is more appropriate:\n> `2 — Med: Assets not at direct risk, but the function of the protocol or its availability could be impacted, or leak value with a hypothetical attack path with stated assumptions, but external requirements.`\n\n**[outdoteth (Putty Finance) confirmed and resolved](https://github.com/code-423n4/2022-06-putty-findings/issues/296#issuecomment-1185411399):**\n > PR with fix: https://github.com/outdoteth/putty-v2/pull/4.\n\n**hyh (warden) reviewed mitigation:**\n > The same fix as in [H-01](https://github.com/code-423n4/2022-06-putty-findings/issues/269): as the platform fee is now transferred on order filling, any owner griefing can only yield a denial of service. There will be no loss of funds as this way position is only about to be created when the fee is transferred.\n\n***\n\n",
+      "summary": "\nThis bug report is concerning the PuttyV2 contract, which is a smart contract used to facilitate the trading of options. When users withdraw their strike escrowed in the Putty contract, Putty will charge a certain amount of fee from the strike amount. The fee will first be sent to the contract owner, and the remaining strike amount will then be sent to the users. \n\nThe bug is that, there are two methods on how the owner can deny user from withdrawing their strike amount from the contract. The first method is to set the owner() to zero address. This is because many of the token implementations do not allow transfer to zero address, and will revert immediately if the to address (recipient) points to a zero address during a transfer. The second method is if the baseAsset is a ERC777 token. This is because ERC777 contains a tokensReceived hook that will notify the recipient whenever someone sends some tokens to the recipient. The recipient, which is the owner() in this case, could always revert whenever PuttyV2 contract attempts to send the fee to recipient. This will cause the withdraw function to revert too.\n\nThe impact of this bug is that users cannot withdraw their strike amount and their asset will be stuck in the contract.\n\nThe recommended mitigation steps to fix this bug is to adopt a withdrawal pattern for retrieving owner fee. Instead of transferring the fee directly to owner address during withdrawal, save the amount of fee that the owner is entitled to in a state variable. Then, implement a new function that allows the owner to withdraw the fee from the PuttyV2 contract. This will give users more assurance and confidence about the security of their funds stored within Putty.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-06-putty-contest",
+      "sponsor_name": "Putty",
+      "sponsor_link": "https://twitter.com/puttyfi",
+      "quality_score": 4.6,
+      "general_score": 4.444444444444445,
+      "source_link": "https://code4rena.com/reports/2022-06-putty",
+      "github_link": "https://github.com/code-423n4/2022-06-putty-findings/issues/296",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "142",
+      "slug": "m-06-denial-of-service-contract-owner-could-block-users-from-withdrawing-their-strike-code4rena-putty-putty-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Putty",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Putty",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Payments"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Options Vault"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "DOS"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Withdraw Pattern"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC777"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2256",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 29,
+      "protocol_id": "227",
+      "title": "[M-13] amount requires to be updated to contract balance increase (1)",
+      "content": "_Submitted by MaratCerby, also found by 0x1337, 0x52, 0xYamiDancho, AuditsAreUS, berndartmueller, cccz, CertoraInc, csanuragjain, defsec, Dravee, GimelSec, hickuphh3, horsefacts, hyh, IllIllI, jayjonah8, kenzo, leastwood, mtz, p4st13r4, PPrieditis, reassor, Ruhum, throttle, TrungOre, VAD37, wuwe1, and ych18_\n\nEvery time transferFrom or transfer function in ERC20 standard is called there is a possibility that underlying smart contract did not transfer the exact amount entered.\n\nIt is required to find out contract balance increase/decrease after the transfer.<br>\nThis pattern also prevents from re-entrancy attack vector.\n\n### Recommended Mitigation Steps\n\nRecommended code:\n\n```solidity\nfunction fundPool(uint poolId) internal {\n    Pool storage pool = pools[poolId];\n    bool success = true;\n    uint amount;\n    for (uint i = 0; i < pool.rewardFunding.length; i++) {\n        amount = getMaximumRewards(poolId, i);\n        // transfer the tokens from pool-creator to this contract\n\n\n        uint256 balanceBefore = IERC20(pool.rewardTokens[i]).balanceOf(address(this)); // remembering asset balance before the transfer\n        IERC20(pool.rewardTokens[i]).safeTransferFrom(msg.sender, address(this), amount);\n        uint256 newAmount = IERC20(pool.rewardTokens[i]).balanceOf(address(this)) - balanceBefore; // updating actual amount to the contract balance increase\n        success = success && newAmount == amount; // making sure amounts match\n\n        // bookkeeping to make sure pools don't share tokens\n        pool.rewardFunding[i] += amount;\n    }\n    require(success, 'Token deposits failed');\n}\n```\n\n**[illuzen (FactoryDAO) confirmed, disagreed with severity and commented](https://github.com/code-423n4/2022-05-factorydao-findings/issues/34#issuecomment-1121979560):**\n > Re-entrance here would involve sending our contract tokens multiple times and creating multiple pools, not withdraw any funds. Malicious tokens could lie about balance as well, so the mitigation doesn't completely fix the issue.\n> \n > And malicious tokens are explicitly considered in the comments as acceptable. What is unacceptable is malicious pools harming other pools.\n\n**[illuzen (FactoryDAO) resolved](https://github.com/code-423n4/2022-05-factorydao-findings/issues/34#issuecomment-1145530416):**\n > https://github.com/code-423n4/2022-05-factorydao/pull/2\n\n**[Justin Goro (judge) decreased severity to Medium and commented](https://github.com/code-423n4/2022-05-factorydao-findings/issues/34#issuecomment-1154610894):**\n > Just a note on the reason for checking token balances before and after: not all tokens that report a difference between the balance and the amount are acting maliciously. In particular fee-on-transfer tokens.\n\n > Reducing severity as this is a value leakage situation and because the sponsor has taken pains to emphasize the isolation of pools and the desire to not have to support all tokens.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report concerns a vulnerability in the PermissionlessBasicPoolFactory.sol smart contract, which is part of the code-423n4/2022-05-factorydao repository on Github. The vulnerability can occur when the transferFrom or transfer functions of the ERC20 standard are called, as this can lead to the underlying smart contract not transferring the exact amount entered. The vulnerability can be exploited to prevent re-entrancy attack vectors.\n\nThe recommended mitigation steps for this vulnerability include adding code to the fundPool function to remember the contract balance before the transfer, updating the actual amount to the contract balance increase, and making sure the amounts match. The recommended code is provided in the report.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 DAI",
+      "contest_link": "https://code4rena.com/contests/2022-05-factorydao-contest",
+      "sponsor_name": "FactoryDAO",
+      "sponsor_link": "https://twitter.com/FactDAO/",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2022-05-factorydao",
+      "github_link": "https://github.com/code-423n4/2022-05-factorydao-findings/issues/34",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "119",
+      "slug": "m-13-amount-requires-to-be-updated-to-contract-balance-increase-1-code4rena-factorydao-factorydao-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "FactoryDAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "FactoryDAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2242",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "227",
+      "title": "[H-02] DoS: Blacklisted user may prevent withdrawExcessRewards()",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2022-05-factorydao/blob/db415804c06143d8af6880bc4cda7222e5463c0e/contracts/PermissionlessBasicPoolFactory.sol#L242-L256\nhttps://github.com/code-423n4/2022-05-factorydao/blob/db415804c06143d8af6880bc4cda7222e5463c0e/contracts/PermissionlessBasicPoolFactory.sol#L224-L234\n\n\n## Vulnerability details\n\n## Impact\n\nIf one user becomes blacklisted or otherwise cannot be transferred funds in any of the rewards tokens or the deposit token then they will not be able to call `withdraw()` for that token.\n\nThe impact of one user not being able to call `withdraw()` is that the owner will now never be able to call `withdrawExcessRewards()` and therefore lock not only the users rewards and deposit but also and excess rewards attributed to the owner.\n\nThus, one malicious user may deliberately get them selves blacklisted to prevent the owner from claiming the final rewards. Since the attacker may do this with negligible balance in their `deposit()` this attack is very cheap.\n\n## Proof of Concept\n\nIt is possible for `IERC20(pool.rewardTokens[i]).transfer(receipt.owner, transferAmount);` to fail for numerous reasons. Such as if a user has been blacklisted (in certain ERC20 tokens) or if a token is paused or there is an attack and the token is stuck.\n\nThis will prevent `withdraw()` from being called.\n\n```solidity\n        for (uint i = 0; i < rewards.length; i++) {\n            pool.rewardsWeiClaimed[i] += rewards[i];\n            pool.rewardFunding[i] -= rewards[i];\n            uint tax = (pool.taxPerCapita * rewards[i]) / 1000;\n            uint transferAmount = rewards[i] - tax;\n            taxes[poolId][i] += tax;\n            success = success && IERC20(pool.rewardTokens[i]).transfer(receipt.owner, transferAmount);\n        }\n\n        success = success && IERC20(pool.depositToken).transfer(receipt.owner, receipt.amountDepositedWei);\n        require(success, 'Token transfer failed');\n```\n\nSince line 245 of `withdrawExcessRewards()` requires that `require(pool.totalDepositsWei == 0, 'Cannot withdraw until all deposits are withdrawn');`, if one single user is unable to withdraw then it is impossible for the owner to claim the excess rewards and they are forever stuck in the contract.\n\n## Recommended Mitigation Steps\n\nConsider allowing `withdrawExcessRewards()` to be called after a set period of time after the pool end if most users have withdrawn or some similar criteria.",
+      "summary": "\nThis bug report is about a vulnerability in the code of the Permissionless Basic Pool Factory. If one user becomes blacklisted or otherwise cannot be transferred funds in any of the rewards tokens or the deposit token then they will not be able to call `withdraw()` for that token. This will prevent the owner of the contract from being able to call `withdrawExcessRewards()` and therefore lock not only the users rewards and deposit but also and excess rewards attributed to the owner. This attack is very cheap as the attacker may do it with a negligible balance in their `deposit()`. To mitigate this issue, it is recommended to consider allowing `withdrawExcessRewards()` to be called after a set period of time after the pool end if most users have withdrawn or some similar criteria.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 DAI",
+      "contest_link": "https://code4rena.com/contests/2022-05-factorydao-contest",
+      "sponsor_name": "FactoryDAO",
+      "sponsor_link": "https://twitter.com/FactDAO/",
+      "quality_score": 3.6666666666666665,
+      "general_score": 2,
+      "source_link": "https://code4rena.com/reports/2022-05-factorydao",
+      "github_link": "https://github.com/code-423n4/2022-05-factorydao-findings/issues/57",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "119",
+      "slug": "h-02-dos-blacklisted-user-may-prevent-withdrawexcessrewards-code4rena-factorydao-factorydao-contest-git_",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "FactoryDAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "FactoryDAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Blacklisted"
+          }
+        }
+      ]
+    },
+    {
+      "id": "1624",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 2,
+      "protocol_id": "271",
+      "title": "[H-01] Can deposit native token for free and steal funds",
+      "content": "_Submitted by cmichel, also found by CertoraInc_\n\n[LiquidityPool.sol#L151](https://github.com/code-423n4/2022-03-biconomy/blob/db8a1fdddd02e8cc209a4c73ffbb3de210e4a81a/contracts/hyphen/LiquidityPool.sol#L151)<br>\n\nThe `depositErc20` function allows setting `tokenAddress = NATIVE` and does not throw an error.<br>\nNo matter the `amount` chosen, the `SafeERC20Upgradeable.safeTransferFrom(IERC20Upgradeable(tokenAddress), sender, address(this), amount);` call will not revert because it performs a low-level call to `NATIVE = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE`, which is an EOA, and the low-level calls to EOAs always succeed.<br>\nBecause the `safe*` version is used, the EOA not returning any data does not revert either.<br>\n\nThis allows an attacker to deposit infinite native tokens by not paying anything.<br>\nThe contract will emit the same `Deposit` event as a real `depositNative` call and the attacker receives the native funds on the other chain.\n\n### Recommended Mitigation Steps\n\nCheck `tokenAddress != NATIVE` in `depositErc20`.\n\n**[ankurdubey521 (Biconomy) confirmed and commented](https://github.com/code-423n4/2022-03-biconomy-findings/issues/55):**\n > [HP-25: C4 Audit Fixes, Dynamic Fee Changes bcnmy/hyphen-contract#42](https://github.com/bcnmy/hyphen-contract/pull/42)\n\n**[pauliax (judge) commented](https://github.com/code-423n4/2022-03-biconomy-findings/issues/55#issuecomment-1094973634):**\n > Great find, definitely deserves a severity of high.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the LiquidityPool.sol contract. The vulnerability allows an attacker to deposit infinite native tokens without paying anything. This is possible because the \"depositErc20\" function allows setting \"tokenAddress = NATIVE\" and does not throw an error. The contract will then emit the same \"Deposit\" event as a real \"depositNative\" call and the attacker receives the native funds on the other chain. The recommended mitigation step is to check \"tokenAddress != NATIVE\" in \"depositErc20\".",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDT",
+      "contest_link": "https://code4rena.com/contests/2022-03-biconomy-hyphen-20-contest",
+      "sponsor_name": "Biconomy",
+      "sponsor_link": "https://twitter.com/biconomy",
+      "quality_score": 1.3333333333333333,
+      "general_score": 1.3333333333333333,
+      "source_link": "https://code4rena.com/reports/2022-03-biconomy",
+      "github_link": "https://github.com/code-423n4/2022-03-biconomy-findings/issues/55",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "97",
+      "slug": "h-01-can-deposit-native-token-for-free-and-steal-funds-code4rena-biconomy-biconomy-hyphen-20-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Biconomy",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Biconomy",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "17933",
+      "kind": "PDF",
+      "auditfirm_id": "9",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "797",
+      "title": "Missing check of return value of transfer and transferFrom",
+      "content": "## Frax Solidity Security Assessment\n\n## Difficulty: Medium\n\n## Type: Undefined Behavior\n\n## Target: TWAMM.sol\n\n### Description\nSome tokens, such as BAT, do not precisely follow the ERC20 specification and will return\nfalse or fail silently instead of reverting. Because the codebase does not consistently use\nOpenZeppelin’s SafeERC20 library, the return values of calls to `transfer` and\n`transferFrom` should be checked. However, return value checks are missing from these\ncalls in many areas of the code, opening the TWAMM contract (the time-weighted automated\nmarket maker) to severe vulnerabilities.\n\n```solidity\nfunction provideLiquidity(uint256 lpTokenAmount) external {\n    require(totalSupply() != 0, 'EC3');\n    // execute virtual orders\n    longTermOrders.executeVirtualOrdersUntilCurrentBlock(reserveMap);\n    // the ratio between the number of underlying tokens and the number of lp tokens\n    // must remain invariant after mint\n    uint256 amountAIn = lpTokenAmount * reserveMap[tokenA] / totalSupply();\n    uint256 amountBIn = lpTokenAmount * reserveMap[tokenB] / totalSupply();\n    ERC20(tokenA).transferFrom(msg.sender, address(this), amountAIn);\n    ERC20(tokenB).transferFrom(msg.sender, address(this), amountBIn);\n}\n```\n*Figure 20.1: contracts/FPI/TWAMM.sol#L125-136*\n\n### Exploit Scenario\nFrax deploys the TWAMM contract. Pools are created with tokens that do not revert on\nfailure, allowing an attacker to call `provideLiquidity` and mint LP tokens for free; the\nattacker does not have to deposit funds since the `transferFrom` call fails silently or\nreturns false.\n\n### Recommendations\n- Short term: Fix the instance described above. Then, fix all instances detected by Slither.\n  - Detect unchecked-transfer.\n  \n- Long term: Review the Token Integration Checklist in appendix D and integrate Slither into \n  the project’s CI pipeline to prevent regression and catch new instances proactively.",
+      "summary": "\nThis bug report focuses on a vulnerability in the TWAMM.sol contract, which is part of the Frax project. The vulnerability occurs when tokens that do not precisely follow the ERC20 specification are used, as they may return false or fail silently instead of reverting. The problem is that the codebase does not consistently use OpenZeppelin's SafeERC20 library, so the return values of calls to transfer and transferFrom are not being checked. This allows an attacker to call provideLiquidity and mint LP tokens for free, as the transferFrom call fails silently or returns false.\n\nIn order to fix this issue, the instance mentioned in the report should be fixed, and all instances detected by Slither should be fixed. Additionally, the Token Integration Checklist in Appendix D should be reviewed, and Slither should be integrated into the project’s CI pipeline to prevent regression and catch new instances proactively.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/trailofbits/publications/blob/master/reviews/FraxQ42021.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/trailofbits/publications/blob/master/reviews/FraxQ42021.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/trailofbits/FraxQ42021.pdf",
+      "pdf_page_from": 55,
+      "contest_id": "",
+      "slug": "missing-check-of-return-value-of-transfer-and-transferfrom-trailofbits-frax-solidity-pdf",
+      "firm_name": "TrailOfBits",
+      "firm_logo_square": "trailofbits_square.png",
+      "protocol_name": "Frax Solidity",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "TrailOfBits",
+        "logo_square": "trailofbits_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Frax Solidity",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Validation"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Weird ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Check Return Value"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Data Validation"
+          }
+        }
+      ]
+    },
+    {
+      "id": "488",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 10,
+      "protocol_id": "406",
+      "title": "[H-03] Result of transfer / transferFrom not checked",
+      "content": "## Handle\n\ngpersoon\n\n\n## Vulnerability details\n\n## Impact\nA call to transferFrom or transfer is frequently done without checking the results.\nFor certain ERC20 tokens, if insufficient tokens are present, no revert occurs but a result of \"false\" is returned.\nSo its important to check this. If you don't you could mint tokens without have received sufficient tokens to do so. So you could loose funds.\n\nIts also a best practice to check this.\nSee below for example where the result isn't checked.\n\nNote, in some occasions the result is checked (see below for examples).\n\n## Proof of Concept\nHighest risk:\n.\\Dao.sol:                iBEP20(_token).transferFrom(msg.sender, address(this), _amount); // Transfer user's assets to Dao contract\n.\\Pool.sol:               iBEP20(TOKEN).transfer(member, outputToken); // Transfer the TOKENs to user\n.\\Pool.sol:               iBEP20(token).transfer(member, outputAmount); // Transfer the swap output to the selected user\n.\\poolFactory.sol:   iBEP20(_token).transferFrom(msg.sender, _pool, _amount);\n.\\Router.sol:           iBEP20(_fromToken).transfer(fromPool, iBEP20(_fromToken).balanceOf(address(this))); // Transfer TOKENs from ROUTER to fromPool\n.\\Router.sol:           iBEP20(_token).transfer(_pool, iBEP20(_token).balanceOf(address(this))); // Transfer TOKEN to pool\n.\\Router.sol:           iBEP20(_token).transferFrom(msg.sender, _pool, _amount); // Transfer TOKEN to pool\n.\\Router.sol:           iBEP20(_token).transfer(_recipient, _amount); // Transfer TOKEN to recipient\n.\\Synth.sol:             iBEP20(_token).transferFrom(msg.sender, address(this), _amount); // Transfer tokens in\n\nless risky\n.\\Router.sol:           iBEP20(fromPool).transferFrom(_member, fromPool, unitsInput); // Transfer LPs from user to the pool\n.\\BondVault.sol:     iBEP20(_pool).transfer(member, _claimable); // Send claim amount to user\n.\\Router.sol:           iBEP20(_pool).transferFrom(_member, _pool, units); // Transfer LPs to the pool\n.\\Router.sol:           iBEP20(_pool).transferFrom(_member, _pool, units); // Transfer LPs to pool\n.\\Router.sol:           iBEP20(fromSynth).transferFrom(msg.sender, _poolIN, inputAmount); // Transfer synth from user to pool\n.\\Pool.sol:               iBEP20(synthIN).transfer(synthIN, _actualInputSynth); // Transfer SYNTH to relevant synth contract\n.\\Router.sol:           iBEP20(WBNB).transfer(_pool, _amount); // Transfer WBNB from ROUTER to pool\n.\\Dao.sol:               iBEP20(BASE).transfer(newDAO, baseBal);\n.\\Pool.sol:               iBEP20(BASE).transfer(member, outputBase); // Transfer the SPARTA to user\n.\\Pool.sol:               iBEP20(BASE).transfer(member, outputBase); // Transfer SPARTA to user\n.\\Router.sol:           iBEP20(BASE).transfer(toPool, iBEP20(BASE).balanceOf(address(this))); // Transfer SPARTA from ROUTER to toPool\n.\\Router.sol:           iBEP20(BASE).transfer(_pool, iBEP20(BASE).balanceOf(address(this))); // Transfer SPARTA to pool\n.\\Router.sol:           iBEP20(BASE).transfer(_pool, iBEP20(BASE).balanceOf(address(this))); // Transfer SPARTA from ROUTER to pool\n.\\Router.sol:           iBEP20(BASE).transferFrom(msg.sender, _pool, inputAmount); // Transfer SPARTA from ROUTER to pool\n\nSometimes the result is checked:\n.\\Dao.sol:              require(iBEP20(pool).transferFrom(msg.sender, address(_DAOVAULT), amount), \"!funds\"); // Send user's deposit to the DAOVault\n.\\Dao.sol:              require(iBEP20(BASE).transferFrom(msg.sender, address(_RESERVE), _amount), '!fee'); // User pays the new proposal fee\n.\\DaoVault.sol:      require(iBEP20(pool).transfer(member, _balance), \"!transfer\"); // Transfer user's balance to their wallet\n.\\synthVault.sol:    require(iBEP20(synth).transferFrom(msg.sender, address(this), amount)); // Must successfuly transfer in\n.\\synthVault.sol:    require(iBEP20(synth).transfer(msg.sender, redeemedAmount)); // Transfer from SynthVault to user\n\n## Tools Used\ngrep\n\n## Recommended Mitigation Steps\nAlways check the result of transferFrom and transfer",
+      "summary": "\nThis bug report discusses a vulnerability that impacts the ability to transfer tokens from one address to another. The bug is that when insufficient tokens are present, no revert occurs, and a result of \"false\" is returned. This means that tokens can be minted without having received sufficient tokens to do so, resulting in a potential loss of funds. It is a best practice to always check the result of transferFrom and transfer. The report provides examples of where the result isn't checked, as well as examples of where it is checked. The tool used to analyze the code was grep. The recommended mitigation step is to always check the result of transferFrom and transfer.",
+      "report_date": {},
+      "contest_prize_txt": "$80,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2021-07-spartan-protocol-contest",
+      "sponsor_name": "Spartan Protocol",
+      "sponsor_link": "https://twitter.com/SpartanProtocol",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2021-07-spartan",
+      "github_link": "https://github.com/code-423n4/2021-07-spartan-findings/issues/8",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "20",
+      "slug": "h-03-result-of-transfer-transferfrom-not-checked-code4rena-spartan-protocol-spartan-protocol-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Spartan Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Spartan Protocol",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "SafeTransfer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "287",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 8,
+      "protocol_id": "398",
+      "title": "[H-01] Unchecked ERC20 transfers can cause lock up",
+      "content": "_Submitted by [axic](https://twitter.com/alexberegszaszi), also found by [gpersoon](https://twitter.com/gpersoon), [pauliax](https://twitter.com/SolidityDev), [Jmukesh](https://twitter.com/MukeshJ_eth), [a_delamo](https://twitter.com/a_delamo), [s1m0](https://twitter.com/_smonica_), [cmichel](https://twitter.com/cmichelio), and [shw](https://github.com/x9453)_\n\nSome major tokens went live before ERC20 was finalized, resulting in a discrepancy whether the transfer functions should (A) return a boolean or (B) revert/fail on error. The current best practice is that they should revert, but return “true” on success. However, not every token claiming ERC20-compatibility is doing this — some only return true/false; some revert, but do not return anything on success. This is a well known issue, heavily discussed since mid-2018.\n\nToday many tools, including OpenZeppelin, offer [a wrapper for “safe ERC20 transfer”](https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/utils/SafeERC20.sol):\n\nRealityCards is not using such a wrapper, but instead tries to ensure successful transfers via the `balancedBooks` modifier:\n\n```solidity\nmodifier balancedBooks {\n    _;\n    // using >= not == in case anyone sends tokens direct to contract\n    require(\n        erc20.balanceOf(address(this)) >=\n            totalDeposits + marketBalance + totalMarketPots,\n        \"Books are unbalanced!\"\n    );\n}\n```\n\nThis modifier is present on most functions, but is missing on `topupMarketBalance`:\n```solidity\nfunction topupMarketBalance(uint256 _amount) external override {\n    erc20.transferFrom(msgSender(), address(this), _amount);\n    if (_amount > marketBalanceDiscrepancy) {\n        marketBalanceDiscrepancy = 0;\n    } else {\n        marketBalanceDiscrepancy -= _amount;\n    }\n    marketBalance += _amount;\n}\n```\n\nIn the case where an ERC20 token which is not reverting on failures is used, a malicious actor could call `topupMarketBalance` with a failing transfer, but also move the value of `marketBalance` above the actual holdings. After this, `deposit`, `withdrawDeposit`, `payRent`, `payout`, `sponsor`, etc. could be locked up and always failing with “Books are unbalanced”.\n\nAnyone can call `topupMarketBalance` with some unrealistically large number, so that `marketBalance` does not overflow, but is above the actually helping balances. This is only possible if the underlying ERC20 used is not reverting on failures, but is returning “false” instead.\n\n**Recommended Steps**:\n1. Use something like OpenZeppelin’s `SafeERC20`\n2. Set up an allow list for tokens, which are knowingly safe\n3. Consider a different approach to the `balancedBooks` modifier\n\n**[Splidge (Reality Cards) confirmed](https://github.com/code-423n4/2021-06-realitycards-findings/issues/2#issuecomment-860518142):**\n > The particular ERC20 contracts we are using don't have this issue. However for futureproofing in the event we change ERC20 tokens we will implement the recommended mitigation 1 and start using OpenZeppelin’s SafeERC20.\n\n**[Splidge (Reality Cards) resolved](https://github.com/code-423n4/2021-06-realitycards-findings/issues/2#issuecomment-863130135):**\n > Fix implemented [here](https://github.com/RealityCards/RealityCards-Contracts/commit/6b2c25bea664efe0f573d8d1b8118ecad19a47ff)\n\n",
+      "summary": "\nA bug report has been filed regarding the discrepancy of whether the transfer functions of the ERC20 token should return a boolean or revert/fail on error. It has been discussed since mid-2018 that the best practice is to revert but return true on success. However, some tokens are not following this protocol, and this has caused a vulnerability in RealityCards. The `balancedBooks` modifier is present on most functions, but is missing on `topupMarketBalance`. This means that a malicious actor can call `topupMarketBalance` with a failing transfer, but also move the value of `marketBalance` above the actual holdings, resulting in the “Books are unbalanced” error. To mitigate this issue, OpenZeppelin’s SafeERC20 should be used, an allow list for tokens should be set up, and a different approach to the `balancedBooks` modifier should be considered.",
+      "report_date": {},
+      "contest_prize_txt": "$45,000 USDC (plus tokens)",
+      "contest_link": "https://code4rena.com/contests/2021-06-reality-cards-contest",
+      "sponsor_name": "Reality Cards",
+      "sponsor_link": "https://twitter.com/realitycards",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2021-06-realitycards",
+      "github_link": "https://github.com/code-423n4/2021-06-realitycards-findings/issues/2",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "13",
+      "slug": "h-01-unchecked-erc20-transfers-can-cause-lock-up-code4rena-reality-cards-reality-cards-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Reality Cards",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Reality Cards",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Marketplace"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "SafeTransfer"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    }
+  ]
+}

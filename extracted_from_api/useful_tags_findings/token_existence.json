@@ -1,0 +1,330 @@
+{
+  "tag": "Token Existence",
+  "count": 4,
+  "metadata": {
+    "totalResults": 4,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 5,
+    "reset": 1771761120
+  },
+  "findings": [
+    {
+      "id": "16262",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "76",
+      "title": "[M-17] The tokenURI method does not check if the NFT has been minted and returns data for the contract that may be a fake NFT",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2023-04-caviar/blob/cd8a92667bcb6657f70657183769c244d04c015c/src/Factory.sol#L161\nhttps://github.com/code-423n4/2023-04-caviar/blob/cd8a92667bcb6657f70657183769c244d04c015c/src/PrivatePoolMetadata.sol#L17\n\n\n## Vulnerability details\n\n## Impact\n\n- By invoking the [Factory.tokenURI](https://github.com/code-423n4/2023-04-caviar/blob/cd8a92667bcb6657f70657183769c244d04c015c/src/Factory.sol#L161) method for a maliciously provided NFT id, the returned data may deceive potential users, as the method will return data for a non-existent NFT id that appears to be a genuine PrivatePool. This can lead to a poor user experience or financial loss for users.\n- Violation of the [ERC721-Metadata part](https://eips.ethereum.org/EIPS/eip-721) standard\n\n## Proof of Concept\n\n- The [Factory.tokenURI](https://github.com/code-423n4/2023-04-caviar/blob/cd8a92667bcb6657f70657183769c244d04c015c/src/Factory.sol#L161) and [PrivatePoolMetadata.tokenURI](https://github.com/code-423n4/2023-04-caviar/blob/cd8a92667bcb6657f70657183769c244d04c015c/src/PrivatePoolMetadata.sol#L17) methods lack any requirements stating that the provided NFT id must be created. We can also see that in the standard implementation by [OpenZeppelin](https://github.com/OpenZeppelin/openzeppelin-contracts/blob/cf86fd9962701396457e50ab0d6cc78aa29a5ebc/contracts/token/ERC721/ERC721.sol#L94), this check is present:\n- [Throws if `_tokenId` is not a valid NFT](https://eips.ethereum.org/EIPS/eip-721)\n\n### Example\n\n1. User creates a fake contract\n   A simple example so that the `tokenURI` method does not revert:\n\n```solidity\n// SPDX-License-Identifier: MIT\npragma solidity ^0.8.19;\n\ncontract NFT {\n    function balanceOf(address) external pure returns (uint256) {\n        1;\n    }\n}\n\ncontract NonNFT {\n    address public immutable nft;\n\n    address public constant baseToken = address(0);\n    uint256 public constant virtualBaseTokenReserves = 1 ether;\n    uint256 public constant virtualNftReserves = 1 ether;\n    uint256 public constant feeRate = 500;\n\n    constructor() {\n        nft = address(new NFT());\n    }\n}\n```\n\n2. User deploy the contract\n3. Now, by using `tokenURI()` for the deployed user's address, one can fetch information about a non-existent NFT.\n\n## Tools Used\n\n- Manual review\n- Foundry\n\n## Recommended Mitigation Steps\n\n- Throw an error if the NFT id is invalid.",
+      "summary": "\nThis bug report is about a vulnerability in the Factory.tokenURI and PrivatePoolMetadata.tokenURI methods of the code-423n4/2023-04-caviar repository. This vulnerability could lead to a poor user experience or financial loss for users, as it allows maliciously provided NFT ids to return data for non-existent NFTs that appear to be genuine PrivatePools. \n\nThe vulnerability was identified through manual review and Foundry tools. The proof of concept involved creating a fake contract, deploying it, and then using the tokenURI method for the deployed user's address to fetch information about a non-existent NFT.\n\nThe recommended mitigation step is to throw an error if the NFT id is invalid. This is already present in the standard implementation by OpenZeppelin, and should be implemented in the code-423n4/2023-04-caviar repository as well.",
+      "report_date": {},
+      "contest_prize_txt": "$47,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2023-04-caviar-private-pools",
+      "sponsor_name": "Caviar",
+      "sponsor_link": "https://twitter.com/caviarAMM",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2023-04-caviar",
+      "github_link": "https://github.com/code-423n4/2023-04-caviar-findings/issues/44",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "230",
+      "slug": "m-17-the-tokenuri-method-does-not-check-if-the-nft-has-been-minted-and-returns-data-for-the-contract-that-may-be-a-fake-nft-code4rena-caviar-caviar-private-pools-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Caviar",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Caviar",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Indexes"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC721"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Token Existence"
+          }
+        }
+      ]
+    },
+    {
+      "id": "25841",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "41",
+      "title": "[M-25] Vault can be created for not-yet-existing ERC20 tokens, which allows attackers to set traps to steal NFTs from Borrowers",
+      "content": "\nThere is a subtle difference between the implementation of solmate’s SafeTransferLib and OZ’s SafeERC20: OZ’s SafeERC20 checks if the token is a contract or not, solmate’s SafeTransferLib does not.<br>\nSee: <https://github.com/Rari-Capital/solmate/blob/main/src/utils/SafeTransferLib.sol#L9><br>\nNote that none of the functions in this library check that a token has code at all! That responsibility is delegated to the caller.<br>\nAs a result, when the token’s address has no code, the transaction will just succeed with no error.<br>\nThis attack vector was made well-known by the qBridge hack back in Jan 2022.\n\nIn AstariaRouter, Vault, PublicVault, VaultImplementation, ClearingHouse, TransferProxy, and WithdrawProxy, the `safetransfer` and `safetransferfrom` don't check the existence of code at the token address. This is a known issue while using solmate’s libraries.\n\nHence this can lead to miscalculation of funds and also loss of funds , because if safetransfer() and safetransferfrom() are called on a token address that doesn’t have contract in it, it will always return success. Due to this protocol will think that funds has been transferred and successful , and records will be accordingly calculated, but in reality funds were never transferred.\n\nSo this will lead to miscalculation and loss of funds.\n\n### Attack scenario (example):\n\nIt’s becoming popular for protocols to deploy their token across multiple networks and when they do so, a common practice is to deploy the token contract from the same deployer address and with the same nonce so that the token address can be the same for all the networks.\n\nA sophisticated attacker can exploit it by taking advantage of that and setting traps on multiple potential tokens to steal from the borrowers. For example: 1INCH is using the same token address for both Ethereum and BSC; Gelato's `$GEL` token is using the same token address for Ethereum, Fantom and Polygon.\n\n*   ProjectA has TokenA on another network;\n*   ProjectB has TokenB on another network;\n*   ProjectC has TokenC on another network;\n*   A malicious strategist (Bob) can create new PublicVaults with amounts of 10000E18 for TokenA, TokenB, and TokenC.\n*   A few months later, ProjectB lunched TokenB on the local network at the same address;\n*   Alice as a liquidator deposited 11000e18 TokenB into the vault;\n*   The attacker (Bob) can withdraw to receive most of Alice's added TokenB.\n\n### Proof of Concept\n\n<https://github.com/code-423n4/2023-01-astaria/blob/1bfc58b42109b839528ab1c21dc9803d663df898/src/AstariaRouter.sol#L490><br>\n<https://github.com/code-423n4/2023-01-astaria/blob/1bfc58b42109b839528ab1c21dc9803d663df898/src/AstariaRouter.sol#L795><br>\n<https://github.com/code-423n4/2023-01-astaria/blob/1bfc58b42109b839528ab1c21dc9803d663df898/src/Vault.sol#L66><br>\n<https://github.com/code-423n4/2023-01-astaria/blob/1bfc58b42109b839528ab1c21dc9803d663df898/src/Vault.sol#L72><br>\n<https://github.com/code-423n4/2023-01-astaria/blob/1bfc58b42109b839528ab1c21dc9803d663df898/src/PublicVault.sol#L384><br>\n<https://github.com/code-423n4/2023-01-astaria/blob/1bfc58b42109b839528ab1c21dc9803d663df898/src/VaultImplementation.sol#L394><br>\n<https://github.com/code-423n4/2023-01-astaria/blob/1bfc58b42109b839528ab1c21dc9803d663df898/src/VaultImplementation.sol#L406><br>\n<https://github.com/code-423n4/2023-01-astaria/blob/1bfc58b42109b839528ab1c21dc9803d663df898/src/ClearingHouse.sol#L143><br>\n<https://github.com/code-423n4/2023-01-astaria/blob/1bfc58b42109b839528ab1c21dc9803d663df898/src/ClearingHouse.sol#L161><br>\n<https://github.com/code-423n4/2023-01-astaria/blob/1bfc58b42109b839528ab1c21dc9803d663df898/src/TransferProxy.sol#L34><br>\n<https://github.com/code-423n4/2023-01-astaria/blob/1bfc58b42109b839528ab1c21dc9803d663df898/src/WithdrawProxy.sol#L269><br>\n<https://github.com/code-423n4/2023-01-astaria/blob/1bfc58b42109b839528ab1c21dc9803d663df898/src/WithdrawProxy.sol#L281><br>\n<https://github.com/code-423n4/2023-01-astaria/blob/1bfc58b42109b839528ab1c21dc9803d663df898/src/WithdrawProxy.sol#L298>\n\n### Recommended Mitigation Steps\n\nThis issue won’t exist if OpenZeppelin’s SafeERC20 is used instead.\n\n**[androolloyd (Astaria) commented](https://github.com/code-423n4/2023-01-astaria-findings/issues/158#issuecomment-1404011644):**\n > The protocol has no enforcement of the assets that can be listed, only tokens that are known should be interacted with by users and UI implementations.\n\n**[SantiagoGregory (Astaria) confirmed](https://github.com/code-423n4/2023-01-astaria-findings/issues/158)**\n\n**[Picodes (judge) decreased severity to Medium and commented](https://github.com/code-423n4/2023-01-astaria-findings/issues/158#issuecomment-1443332368):**\n > Keeping this report as medium due to the credibility of the attack path described.\n\n\n\n***\n\n",
+      "summary": "\nA bug has been identified in the code of AstariaRouter, Vault, PublicVault, VaultImplementation, ClearingHouse, TransferProxy, and WithdrawProxy. These functions use solmate's SafeTransferLib which does not check if the token is a contract or not, unlike OZ's SafeERC20. This can lead to the successful transfer of funds to a token address that does not have any contract code, resulting in the miscalculation and loss of funds.\n\nThis was demonstrated in an example attack scenario. A malicious strategist (Bob) created new PublicVaults with amounts of 10000E18 for three different tokens on different networks. When Alice as a liquidator deposited 11000e18 TokenB into the vault, the attacker (Bob) was able to withdraw most of Alice's added TokenB.\n\nThe bug was identified by referencing the code in the Github repository. Recommended mitigation steps include using OpenZeppelin’s SafeERC20 instead of solmate’s library. The severity of the bug was decreased to Medium due to the credibility of the attack path described.",
+      "report_date": {},
+      "contest_prize_txt": "$90,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-01-astaria",
+      "sponsor_name": "Astaria",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-01-astaria",
+      "github_link": "https://github.com/code-423n4/2023-01-astaria-findings/issues/158",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "202",
+      "slug": "m-25-vault-can-be-created-for-not-yet-existing-erc20-tokens-which-allows-attackers-to-set-traps-to-steal-nfts-from-borrowers-code4rena-astaria-astaria-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Astaria",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Astaria",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Token Existence"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "External Call"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2936",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 4,
+      "protocol_id": "193",
+      "title": "[M-03] Put option sellers can prevent exercise by specifying zero amounts, or non-existant tokens",
+      "content": "_Submitted by IllIllI, also found by 0xNineDec, exd0tpy, and zzzitron_\n\nPut option buyers pay an option premium to the seller for the privilege of being able to 'put' assets to the seller and get the strike price for it rather than the current market price. If they're unable to perform the 'put', they've paid the premium for nothing, and essentially have had funds stolen from them.\n\n### Proof of Concept\n\nIf the put option seller includes in `order.erc20Assets`, an amount of zero for any of the assets, or specifies an asset that doesn't currently have any code at its address, the put buyer will be unable to exercise the option, and will have paid the premium for nothing:\n\n```solidity\nFile: contracts/src/PuttyV2.sol   #1\n\n453               // transfer assets from exerciser to putty\n454               _transferERC20sIn(order.erc20Assets, msg.sender);\n```\n\n<https://github.com/code-423n4/2022-06-putty/blob/3b6b844bc39e897bd0bbb69897f2deff12dc3893/contracts/src/PuttyV2.sol#L453-L454>\n\nThe function reverts if any amount is equal to zero, or the asset doesn't exist:\n\n```solidity\nFile: contracts/src/PuttyV2.sol   #2\n\n593       function _transferERC20sIn(ERC20Asset[] memory assets, address from) internal {\n594           for (uint256 i = 0; i < assets.length; i++) {\n595               address token = assets[i].token;\n596               uint256 tokenAmount = assets[i].tokenAmount;\n597   \n598               require(token.code.length > 0, \"ERC20: Token is not contract\");\n599               require(tokenAmount > 0, \"ERC20: Amount too small\");\n600   \n601               ERC20(token).safeTransferFrom(from, address(this), tokenAmount);\n602           }\n603       }\n```\n\n<https://github.com/code-423n4/2022-06-putty/blob/3b6b844bc39e897bd0bbb69897f2deff12dc3893/contracts/src/PuttyV2.sol#L593-L603>\n\n### Recommended Mitigation Steps\n\nVerify the asset amounts and addresses during `fillOrder()`, and allow exercise if the token no longer exists at that point in time.\n\n**[outdoteth (Putty Finance) confirmed and commented](https://github.com/code-423n4/2022-06-putty-findings/issues/223#issuecomment-1177638096):**\n > At the contract level there exists 2 possible mitigations;\n> \n> 1) Remove the zero amount check (not feasible because it will cause another DOS issue for tokens that revert on 0 transfer).\n> 2) Check all erc20 assets are valid in `fillOrder` (gas tradeoff because it requires an O(n) loop to check).\n> \n> Instead, the best mitigation imo is to add a check on the frontend/db level to ensure that all erc20 assets have a token amount greater than 0 and that it exists as a contract.\n> \n> If users want to go lower level than the db/frontend then they must exercise their own diligence.\n> \n> edit: decided to go with a 3rd option instead.\n> \n> Simply skip the ERC20 transfer if the amount is 0.<br>\n>\n> Report: Setting an erc20Asset with a zero amount or with no code at the address will result in a revert when exercising a put option.\n\n**[outdoteth (Putty Finance) resolved](https://github.com/code-423n4/2022-06-putty-findings/issues/223#issuecomment-1185412355):**\n > PR with fix: https://github.com/outdoteth/putty-v2/pull/8.\n\n**hyh (warden) reviewed mitigation:**\n > Fixed zero amount part by introducing the noop for zero amount transfers in both `_transferERC20sIn` and `_transferERC20sOut` ERC20 transfer functions. The second part of the issue, fake tokens, is similar to [M-01](https://github.com/code-423n4/2022-06-putty-findings/issues/50), [M-02](https://github.com/code-423n4/2022-06-putty-findings/issues/227).\n\n***\n\n",
+      "summary": "\nThis bug report describes a vulnerability that affects Put option buyers in the PuttyV2.sol contract. If the put option seller includes in `order.erc20Assets`, an amount of zero for any of the assets, or specifies an asset that doesn't currently have any code at its address, the put buyer will be unable to exercise the option, and will have paid the premium for nothing. The vulnerability was identified through code inspection. To mitigate the issue, it is recommended to verify the asset amounts and addresses during `fillOrder()`, and allow exercise if the token no longer exists at that point in time.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-06-putty-contest",
+      "sponsor_name": "Putty",
+      "sponsor_link": "https://twitter.com/puttyfi",
+      "quality_score": 4,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2022-06-putty",
+      "github_link": "https://github.com/code-423n4/2022-06-putty-findings/issues/223",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "142",
+      "slug": "m-03-put-option-sellers-can-prevent-exercise-by-specifying-zero-amounts-or-non-existant-tokens-code4rena-putty-putty-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Putty",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Putty",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Payments"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Options Vault"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Token Existence"
+          }
+        }
+      ]
+    },
+    {
+      "id": "1691",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "268",
+      "title": "[M-06] OperateProxy.callFunction() should check if the callee is a contract",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2022-03-rolla/blob/efe4a3c1af8d77c5dfb5ba110c3507e67a061bdd/quant-protocol/contracts/utils/OperateProxy.sol#L10-L19\n\n\n## Vulnerability details\n\nhttps://github.com/code-423n4/2022-03-rolla/blob/efe4a3c1af8d77c5dfb5ba110c3507e67a061bdd/quant-protocol/contracts/Controller.sol#L550-L558\n\n```solidity\n    /// @notice Allows a sender/signer to make external calls to any other contract.\n    /// @dev A separate OperateProxy contract is used to make the external calls so\n    /// that the Controller, which holds funds and has special privileges in the Quant\n    /// Protocol, is never the `msg.sender` in any of those external calls.\n    /// @param _callee The address of the contract to be called.\n    /// @param _data The calldata to be sent to the contract.\n    function _call(address _callee, bytes memory _data) internal {\n        IOperateProxy(operateProxy).callFunction(_callee, _data);\n    }\n```\n\nhttps://github.com/code-423n4/2022-03-rolla/blob/efe4a3c1af8d77c5dfb5ba110c3507e67a061bdd/quant-protocol/contracts/utils/OperateProxy.sol#L10-L19\n\n```solidity\n    function callFunction(address callee, bytes memory data) external override {\n        require(\n            callee != address(0),\n            \"OperateProxy: cannot make function calls to the zero address\"\n        );\n\n        (bool success, bytes memory returnData) = address(callee).call(data);\n        require(success, \"OperateProxy: low-level call failed\");\n        emit FunctionCallExecuted(tx.origin, returnData);\n    }\n```\n\nAs the `OperateProxy.sol#callFunction()` function not payable, we believe it's not the desired behavior to call a non-contract address and consider it a successful call.\n\nFor example, if a certain business logic requires a successful `token.transferFrom()` call to be made with the `OperateProxy`, if the `token` is not a existing contract, the call will return `success: true` instead of `success: false` and break the caller's assumption and potentially malfunction features or even cause fund loss to users.\n\nThe qBridge exploit (January 2022) was caused by a similar issue.\n\nAs a reference, OpenZeppelin's `Address.functionCall()` will check and `require(isContract(target), \"Address: call to non-contract\");`\n\nhttps://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.5.0/contracts/utils/Address.sol#L135\n\n```solidity\n    function functionCallWithValue(\n        address target,\n        bytes memory data,\n        uint256 value,\n        string memory errorMessage\n    ) internal returns (bytes memory) {\n        require(address(this).balance >= value, \"Address: insufficient balance for call\");\n        require(isContract(target), \"Address: call to non-contract\");\n\n        (bool success, bytes memory returndata) = target.call{value: value}(data);\n        return verifyCallResult(success, returndata, errorMessage);\n    }\n```\n\nhttps://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.5.0/contracts/utils/Address.sol#L36-L42\n\n```solidity\n    function isContract(address account) internal view returns (bool) {\n        // This method relies on extcodesize/address.code.length, which returns 0\n        // for contracts in construction, since the code is only stored at the end\n        // of the constructor execution.\n\n        return account.code.length > 0;\n    }\n```\n\n### Recommendation\n\nConsider adding a check and throw when the `callee` is not a contract.",
+      "summary": "\nThis bug report is about the `OperateProxy.sol#callFunction()` function in the Quant Protocol. This function allows a sender/signer to make external calls to any other contract, but does not check if the callee is a contract or not. If the callee is not a contract, the call will still return `success: true` instead of `success: false`, which can potentially break the caller's assumption and malfunction features or even cause fund loss to users. As a reference, OpenZeppelin's `Address.functionCall()` will check and throw an error when the callee is not a contract. The report recommends adding a similar check to the `OperateProxy.sol#callFunction()` function to prevent potential problems.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-03-rolla-contest",
+      "sponsor_name": "Rolla",
+      "sponsor_link": "https://twitter.com/RollaFinance",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2022-03-rolla",
+      "github_link": "https://github.com/code-423n4/2022-03-rolla-findings/issues/46",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "98",
+      "slug": "m-06-operateproxycallfunction-should-check-if-the-callee-is-a-contract-code4rena-rolla-rolla-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Rolla",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Rolla",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Options Vault"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Delegate"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Token Existence"
+          }
+        }
+      ]
+    }
+  ]
+}

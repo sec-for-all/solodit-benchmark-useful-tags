@@ -1,0 +1,185 @@
+{
+  "tag": "EIP-2981",
+  "count": 2,
+  "metadata": {
+    "totalResults": 2,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 11,
+    "reset": 1771761060
+  },
+  "findings": [
+    {
+      "id": "3005",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "187",
+      "title": "[M-04] The `FERC1155.sol` don't respect the EIP2981",
+      "content": "_Submitted by 0x29A_\n\nThe [EIP-2981: NFT Royalty Standard](https://eips.ethereum.org/EIPS/eip-2981) implementation is incomplete, missing the implementation of `function supportsInterface(bytes4 interfaceID) external view returns (bool);` from the [EIP-165: Standard Interface Detection](https://eips.ethereum.org/EIPS/eip-165).\n\n### Proof of Concept\n\nA marketplace that implemented royalties could check if the NFT has royalties, but if they don't, add the interface of `ERC2981` on the `_registerInterface`, the marketplace can't know if this NFT has royalties.\n\n### Recommended Mitigation Steps\n\nLike in [solmate ERC1155.sol](https://github.com/Rari-Capital/solmate/blob/03e425421b24c4f75e4a3209b019b367847b7708/src/tokens/ERC1155.sol#L137-L146) add the `ERC2981` interfaceId on the `FERC1155` contract\n\n```solidity\n    /*//////////////////////////////////////////////////////////////\n                              ERC165 LOGIC\n    //////////////////////////////////////////////////////////////*/\n\n    function supportsInterface(bytes4 interfaceId) public view  override returns (bool) {\n        return\n            super.supportsInterface(interfaceId) ||\n            interfaceId == 0x2a55205a; // ERC165 Interface ID for ERC2981\n    }\n```\n\n**[aklatham (Fractional) confirmed](https://github.com/code-423n4/2022-07-fractional-findings/issues/544)** \n\n**[HardlyDifficult (judge) commented](https://github.com/code-423n4/2022-07-fractional-findings/issues/544#issuecomment-1208112166):**\n > The contract implements the ERC2981 getter but does not register it as a 165 interface. Agree with the warden that this is a Medium risk issue. This is a function of the protocol and it may not work with many external marketplaces because it does not yet follow the standard as expected.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about an incomplete implementation of the EIP-2981: NFT Royalty Standard. The implementation is missing the implementation of `function supportsInterface(bytes4 interfaceID) external view returns (bool);` from the EIP-165: Standard Interface Detection. This means that a marketplace implemented royalties could check if the NFT have royalties, but if the `ERC2981` interface is not added to the `_registerInterface`, the marketplace will not be able to know if the NFT has royalties. The bug was identified manually and the recommended mitigation step is to add the `ERC2981` interfaceId on the `FERC1155` contract, like in the `solmate ERC1155.sol` from the Rari-Capital repository.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-07-fractional-v2-contest",
+      "sponsor_name": "Fractional",
+      "sponsor_link": "https://twitter.com/fractional_art",
+      "quality_score": 4,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2022-07-fractional",
+      "github_link": "https://github.com/code-423n4/2022-07-fractional-findings/issues/544",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "144",
+      "slug": "m-04-the-ferc1155sol-dont-respect-the-eip2981-code4rena-fractional-fractional-v2-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Fractional",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Fractional",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "supportsInterface"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC2981"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "EIP-2981"
+          }
+        }
+      ]
+    },
+    {
+      "id": "1594",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "277",
+      "title": "[M-16] Inappropriate support of EIP-2981",
+      "content": "_Submitted by WatchPug_\n\n[NFTMarketCreators.sol#L65-L82](https://github.com/code-423n4/2022-02-foundation/blob/4d8c8931baffae31c7506872bf1100e1598f2754/contracts/mixins/NFTMarketCreators.sol#L65-L82)<br>\n\n```solidity\nif (nftContract.supportsERC165Interface(type(IRoyaltyInfo).interfaceId)) {\n  try IRoyaltyInfo(nftContract).royaltyInfo{ gas: READ_ONLY_GAS_LIMIT }(tokenId, BASIS_POINTS) returns (\n    address receiver,\n    uint256 /* royaltyAmount */\n  ) {\n    if (receiver != address(0)) {\n      recipients = new address payable[](1);\n      recipients[0] = payable(receiver);\n      // splitPerRecipientInBasisPoints is not relevant when only 1 recipient is defined\n      if (receiver == seller) {\n        return (recipients, splitPerRecipientInBasisPoints, true);\n      }\n    }\n  } catch // solhint-disable-next-line no-empty-blocks\n  {\n    // Fall through\n  }\n}\n```\n\nThe current implementation of EIP-2981 support will always pass a constant `BASIS_POINTS` as the `_salePrice`.\n\nAs a result, the recipients that are supposed to receive less than 1 BPS of the salePrice may end up not receiving any royalties.\n\nFurthermore, for the NFTs with the total royalties rate set less than 10% for some reason, the current implementation will scale it up to 10%.\n\n### Recommended Mitigation Steps\n\n1.  Instead of passing a constant of 10,000 as the `_salePrice`, we suggest using the actual `_salePrice`, so there the royalties can be paid for recipients with less than 1 BPS of the royalties.\n2.  When the total royalties cut is lower than 10%, it should be honored. It's capped at 10% only when the total royalties cut is higher than 10%.\n\n**[NickCuso (Foundation) acknowledged and commented](https://github.com/code-423n4/2022-02-foundation-findings/issues/58#issuecomment-1062159151):**\n > Yes, these are valid points and something we will consider revisiting in the future.\n> \n> RE recommendations:\n>  1) This can only impact < 0.01% of the payment so not a concern ATM. It may be more appropriate to better honor exact amounts, but it's a non-trivial change to an important code path so we will leave it as-is for now. With payments that small, it's probably more appropriate to be using a contract to manage the payouts - e.g. https://www.0xsplits.xyz/ could handle this well.\n>  2) I agree. ATM we always enforce exactly 10% so that there is a consistent experience with our market and on our website. We will revisit this in the future, and the idea of capping it to 10% but accepting lower is a great one.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report details an issue with the implementation of EIP-2981 support in the code. Currently, the code always passes a constant of 10,000 as the '_salePrice', which means that recipients that are supposed to receive less than 1 BPS of the salePrice may end up not receiving any royalties. Additionally, if the total royalties cut is lower than 10%, the code will scale it up to 10%. The report recommends two changes to the code: use the actual '_salePrice' so that royalties can be paid for recipients with less than 1 BPS of the royalties, and honor the total royalties cut if it is lower than 10%.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-02-foundation-contest",
+      "sponsor_name": "Foundation",
+      "sponsor_link": "https://twitter.com/foundation",
+      "quality_score": 5,
+      "general_score": 3,
+      "source_link": "https://code4rena.com/reports/2022-02-foundation",
+      "github_link": "https://github.com/code-423n4/2022-02-foundation-findings/issues/58",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "94",
+      "slug": "m-16-inappropriate-support-of-eip-2981-code4rena-foundation-foundation-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Foundation",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Foundation",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Indexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Royalty"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC2981"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "EIP-2981"
+          }
+        }
+      ]
+    }
+  ]
+}

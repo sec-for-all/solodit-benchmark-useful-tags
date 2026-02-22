@@ -1,0 +1,704 @@
+{
+  "tag": "EIP-4626",
+  "count": 9,
+  "metadata": {
+    "totalResults": 9,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 8,
+    "reset": 1771761060
+  },
+  "findings": [
+    {
+      "id": "26085",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "922",
+      "title": "[M-16] `vMaia` is ERC-4626 compliant, but the `maxWithdraw` & `maxRedeem` functions are not fully up to EIP-4626's specification",
+      "content": "\nThe `maxWithdraw` & `maxRedeem` functions should return the `0` when the withdrawal is paused. But here, it's returning `balanceOf[user]`.\n\n### Proof of Concept\n\n`vMaia Withdrawal` is only allowed once per month during the 1st Tuesday (UTC+0) of the month.\n\nIt's checked by the below function:\n\n```\n\n     102       function beforeWithdraw(uint256, uint256) internal override {\n                /// @dev Check if unstake period has not ended yet, continue if it is the case.\n                if (unstakePeriodEnd >= block.timestamp) return;\n        \n                uint256 _currentMonth = DateTimeLib.getMonth(block.timestamp);\n                if (_currentMonth == currentMonth) revert UnstakePeriodNotLive();\n        \n                (bool isTuesday, uint256 _unstakePeriodStart) = DateTimeLib.isTuesday(block.timestamp);\n                if (!isTuesday) revert UnstakePeriodNotLive();\n        \n                currentMonth = _currentMonth;\n                unstakePeriodEnd = _unstakePeriodStart + 1 days;\n    114        }\n```\n\n<https://github.com/code-423n4/2023-05-maia/blob/main/src/maia/vMaia.sol#L102C1-L114C6>\n\n```\n\n    173            function maxWithdraw(address user) public view virtual override returns (uint256) {\n                      return balanceOf[user];\n                  }\n              \n                  /// @notice Returns the maximum amount of assets that can be redeemed by a user.\n                  /// @dev Assumes that the user has already forfeited all utility tokens.\n                  function maxRedeem(address user) public view virtual override returns (uint256) {\n                      return balanceOf[user];\n    181              }\n```\n<https://github.com/code-423n4/2023-05-maia/blob/main/src/maia/tokens/ERC4626PartnerManager.sol#L173C3-L181C6>\n\nOther than that period (during the 1st Tuesday (UTC+0) of the month ), the `maxWithdraw` & `maxRedeem` functions should return the `0`.\n\nAccording to [EIP-4626 specifications](<https://eips.ethereum.org/EIPS/eip-4626>):\n\n`maxWithdraw`\n\n     MUST factor in both global and user-specific limits, like if withdrawals are entirely disabled (even temporarily) it MUST\n     return 0.\n\n`maxRedeem`\n\n     MUST factor in both global and user-specific limits, like if redemption is entirely disabled (even temporarily) it MUST\n     return 0.\n\n### Recommended Mitigation Steps\n\nUse an if-else block and if the time period is within the 1st Tuesday (UTC+0) of the month, return `balanceOf[user]` and `else` return `0`.\n\nFor more information, reference [here](<https://blog.openzeppelin.com/pods-finance-ethereum-volatility-vault-audit-2#non-standard-erc-4626-vault-functionality>).\n\n### Assessed type\n\nERC4626\n\n**[0xLightt (Maia) confirmed](https://github.com/code-423n4/2023-05-maia-findings/issues/585#issuecomment-1655656724)**\n\n**[0xLightt (Maia) commented](https://github.com/code-423n4/2023-05-maia-findings/issues/585#issuecomment-1709162142):**\n > Addressed [here](https://github.com/Maia-DAO/eco-c4-contest/tree/585).\n\n***\n\n",
+      "summary": "\nThis bug report is about the `maxWithdraw` & `maxRedeem` functions in the ERC4626 contract. The functions should return `0` when the withdrawal is paused, according to the EIP-4626 specifications. However, it was returning the `balanceOf[user]`.\n\nThe `vMaia Withdrawal` is only allowed once per month during the 1st Tuesday (UTC+0) of the month. This is checked by the function beforeWithdraw which checks if the unstake period has not ended yet and if it is the 1st Tuesday of the month. If not, it reverts the UnstakePeriodNotLive.\n\nThe recommended mitigation steps are to use an if-else block and if the time period is within the 1st Tuesday (UTC+0) of the month, return `balanceOf[user]` and `else` return `0`. This was confirmed and addressed by 0xLightt (Maia).",
+      "report_date": {},
+      "contest_prize_txt": "$300,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-05-maia",
+      "sponsor_name": "Maia DAO Ecosystem",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-05-maia",
+      "github_link": "https://github.com/code-423n4/2023-05-maia-findings/issues/585",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "242",
+      "slug": "m-16-vmaia-is-erc-4626-compliant-but-the-maxwithdraw-maxredeem-functions-are-not-fully-up-to-eip-4626s-specification-code4rena-maia-dao-ecosystem-maia-dao-ecosystem-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Maia DAO Ecosystem",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Maia DAO Ecosystem",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 202630.75
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 202630.75
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 202630.75
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 202630.75
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "EIP-4626"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC4626"
+          }
+        }
+      ]
+    },
+    {
+      "id": "26071",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "922",
+      "title": "[M-02] Slippage controls for calling `bHermes` contract's `ERC4626DepositOnly.deposit` and `ERC4626DepositOnly.mint` functions are missing",
+      "content": "\n[EIPS](<https://eips.ethereum.org/EIPS/eip-4626#security-considerations>) mentions that \"if implementors intend to support EOA account access directly, they should consider adding an additional function call for `deposit`/`mint`/`withdraw`/`redeem` with the means to accommodate slippage loss or unexpected deposit/withdrawal limits, since they have no other means to revert the transaction if the exact output amount is not achieved.\"\n\nUsing the `bHermes` contract that inherits the `ERC4626DepositOnly` contract, EOAs can call the `ERC4626DepositOnly.deposit` and `ERC4626DepositOnly.mint` functions directly. However, because no slippage controls can be specified when calling these functions, these function's `shares` and `assets` outputs can be less than expected to these EOAs.\n\n<https://github.com/code-423n4/2023-05-maia/blob/53c7fe9d5e55754960eafe936b6cb592773d614c/src/erc-4626/ERC4626DepositOnly.sol#L32-L44>\n\n```solidity\n    function deposit(uint256 assets, address receiver) public virtual returns (uint256 shares) {\n        // Check for rounding error since we round down in previewDeposit.\n        require((shares = previewDeposit(assets)) != 0, \"ZERO_SHARES\");\n\n        // Need to transfer before minting or ERC777s could reenter.\n        address(asset).safeTransferFrom(msg.sender, address(this), assets);\n\n        _mint(receiver, shares);\n\n        emit Deposit(msg.sender, receiver, assets, shares);\n\n        afterDeposit(assets, shares);\n    }\n```\n\n<https://github.com/code-423n4/2023-05-maia/blob/53c7fe9d5e55754960eafe936b6cb592773d614c/src/erc-4626/ERC4626DepositOnly.sol#L47-L58>\n\n```solidity\n    function mint(uint256 shares, address receiver) public virtual returns (uint256 assets) {\n        assets = previewMint(shares); // No need to check for rounding error, previewMint rounds up.\n\n        // Need to transfer before minting or ERC777s could reenter.\n        address(asset).safeTransferFrom(msg.sender, address(this), assets);\n\n        _mint(receiver, shares);\n\n        emit Deposit(msg.sender, receiver, assets, shares);\n\n        afterDeposit(assets, shares);\n    }\n```\n\nIn contrast, the `UlyssesRouter.addLiquidity` function does control the slippage by including the `minOutput` input and executing `amount = ulysses.deposit(amount, msg.sender)` and `if (amount < minOutput) revert OutputTooLow()`. Although such slippage control for an ERC-4626 vault exists in this protocol's other contract, it does not exist in the `bHermes` contract. As a result, EOAs can mint less `bHermes` shares than expected when calling the `bHermes` contract's `ERC4626DepositOnly.deposit` function and send and burn more `HERMES` tokens than expected when calling the `bHermes` contract's `ERC4626DepositOnly.mint` function.\n\n<https://github.com/code-423n4/2023-05-maia/blob/53c7fe9d5e55754960eafe936b6cb592773d614c/src/ulysses-amm/UlyssesRouter.sol#L49-L56>\n\n```solidity\n    function addLiquidity(uint256 amount, uint256 minOutput, uint256 poolId) external returns (uint256) {\n        UlyssesPool ulysses = getUlyssesLP(poolId);\n\n        amount = ulysses.deposit(amount, msg.sender);\n\n        if (amount < minOutput) revert OutputTooLow();\n        return amount;\n    }\n```\n\n### Proof of Concept\n\nThe following steps can occur for the described scenario involving the `bHermes` contract's `ERC4626DepositOnly.mint` function. The case involving the `bHermes` contract's `ERC4626DepositOnly.deposit` function is similar to this:\n\n1. Alice wants to mint 1e18 `bHermes` shares in exchange for sending and burning 1e18 `HERMES` tokens.\n2. Alice calls the `bHermes` contract's `ERC4626DepositOnly.mint` function with the `shares` input being 1e18.\n3. Yet, such `ERC4626DepositOnly.mint` function call causes 1.2e18 `HERMES` tokens to be transferred from Alice.\n4. Alice unexpectedly sends, burns, and loses 0.2e18 more `HERMES` tokens than expected for minting 1e18 `bHermes` shares.\n\n### Tools Used\n\nVSCode\n\n### Recommended Mitigation Steps\n\nThe `bHermes` contract can be updated to include a `deposit` function that allows `msg.sender` to specify the minimum `bHermes` shares to be minted for calling the corresponding `ERC4626DepositOnly.deposit` function; calling such `bHermes.deposit` function should revert if the corresponding `ERC4626DepositOnly.deposit` function's `shares` output is less than the specified minimum `bHermes` shares to be minted. Similarly, the `bHermes` contract can also include a `mint` function that allows `msg.sender` to specify the maximum `HERMES` tokens to be sent for calling the corresponding `ERC4626DepositOnly.mint` function; calling such `bHermes.mint` function should revert if the corresponding `ERC4626DepositOnly.mint` function's `assets` output is more than the specified maximum `HERMES` tokens to be sent.\n\n**[0xLightt (Maia) acknowledged](https://github.com/code-423n4/2023-05-maia-findings/issues/901#issuecomment-1633189718)**\n\n**[0xLightt (Maia) commented](https://github.com/code-423n4/2023-05-maia-findings/issues/901#issuecomment-1655667861):**\n > The reason this is not being addressed directly in this contract is we prefer to use a periphery contract like a generalized ERC4626 router to account for slippage and deadlines.\n\n***\n\n",
+      "summary": "\nThis bug report is about the `bHermes` contract that inherits the `ERC4626DepositOnly` contract. When `msg.sender` calls the `ERC4626DepositOnly.deposit` and `ERC4626DepositOnly.mint` functions directly, there are no slippage controls, meaning that the `shares` and `assets` outputs can be less than expected. For example, when Alice calls the `bHermes` contract's `ERC4626DepositOnly.mint` function with the `shares` input being 1e18, 1.2e18 `HERMES` tokens are transferred from Alice, meaning Alice unexpectedly sends, burns, and loses 0.2e18 more `HERMES` tokens than expected for minting 1e18 `bHermes` shares.\n\nTo mitigate this issue, the `bHermes` contract can be updated to include a `deposit` function that allows `msg.sender` to specify the minimum `bHermes` shares to be minted for calling the corresponding `ERC4626DepositOnly.deposit` function, and a `mint` function that allows `msg.sender` to specify the maximum `HERMES` tokens to be sent for calling the corresponding `ERC4626DepositOnly.mint` function. Both of these functions should revert if the corresponding `ERC4626DepositOnly.deposit` or `ERC4626DepositOnly.mint` function's `shares` or `assets` output is less than the specified minimum `bHermes` shares or more than the specified maximum `HERMES` tokens.",
+      "report_date": {},
+      "contest_prize_txt": "$300,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-05-maia",
+      "sponsor_name": "Maia DAO Ecosystem",
+      "sponsor_link": "",
+      "quality_score": 2,
+      "general_score": 1,
+      "source_link": "https://code4rena.com/reports/2023-05-maia",
+      "github_link": "https://github.com/code-423n4/2023-05-maia-findings/issues/901",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "242",
+      "slug": "m-02-slippage-controls-for-calling-bhermes-contracts-erc4626depositonlydeposit-and-erc4626depositonlymint-functions-are-missing-code4rena-maia-dao-ecosystem-maia-dao-ecosystem-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Maia DAO Ecosystem",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Maia DAO Ecosystem",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 202630.75
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 202630.75
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 202630.75
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 202630.75
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Slippage"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC4626"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "EIP-4626"
+          }
+        }
+      ]
+    },
+    {
+      "id": "20567",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "16",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "964",
+      "title": "[M-02] The ERC4626 standard is not followed correctly",
+      "content": "**Impact:**\nMedium, as functionality is not working as expected but without a value loss\n\n**Likelihood:**\nMedium, as multiple methods are not compliant with the standard\n\n**Description**\n\nAs per EIP-4626, the `maxDeposit` method \"MUST factor in both global and user-specific limits, like if deposits are entirely disabled (even temporarily) it MUST return 0.\". This is not the case currently, as even if the contract is paused, the `maxDeposit` method will still return what it usually does.\n\nWhen it comes to the `decimals` method, the EIP says: \"Although the convertTo functions should eliminate the need for any use of an EIP-4626 Vault’s decimals variable, it is still strongly recommended to mirror the underlying token’s decimals if at all possible, to eliminate possible sources of confusion and simplify integration across front-ends and for other off-chain users.\"\nThe `LoanVault` contract has hardcoded the value of 18 to be returned when `decimals` are called, but it should be the decimals of the underlying token (it might not be 18 in some case maybe).\n\n**Recommendations**\n\nGo through [the standard](https://eips.ethereum.org/EIPS/eip-4626) and follow it for all methods that `override` methods from the inherited ERC4626 implementation.",
+      "summary": "\nThis bug report concerns two methods of the LoanVault contract, `maxDeposit` and `decimals`, which are not compliant with the Ethereum Improvement Proposal (EIP) 4626 standard. The `maxDeposit` method should return 0 if deposits are disabled, but currently it will still return a value. The `decimals` method should mirror the underlying token’s decimals, but it is currently hardcoded to return 18. \n\nThe impact of this bug is medium, as the functionality is not working as expected but without a value loss. The likelihood is also medium, as multiple methods are not compliant with the standard. The recommendation is to go through the EIP-4626 standard and follow it for all methods that override methods from the inherited ERC4626 implementation.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 2,
+      "general_score": 2,
+      "source_link": "https://github.com/solodit/solodit_content/blob/main/reports/Pashov/2023-04-01-Florence Finance.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "m-02-the-erc4626-standard-is-not-followed-correctly-pashov-none-florence-finance-markdown",
+      "firm_name": "Pashov Audit Group",
+      "firm_logo_square": "Pashov_square.png",
+      "protocol_name": "Florence Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Pashov Audit Group",
+        "logo_square": "Pashov_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Florence Finance",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "EIP-4626"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Decimals"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7308",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "HIGH",
+      "finders_count": 4,
+      "protocol_id": "41",
+      "title": "WithdrawProxy allows redemptions before PublicVault callstransferWithdrawReserve",
+      "content": "## Severity: High Risk\n\n## Context\n`WithdrawProxy.sol#L172-L175`\n\n## Description\nAnytime there is a withdrawal pending (i.e., someone holds WithdrawProxy shares), shares may be redeemed as long as `totalAssets() > 0` and `s.finalAuctionEnd == 0`. Under normal operating conditions, `totalAssets()` becomes greater than 0 when the `PublicVault` calls `transferWithdrawReserve`. \n\n`totalAssets()` can also be increased to a non-zero value by anyone transferring WETH to the contract. If this occurs and a user attempts to redeem, they will receive a smaller share than they are owed.\n\n### Exploit Scenario\n- Depositor redeems from `PublicVault` and receives WithdrawProxy shares.\n- Malicious actor deposits a small amount of WETH into the WithdrawProxy.\n- Depositor accidentally redeems, or is tricked into redeeming, from the WithdrawProxy while `totalAssets()` is smaller than it should be.\n- `PublicVault` properly processes epoch and full `withdrawReserve` is sent to the WithdrawProxy.\n- All remaining holders of WithdrawProxy shares receive an outsized share as the previous shares were redeemed for the incorrect value.\n\n## Recommendation\n\n### Option 1\nConsider being explicit in opening the WithdrawProxy for redemptions (`redeem/withdraw`) by requiring `s.withdrawReserveReceived` to be a non-zero value:\n\n```solidity\nif (s.finalAuctionEnd != 0) {\n    // Updated condition\n    if (s.finalAuctionEnd != 0 || s.withdrawReserveReceived == 0) {\n        // if finalAuctionEnd is 0, no auctions were added\n        revert InvalidState(InvalidStates.NOT_CLAIMED);\n    }\n}\n```\nAstaria notes there is a second scenario where funds are sent to the WithdrawProxy: auction payouts. For the above recommendation to be complete, auction payouts or claiming MUST also set `withdrawReserveReceived`.\n\n### Option 2\nInstead of inferring when it is safe to withdraw based on `finalAuctionEnd` and `withdrawReserveReceived`, consider explicitly marking the withdrawals as open when it is both safe to withdraw (i.e., expected funds deposited) and the vault has claimed its share.",
+      "summary": "\nThis bug report is about the WithdrawProxy.sol#L172-L175. It states that if anyone transfers WETH to the contract, totalAssets() will become greater than 0, and if someone attempts to redeem their shares then they will receive a smaller share than they are owed. It then explains the exploit scenario and provides two recommendations. \n\nThe first recommendation is to consider being explicit in opening the WithdrawProxy for redemptions by requiring s.withdrawReserveReceived to be a non-zero value. The second recommendation is to explicitly mark the withdraws as open when it is both safe to withdraw and the vault has claimed its share. \n\nIn conclusion, this bug report is about a vulnerability in the WithdrawProxy.sol#L172-L175 that can lead to a malicious actor manipulating the totalAssets() and resulting in users receiving a smaller share than they are owed. It provides two recommendations to fix the issue.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Astaria-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Astaria-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/Astaria-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 32,
+      "contest_id": "",
+      "slug": "withdrawproxy-allows-redemptions-before-publicvault-callstransferwithdrawreserve-spearbit-astaria-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Astaria",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Astaria",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Business Logic"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Validation"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "EIP-4626"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC4626"
+          }
+        }
+      ]
+    },
+    {
+      "id": "22014",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 10,
+      "protocol_id": "900",
+      "title": "[M-17] Malicious Users Can Drain The Assets Of Vault. (Due to not being ERC4626 Complaint)",
+      "content": "\nMalicious users can drain the assets of the vault.\n\n### Proof of Concept\n\nThe `withdraw` function users `convertToShares` to convert the assets to the amount of shares. These shares are burned from the users account and the assets are returned to the user.\n\nThe function `withdraw` is shown below:\n\n```solidity\nfunction withdraw(\n        uint256 assets,\n        address receiver,\n        address owner\n    ) public nonReentrant syncFeeCheckpoint returns (uint256 shares) {\n        if (receiver == address(0)) revert InvalidReceiver();\n\n        shares = convertToShares(assets);\n/// .... [skipped the code]\n```\n\nThe function `convertToShares` is shown below:\n\n```solidity\nfunction convertToShares(uint256 assets) public view returns (uint256) {\n        uint256 supply = totalSupply(); // Saves an extra SLOAD if totalSupply is non-zero.\n\n        return\n            supply == 0\n                ? assets\n                : assets.mulDiv(supply, totalAssets(), Math.Rounding.Down);\n    }\n```\n\nIt uses `Math.Rounding.Down` , but it should use `Math.Rounding.Up`\n\nAssume that the vault with the following state:\n\n*   Total Asset = 1000 WETH\n*   Total Supply = 10 shares\n\nAssume that Alice wants to withdraw 99 WETH from the vault. Thus, she calls the **`Vault.withdraw(99 WETH)`** function.\n\nThe calculation would go like this:\n\n```solidity\nassets = 99\nreturn value = assets * supply / totalAssets()\nreturn value = 99 * 10 / 1000\nreturn value = 0\n```\n\nThe value would be rounded round to zero. This will be the amount of shares burned from users account, which is zero.\n\nHence user can drain the assets from the vault without burning their shares.\n\n> Note : A similar issue also exists in `mint` functionality where `Math.Rounding.Down` is used and `Math.Rounding.Up` should be used.\n\n### Recommended Mitigation Steps\n\nUse `Math.Rounding.Up` instead of `Math.Rounding.Down`.\n\nAs per OZ implementation here is the rounding method that should be used:\n\n`deposit` : `convertToShares` → `Math.Rounding.Down`\n\n`mint` : `converttoAssets` → `Math.Rounding.Up`\n\n`withdraw` : `convertToShares` → `Math.Rounding.Up`\n\n`redeem` : `convertToAssets` →  `Math.Rounding.Down`\n\n**[RedVeil (Popcorn) confirmed, but disagreed with severity](https://github.com/code-423n4/2023-01-popcorn-findings/issues/471)** \n\n**[LSDan (judge) decreased severity to Medium](https://github.com/code-423n4/2023-01-popcorn-findings/issues/471)** \n\n\n***\n\n",
+      "summary": "\nA bug has been found in the `withdraw` function of a vault, which allows malicious users to drain the assets of the vault without burning their shares. The bug is caused by the use of `Math.Rounding.Down` instead of `Math.Rounding.Up` in the `convertToShares` function. \n\nTo illustrate the issue, assume the vault has 1000 WETH in total assets and 10 shares in total supply. If Alice wants to withdraw 99 WETH from the vault by calling the `Vault.withdraw(99 WETH)` function, the calculation would be: `99 * 10 / 1000 = 0`, and the value would be rounded down to zero. This means that the amount of shares burned from Alice's account would be zero, allowing her to drain the assets from the vault without burning her shares.\n\nA similar issue also exists in the `mint` functionality, where `Math.Rounding.Down` is used and `Math.Rounding.Up` should be used. To fix this issue, the following rounding methods should be used: `deposit` → `convertToShares` → `Math.Rounding.Down`; `mint` → `converttoAssets` → `Math.Rounding.Up`; `withdraw` → `convertToShares` → `Math.Rounding.Up`; `redeem` → `convertToAssets` →  `Math.Rounding.Down`. The bug has been confirmed by RedVeil (Popcorn) and the severity has been decreased to Medium by LSDan (judge).",
+      "report_date": {},
+      "contest_prize_txt": "$90,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-01-popcorn",
+      "sponsor_name": "Popcorn",
+      "sponsor_link": "",
+      "quality_score": 2,
+      "general_score": 2,
+      "source_link": "https://code4rena.com/reports/2023-01-popcorn",
+      "github_link": "https://github.com/code-423n4/2023-01-popcorn-findings/issues/471",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "211",
+      "slug": "m-17-malicious-users-can-drain-the-assets-of-vault-due-to-not-being-erc4626-complaint-code4rena-popcorn-popcorn-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Popcorn",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Popcorn",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 1
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Rounding"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC4626"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "EIP-4626"
+          }
+        }
+      ]
+    },
+    {
+      "id": "25839",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "41",
+      "title": "[M-23] Function `withdraw()` and `redeem()` in ERC4626RouterBase would revert always because they have unnecessary allowance setting",
+      "content": "\n<https://github.com/AstariaXYZ/astaria-gpl/blob/4b49fe993d9b807fe68b3421ee7f2fe91267c9ef/src/ERC4626RouterBase.sol#L48><br>\n<https://github.com/AstariaXYZ/astaria-gpl/blob/4b49fe993d9b807fe68b3421ee7f2fe91267c9ef/src/ERC4626RouterBase.sol#L62>\n\nFunctions withdraw() and redeem()  in ERC4626RouterBase  are used to withdraw user funds from vaults and they call `vault.withdraw()` and `vault.redeem()` and logics in vault transfer user shares and user required to give spending allowance for vault and there is no need for ERC4626RouterBase to set approval for vault and because those approved tokens won't be used and code uses `safeApprove()` so next calls to `withdraw()` and `redeem()` would revert because code would tries to change allowance amount while it's not zero. those functions would revert always and AstariaRouter uses them and user won't be able to use those function and any other protocol integrating with Astaria calling those function would have broken logic. also if UI interact with protocol with router functions then UI would have broken parts too. and functions in router support users to set slippage allowance and without them users have to interact with vault directly and they may lose funds because of the slippage.\n\n### Proof of Concept\n\nThis is `withdraw()` and `redeem()` code in ERC4626RouterBase:\n\n      function withdraw(\n        IERC4626 vault,\n        address to,\n        uint256 amount,\n        uint256 maxSharesOut\n      ) public payable virtual override returns (uint256 sharesOut) {\n\n        ERC20(address(vault)).safeApprove(address(vault), amount);\n        if ((sharesOut = vault.withdraw(amount, to, msg.sender)) > maxSharesOut) {\n          revert MaxSharesError();\n        }\n      }\n\n      function redeem(\n        IERC4626 vault,\n        address to,\n        uint256 shares,\n        uint256 minAmountOut\n      ) public payable virtual override returns (uint256 amountOut) {\n\n        ERC20(address(vault)).safeApprove(address(vault), shares);\n        if ((amountOut = vault.redeem(shares, to, msg.sender)) < minAmountOut) {\n          revert MinAmountError();\n        }\n      }\n\nAs you can see the code sets approval for vault to spend routers vault tokens and then call vault function. This is `_redeemFutureEpoch()` code in the vault which handles withdraw and redeem:\n\n      function _redeemFutureEpoch(\n        VaultData storage s,\n        uint256 shares,\n        address receiver,\n        address owner,\n        uint64 epoch\n      ) internal virtual returns (uint256 assets) {\n        // check to ensure that the requested epoch is not in the past\n\n        ERC20Data storage es = _loadERC20Slot();\n\n        if (msg.sender != owner) {\n          uint256 allowed = es.allowance[owner][msg.sender]; // Saves gas for limited approvals.\n\n          if (allowed != type(uint256).max) {\n            es.allowance[owner][msg.sender] = allowed - shares;\n          }\n        }\n\n        if (epoch < s.currentEpoch) {\n          revert InvalidState(InvalidStates.EPOCH_TOO_LOW);\n        }\n        require((assets = previewRedeem(shares)) != 0, \"ZERO_ASSETS\");\n        // check for rounding error since we round down in previewRedeem.\n\n        //this will underflow if not enough balance\n        es.balanceOf[owner] -= shares;\n\n        // Cannot overflow because the sum of all user\n        // balances can't exceed the max uint256 value.\n        unchecked {\n          es.balanceOf[address(this)] += shares;\n        }\n\n        emit Transfer(owner, address(this), shares);\n        // Deploy WithdrawProxy if no WithdrawProxy exists for the specified epoch\n        _deployWithdrawProxyIfNotDeployed(s, epoch);\n\n        emit Withdraw(msg.sender, receiver, owner, assets, shares);\n\n        // WithdrawProxy shares are minted 1:1 with PublicVault shares\n        WithdrawProxy(s.epochData[epoch].withdrawProxy).mint(shares, receiver);\n      }\n\nAs you can see this code only checks spending allowance that real owner of shares gives to the `msg.sender` and there is no check or updating spending allowance of the router vaulttokens for vault. so those approvals in the `withdraw()` and `redeem()` are unnecessary and they would cause code to revert always because code tries to set approval with `safeApprove()` while the current allowance is not zero.\n\nThis issue would cause calls to withdraw() and redeem() function to revert. any other protocol integrating with Astaria using those functions would have broken logic and also users would lose gas if they use those functions. contract AstariaRouter inherits ERC4626RouterBase and uses its `withdraw()` and `redeem()` function so users can't call `AstariaRouter.withdraw()` or `AstariaRouter.redeem()`which supports slippage allowance and they have to call vault's functions directly and they may lose funds because of the slippage.\n\n### Tools Used\n\nVIM\n\n### Recommended Mitigation Steps\n\nRemove unnecessary code.\n\n**[androolloyd (Astaria) confirmed](https://github.com/code-423n4/2023-01-astaria-findings/issues/175)**\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about the functions `withdraw()` and `redeem()` in the ERC4626RouterBase contract. These functions are used to withdraw user funds from vaults and they call `vault.withdraw()` and `vault.redeem()` and logics in the vault transfer user shares. The code uses `safeApprove()` which sets an approval for the vault to spend router vault tokens. The problem is that there is no need for ERC4626RouterBase to set approval for the vault and because those approved tokens won't be used, the code tries to change allowance amount while it's not zero, causing calls to `withdraw()` and `redeem()` to revert. This issue would cause any other protocol integrating with Astaria using those functions to have broken logic and users would lose gas if they use those functions. Furthermore, users would have to call vault's functions directly, which may lead to lost funds due to slippage.\n\nThe recommended mitigation steps for this issue are to remove the unnecessary code. Androolloyd (Astaria) has confirmed the bug report.",
+      "report_date": {},
+      "contest_prize_txt": "$90,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-01-astaria",
+      "sponsor_name": "Astaria",
+      "sponsor_link": "",
+      "quality_score": 1,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-01-astaria",
+      "github_link": "https://github.com/code-423n4/2023-01-astaria-findings/issues/175",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "202",
+      "slug": "m-23-function-withdraw-and-redeem-in-erc4626routerbase-would-revert-always-because-they-have-unnecessary-allowance-setting-code4rena-astaria-astaria-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Astaria",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Astaria",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "SafeApprove"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC4626"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "EIP-4626"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        }
+      ]
+    },
+    {
+      "id": "25838",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 3,
+      "protocol_id": "41",
+      "title": "[M-22] `ERC4626RouterBase.withdraw` can only be called once",
+      "content": "\nERC4626RouterBase.withdraw will approve an amount of vault tokens to the vault, but the amount represents the number of asset tokens taken out by vault.withdraw, not the required number of vault tokens, and since it normally requires less than 1 vault token to take out 1 asset token, it will prevent ERC4626RouterBase.withdraw from using all approved vault tokens.\n\n```solidity\n  function withdraw(\n    IERC4626 vault,\n    address to,\n    uint256 amount,\n    uint256 maxSharesOut\n  ) public payable virtual override returns (uint256 sharesOut) {\n\n    ERC20(address(vault)).safeApprove(address(vault), amount);\n    if ((sharesOut = vault.withdraw(amount, to, msg.sender)) > maxSharesOut) {\n      revert MaxSharesError();\n    }\n  }\n```\n\nand since safeApprove cannot approve a non-zero value to a non-zero value, the second call to ERC4626RouterBase.withdraw will fails in safeApprove.\n\n```solidity\n    function safeApprove(\n        IERC20 token,\n        address spender,\n        uint256 value\n    ) internal {\n        // safeApprove should only be called when setting an initial allowance,\n        // or when resetting it to zero. To increase and decrease it, use\n        // 'safeIncreaseAllowance' and 'safeDecreaseAllowance'\n        require(\n            (value == 0) || (token.allowance(address(this), spender) == 0),\n            \"SafeERC20: approve from non-zero to non-zero allowance\"\n        );\n        _callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, value));\n    }\n```\n\n### Proof of Concept\n\n<https://github.com/AstariaXYZ/astaria-gpl/blob/4b49fe993d9b807fe68b3421ee7f2fe91267c9ef/src/ERC4626RouterBase.sol#L41-L52>\n\n### Recommended Mitigation Steps\n\nChange to\n\n```diff\n  function withdraw(\n    IERC4626 vault,\n    address to,\n    uint256 amount,\n-   uint256 maxSharesOut\n+  uint256 maxSharesIn\n  ) public payable virtual override returns (uint256 sharesOut) {\n+   ERC20(address(vault)).safeApprove(address(vault), maxSharesIn);\n+   if ((sharesIn = vault.withdraw(amount, to, msg.sender)) > maxSharesIn) {\n-   ERC20(address(vault)).safeApprove(address(vault), amount);\n-   if ((sharesOut = vault.withdraw(amount, to, msg.sender)) > maxSharesOut) {\n      revert MaxSharesError();\n    }\n+   ERC20(address(vault)).safeApprove(address(vault), 0);\n\n  }\n```\n\n**[SantiagoGregory (Astaria) confirmed via duplicate issue `#467`](https://github.com/code-423n4/2023-01-astaria-findings/issues/467#event-8415375984)**\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about the ERC4626RouterBase.withdraw function, which is used to approve an amount of vault tokens to the vault. The amount represents the number of asset tokens taken out by vault.withdraw, not the required number of vault tokens, and since it normally requires less than 1 vault token to take out 1 asset token, it will prevent ERC4626RouterBase.withdraw from using all approved vault tokens. This is because the safeApprove function cannot approve a non-zero value to a non-zero value, and the second call to ERC4626RouterBase.withdraw will fail in safeApprove.\n\nTo mitigate this issue, the code should be changed to include a maxSharesIn parameter and an associated safeApprove call, and a call to reset the allowance to 0. A proof of concept is available on Github, and SantiagoGregory (Astaria) has confirmed the issue via duplicate issue #467.",
+      "report_date": {},
+      "contest_prize_txt": "$90,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-01-astaria",
+      "sponsor_name": "Astaria",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-01-astaria",
+      "github_link": "https://github.com/code-423n4/2023-01-astaria-findings/issues/228",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "202",
+      "slug": "m-22-erc4626routerbasewithdraw-can-only-be-called-once-code4rena-astaria-astaria-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Astaria",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Astaria",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC4626"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "EIP-4626"
+          }
+        }
+      ]
+    },
+    {
+      "id": "25822",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 8,
+      "protocol_id": "41",
+      "title": "[M-06] For a public vault, minimum deposit requirement that is enforced by `ERC4626Cloned.deposit` function can be bypassed by `ERC4626Cloned.mint` function or vice versa when share price does not equal one",
+      "content": "\nThe following `ERC4626Cloned.deposit` function has `require(shares > minDepositAmount(), \"VALUE_TOO_SMALL\")` as the minimum deposit requirement, and the `ERC4626Cloned.mint` function below has `require(assets > minDepositAmount(), \"VALUE_TOO_SMALL\")` as the minimum deposit requirement. For a public vault, when the share price becomes different than 1, these functions' minimum deposit requirements are no longer the same. For example, given `S` is the `shares` input value for the `ERC4626Cloned.mint` function and `A` equals `ERC4626Cloned.previewMint(S)`, when the share price is bigger than 1 and `A` equals `minDepositAmount() + 1`, such `A` will violate the `ERC4626Cloned.deposit` function's minimum deposit requirement but the corresponding `S` will not violate the `ERC4626Cloned.mint` function's minimum deposit requirement; in this case, the user can just ignore the `ERC4626Cloned.deposit` function and call `ERC4626Cloned.mint` function to become a liquidity provider. Thus, when the public vault's share price is different than 1, the liquidity provider can call the less restrictive function out of the two so the minimum deposit requirement enforced by one of the two functions is not effective at all; this can result in unexpected deposit amounts and degraded filtering of who can participate as a liquidity provider.\n\n<https://github.com/AstariaXYZ/astaria-gpl/blob/main/src/ERC4626-Cloned.sol#L19-L36>\n\n```solidity\n  function deposit(uint256 assets, address receiver)\n    public\n    virtual\n    returns (uint256 shares)\n  {\n    // Check for rounding error since we round down in previewDeposit.\n    require((shares = previewDeposit(assets)) != 0, \"ZERO_SHARES\");\n\n    require(shares > minDepositAmount(), \"VALUE_TOO_SMALL\");\n    // Need to transfer before minting or ERC777s could reenter.\n    ERC20(asset()).safeTransferFrom(msg.sender, address(this), assets);\n\n    _mint(receiver, shares);\n\n    ...\n  }\n```\n\n<https://github.com/AstariaXYZ/astaria-gpl/blob/main/src/ERC4626-Cloned.sol#L38-L52>\n\n```solidity\n  function mint(\n    uint256 shares,\n    address receiver\n  ) public virtual returns (uint256 assets) {\n    assets = previewMint(shares); // No need to check for rounding error, previewMint rounds up.\n    require(assets > minDepositAmount(), \"VALUE_TOO_SMALL\");\n    // Need to transfer before minting or ERC777s could reenter.\n    ERC20(asset()).safeTransferFrom(msg.sender, address(this), assets);\n\n    _mint(receiver, shares);\n\n    ...\n  }\n```\n\n### Proof of Concept\n\nPlease add the following test in `src\\test\\AstariaTest.t.sol`. This test will pass to demonstrate the described scenario.\n\n```solidity\n  function testMinimumDepositRequirementForPublicVaultThatIsEnforcedByDepositFunctionCanBeBypassedByMintFunctionOfERC4626ClonedContractWhenSharePriceIsNotOne() public {\n    uint256 budget = 50 ether;\n    address alice = address(1);\n    address bob = address(2);\n    vm.deal(bob, budget);\n\n    TestNFT nft = new TestNFT(2);\n    _mintNoDepositApproveRouter(address(nft), 5);\n    address tokenContract = address(nft);\n    uint256 tokenId = uint256(0);\n\n    address publicVault = _createPublicVault({\n      strategist: strategistOne,\n      delegate: strategistTwo,\n      epochLength: 14 days\n    });\n\n    // after alice deposits 50 ether WETH in publicVault, publicVault's share price becomes 1\n    _lendToVault(Lender({addr: alice, amountToLend: budget}), publicVault);\n\n    // the borrower borrows 10 ether WETH from publicVault\n    (, ILienToken.Stack[] memory stack1) = _commitToLien({\n      vault: publicVault,\n      strategist: strategistOne,\n      strategistPK: strategistOnePK,\n      tokenContract: tokenContract,\n      tokenId: tokenId,\n      lienDetails: standardLienDetails,\n      amount: 10 ether,\n      isFirstLien: true\n    });\n    uint256 collateralId = tokenContract.computeId(tokenId);\n\n    // the borrower repays for the lien after 9 days, and publicVault's share price becomes bigger than 1\n    vm.warp(block.timestamp + 9 days);\n    _repay(stack1, 0, 100 ether, address(this));\n\n    vm.startPrank(bob);\n\n    // bob owns 50 ether WETH\n    WETH9.deposit{value: budget}();\n    WETH9.approve(publicVault, budget);\n\n    uint256 assetsIn = 100 gwei + 1;\n\n    // for publicVault at this moment, 99265705739 shares are equivalent to (100 gwei + 1) WETH according to previewMint function\n    uint256 sharesIn = IERC4626(publicVault).convertToShares(assetsIn);\n    assertEq(sharesIn, 99265705739);\n    assertEq(IERC4626(publicVault).previewMint(sharesIn), assetsIn);\n    \n    // bob is unable to call publicVault's deposit function for depositing (100 gwei + 1) WETH\n    vm.expectRevert(bytes(\"VALUE_TOO_SMALL\"));\n    IERC4626(publicVault).deposit(assetsIn, bob);\n\n    // bob is also unable to call publicVault's deposit function for depositing a little more than (100 gwei + 1) WETH\n    vm.expectRevert(bytes(\"VALUE_TOO_SMALL\"));\n    IERC4626(publicVault).deposit(assetsIn + 100, bob);\n\n    // however, bob is able to call publicVault's mint function for minting 99265705739 shares while transferring (100 gwei + 1) WETH to publicVault\n    IERC4626(publicVault).mint(sharesIn, bob);\n\n    vm.stopPrank();\n  }\n```\n\n### Tools Used\n\nVSCode\n\n### Recommended Mitigation Steps\n\nThe `ERC4626Cloned.deposit` function can be updated to directly compare the `assets` input to `minDepositAmount()` for the minimum deposit requirement while keeping the `ERC4626Cloned.mint` function as is. Alternatively, the `ERC4626Cloned.mint` function can be updated to directly compare the `shares` input to `minDepositAmount()` for the minimum deposit requirement while keeping the `ERC4626Cloned.deposit` function as is.\n\n**[SantiagoGregory (Astaria) confirmed](https://github.com/code-423n4/2023-01-astaria-findings/issues/486)**\n\n\n\n***\n\n",
+      "summary": "\nA bug has been reported in the `ERC4626Cloned.deposit` and `ERC4626Cloned.mint` functions of the Astaria project. These functions have `require(shares > minDepositAmount(), \"VALUE_TOO_SMALL\")` and `require(assets > minDepositAmount(), \"VALUE_TOO_SMALL\")` as the minimum deposit requirement, respectively. For a public vault, when the share price becomes different than 1, these functions' minimum deposit requirements are no longer the same. This can result in unexpected deposit amounts and degraded filtering of who can participate as a liquidity provider.\n\nTo test this bug, a test was added to `src\\test\\AstariaTest.t.sol` which passes to demonstrate the described scenario. To mitigate this issue, the `ERC4626Cloned.deposit` function can be updated to directly compare the `assets` input to `minDepositAmount()` for the minimum deposit requirement while keeping the `ERC4626Cloned.mint` function as is. Alternatively, the `ERC4626Cloned.mint` function can be updated to directly compare the `shares` input to `minDepositAmount()` for the minimum deposit requirement while keeping the `ERC4626Cloned.deposit` function as is. This was confirmed by SantiagoGregory (Astaria).",
+      "report_date": {},
+      "contest_prize_txt": "$90,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-01-astaria",
+      "sponsor_name": "Astaria",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-01-astaria",
+      "github_link": "https://github.com/code-423n4/2023-01-astaria-findings/issues/486",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "202",
+      "slug": "m-06-for-a-public-vault-minimum-deposit-requirement-that-is-enforced-by-erc4626cloneddeposit-function-can-be-bypassed-by-erc4626clonedmint-function-or-vice-versa-when-share-price-does-not-equal-one-code4rena-astaria-astaria-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Astaria",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Astaria",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC4626"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "EIP-4626"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5780",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 6,
+      "protocol_id": "152",
+      "title": "[H-08] Vault.sol is not EIP-4626 compliant",
+      "content": "\n<https://github.com/code-423n4/2022-09-y2k-finance/blob/ac3e86f07bc2f1f51148d2265cc897e8b494adf7/src/Vault.sol#L244-L252>\n\n<https://github.com/code-423n4/2022-09-y2k-finance/blob/ac3e86f07bc2f1f51148d2265cc897e8b494adf7/src/SemiFungibleVault.sol#L205-L213>\n\n<https://github.com/code-423n4/2022-09-y2k-finance/blob/ac3e86f07bc2f1f51148d2265cc897e8b494adf7/src/SemiFungibleVault.sol#L237-L239>\n\n<https://github.com/code-423n4/2022-09-y2k-finance/blob/ac3e86f07bc2f1f51148d2265cc897e8b494adf7/src/SemiFungibleVault.sol#L244-L246>\n\n<https://github.com/code-423n4/2022-09-y2k-finance/blob/ac3e86f07bc2f1f51148d2265cc897e8b494adf7/src/SemiFungibleVault.sol#L251-L258>\n\n<https://github.com/code-423n4/2022-09-y2k-finance/blob/ac3e86f07bc2f1f51148d2265cc897e8b494adf7/src/SemiFungibleVault.sol#L263-L270>\n\n### Impact\n\nOther protocols that integrate with Y2K may wrongly assume that the functions are EIP-4626 compliant. Thus, it might cause integration problems in the future that can lead to wide range of issues for both parties.\n\n### Proof of Concept\n\nAll official EIP-4626 requirements can be found on it's [official page](https://eips.ethereum.org/EIPS/eip-4626#methods). Non-compliant functions are listed below along with the reason they are not compliant:\n\nThe following functions are missing but should be present:\n\n1.  mint(uint256, address) returns (uint256)\n2.  redeem(uint256, address, address) returns (uint256)\n\nThe following functions are non-compliant because they don't account for withdraw and deposit locking:\n\n1.  maxDeposit\n2.  maxMint\n3.  maxWithdraw\n4.  maxRedeem\n\nAll of the above functions should return 0 when their respective functions are disabled (i.e. maxDeposit should return 0 when deposits are disabled)\n\npreviewDeposit is not compliant because it must account for fees which it does not\n\ntotalAssets is not compliant because it does not always return the underlying managed by the vault because it fails to include the assets paid out during a depeg or the end of the epoch.\n\n### Recommended Mitigation Steps\n\nAll functions listed above should be modified to meet the specifications of EIP-4626.\n\n**[MiguelBits (Y2K Finance) confirmed](https://github.com/code-423n4/2022-09-y2k-finance-findings/issues/47)** \n\n**[HickupHH3 (judge) commented](https://github.com/code-423n4/2022-09-y2k-finance-findings/issues/47#issuecomment-1280253435):**\n > The premise is valid because it's stated in the README:\n> > Y2K leverages ERC4626 Vault standard for this protocol, this contract is a fork of that standard, although we replaced all uses of ERC20 to ERC1155. \n> \n> As per the ruling in a [previous contest regarding EIP4626](https://github.com/code-423n4/2022-06-notional-coop-findings/issues/155).\n> \n> > Judging this and all duplicate regarding EIP4626 implementation as High Risk.\n> EIP4626 is aimed to create a consistent and robust implementation patterns for Tokenized Vaults. A slight deviation from 4626 would broke composability and potentially lead to loss of funds. It is counterproductive to implement EIP4626 but does not conform to it fully.\n> \n> The missing functions are the most problematic; one expects the `mint()` and `redeem()` to be present, but they're absent instead.\n> \n> Disagree on the `max*()` functions issues; `SemiFungibleVault` is not pausable, functions can't be disabled / paused. Perhaps the inheriting contracts should override these functions, but the way I see it, they can be arbitrarily set in the template.\n> \n> Agree on subsequent points mentioned.\n> \n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about the functions in the code listed on the GitHub repository that are not compliant with EIP-4626. This issue can lead to integration problems in the future and a wide range of issues for both parties. The functions that are non-compliant and the reason why they are not compliant are listed in the report. All functions should be modified to meet the specifications of EIP-4626 to mitigate this issue. This bug report provides the tools used and the recommended mitigation steps to address the issue.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-09-y2k-finance-contest",
+      "sponsor_name": "Y2k Finance",
+      "sponsor_link": "https://twitter.com/Y2kFinance",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2022-09-y2k-finance",
+      "github_link": "https://github.com/code-423n4/2022-09-y2k-finance-findings/issues/47",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "162",
+      "slug": "h-08-vaultsol-is-not-eip-4626-compliant-code4rena-y2k-finance-y2k-finance-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Y2k Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Y2k Finance",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Insurance"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "EIP-4626"
+          }
+        }
+      ]
+    }
+  ]
+}

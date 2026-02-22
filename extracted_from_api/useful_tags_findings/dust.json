@@ -1,0 +1,414 @@
+{
+  "tag": "Dust",
+  "count": 5,
+  "metadata": {
+    "totalResults": 5,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 15,
+    "reset": 1771761000
+  },
+  "findings": [
+    {
+      "id": "6285",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 4,
+      "protocol_id": "54",
+      "title": "M-4: Dust amounts can cause payments to fail, leading to default",
+      "content": "Source: https://github.com/sherlock-audit/2023-01-cooler-judging/issues/218 \n\n## Found by \nkiki\\_dev, HollaDieWaldfee, IllIllI, ak1\n\n## Summary\n\nDust amounts can cause payments to fail, leading to default\n\n\n## Vulnerability Detail\n\nIn order for a loan to close, the exact right number of wei of the debt token must be sent to match the remaining loan amount. If more is sent, the balance underflows, reverting the transaction.\n\n\n## Impact\n\nAn attacker can send dust amounts right before a loan is due, front-running any payments also destined for the final block before default. If the attacker's transaction goes in first, the borrower will be unable to pay back the loan before default, and will lose thier remaining collateral. This may be the whole loan amount.\n\n\n## Code Snippet\n\nIf the repayment amount isn't exactly the remaining loan amount, and instead is more (due to the dust payment), the subtraction marked below will underflow, reverting the payment:\n```solidity\n// File: src/Cooler.sol : Cooler.repay()   #1\n\n108        function repay (uint256 loanID, uint256 repaid) external {\n109            Loan storage loan = loans[loanID];\n110    \n111            if (block.timestamp > loan.expiry) \n112                revert Default();\n113            \n114            uint256 decollateralized = loan.collateral * repaid / loan.amount;\n115    \n116           if (repaid == loan.amount) delete loans[loanID];\n117           else {\n118 @>             loan.amount -= repaid;\n119                loan.collateral -= decollateralized;\n120            }\n121    \n122            debt.transferFrom(msg.sender, loan.lender, repaid);\n123            collateral.transfer(owner, decollateralized);\n124:       }\n```\nhttps://github.com/sherlock-audit/2023-01-cooler/blob/main/src/Cooler.sol#L108-L124\n\n\n## Tool used\n\nManual Review\n\n\n## Recommendation\n\nOnly collect and subtract the minimum of the current loan balance, and the amount specified in the `repaid` variable\n\n\n## Discussion\n\n**hrishibhat**\n\nSponsor comment:\n> Good spot. Niche case.",
+      "summary": "\nThis bug report is about an issue found in the code of the Cooler.sol file of the Sherlock Audit project. The issue is that when a loan is due, if a dust amount is sent, the balance underflows and the transaction reverts, leading to default. This means that an attacker can send a dust amount right before the loan is due, front-running any payments also destined for the final block before default. If the attacker's transaction goes in first, the borrower will be unable to pay back the loan before default, and will lose their remaining collateral.\n\nThe bug was found by kiki_dev, HollaDieWaldfee, IllIllI, and ak1, and was identified using manual review. The recommendation is to only collect and subtract the minimum of the current loan balance and the amount specified in the repaid variable. Hrishibhat commented that it was a good spot. The sponsor commented that it was a niche case.",
+      "report_date": {},
+      "contest_prize_txt": "10000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/36",
+      "sponsor_name": "cooler",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-01-cooler-judging/issues/218",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "36",
+      "slug": "m-4-dust-amounts-can-cause-payments-to-fail-leading-to-default-sherlock-cooler-cooler-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Cooler",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Cooler",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Revert By Sending Dust"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Front-Running"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Dust"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Business Logic"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7017",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "MEDIUM",
+      "finders_count": 5,
+      "protocol_id": "53",
+      "title": "Dust might be trapped in WlsETH when burning one's balance.",
+      "content": "## Security Analysis Report\n\n## Severity\n**Medium Risk**\n\n## Context\n*WLSETH.1.sol#L140*\n\n## Description\nIt is not possible to burn the exact amount of minted/deposited lsETH back because the _value provided to burn is in ETH. \n\nAssume we've called `mint(r,v)` with our address `r`, then to get the `v` lsETH back to our address, we need to find an `x` where:\n\n\\[ v = \\frac{b \\cdot x \\cdot S}{B} \\]\n\nand call `burn(r, x)` (Here `S` represents the total share of lsETH and `B` the total underlying value.). \n\nIt's not always possible to find the exact `x`, so there will always be an amount locked in this contract:\n\n\\[ v \\neq \\frac{b \\cdot x \\cdot S}{B} \\]\n\nThese dust amounts can accumulate from different users and turn into a significant number. To get the full amount back, the user needs to mint more wlsETH tokens so that we can find an exact solution to:\n\n\\[ v = \\frac{b \\cdot x \\cdot S}{B} \\]\n\nThe extra amount to get the locked-up fees back can be engineered. The same problem exists for `transfer` and `transferFrom`. \n\nAlso note, if you have minted `x` amount of shares, the `balanceOf` would tell you that you own:\n\n\\[ b = \\frac{b \\cdot x \\cdot B}{S \\cdot wlsETH} \\]\n\nInternally, wlsETH keeps track of the shares `x`. So users think they can only burn `b` amount, plug that in for the _value, and in this case, the number of shares burnt would be:\n\n\\[\n\\frac{b \\cdot x \\cdot B}{S \\cdot C \\cdot B\\%}\n\\]\n\nwhich has even more rounding errors. wlsETH could internally track the underlying but that would not provide appropriate value like lsETH, which would basically be kind of wETH. \n\nWe think the issue of not being able to transfer your full amount of shares is not as serious as not being able to burn back your shares into lsETH. \n\nOn the same note, we believe it would be beneficial to expose the wlsETH share amount to the end user:\n\n```solidity\nfunction sharesBalanceOf(address _owner) external view returns (uint256 shares) {\n    return BalanceOf.get(_owner);\n}\n```\n\n## Recommendation\nAllow the burn function to use the share amount as the unit of _value instead of avoiding locking up these dust amounts.\n\n**Alluvial**: Recommendation implemented in PR SPEARBIT/5.  \n**Spearbit**: Acknowledged.",
+      "summary": "\nThis bug report is about the WLSETH.1.sol#L140. It is not possible to burn the exact amount of minted/deposited lsETH back because of the _value provided to burn is in ETH. The user needs to mint more wlsETH tokens so that they can find an exact solution to v= bxS\nBc. This causes dust amounts to accumulate from different users and turn into a big number. It is not always possible to find the exact x. wlsETH could internally track the underlying but that would not appropriate value like lsETH. A recommendation is made to allow the burn function to use the share amount as the unit of _value instead of avoiding locking up these dust amounts. This recommendation is implemented in PR SPEARBIT/5 and is acknowledged.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LiquidCollective-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LiquidCollective-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/LiquidCollective-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 22,
+      "contest_id": "",
+      "slug": "dust-might-be-trapped-in-wlseth-when-burning-ones-balance-spearbit-liquid-collective-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Liquid Collective",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Liquid Collective",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 67.10914421941607
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Fund Lock"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Dust"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3520",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "105",
+      "title": "M-2: Rounding error when call function `dodoMultiswap()` can lead to revert of transaction or fund of user",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-dodo-judging/issues/45 \n\n## Found by \nTrungOre\n\n## Summary\nThe calculation of the proportion when do the split swap in function `_multiSwap` doesn't care about the rounding error \n\n## Vulnerability Detail\nThe amount of `midToken` will be transfered to the each adapter can be calculated by formula `curAmount = curTotalAmount * weight / totalWeight`\n```solidity=\nif (assetFrom[i - 1] == address(this)) {\n    uint256 curAmount = curTotalAmount * curPoolInfo.weight / curTotalWeight;\n\n\n    if (curPoolInfo.poolEdition == 1) {\n        //For using transferFrom pool (like dodoV1, Curve), pool call transferFrom function to get tokens from adapter\n        IERC20(midToken[i]).transfer(curPoolInfo.adapter, curAmount);\n    } else {\n        //For using transfer pool (like dodoV2), pool determine swapAmount through balanceOf(Token) - reserve\n        IERC20(midToken[i]).transfer(curPoolInfo.pool, curAmount);\n    }\n}\n```\nIt will lead to some scenarios when `curTotalAmount * curPoolInfo.weight` is not divisible by `curTotalWeight`, there will be some token left after the swap.\n\nFor some tx, if user set a `minReturnAmount` strictly, it may incur the reversion. \nFor some token with small decimal and high value, it can make a big loss for the sender. \n\n## Impact\n* Revert the transaction because not enough amount of `toToken`\n* Sender can lose a small amount of tokens \n\n## Code Snippet\nhttps://github.com/sherlock-audit/2022-11-dodo/blob/main/contracts/SmartRoute/DODORouteProxy.sol#L415-L425\n\n## Tool used\nManual review \n\n## Recommendation\nAdd a accumulation variable to maintain the total amount is transfered after each split swap. In the last split swap, instead of calculating the `curAmount` by formula above, just take the remaining amount to swap.",
+      "summary": "\nThis bug report is about a rounding error in the function `dodoMultiswap()` when doing a split swap, which can lead to a transaction reverting or the sender losing a small amount of tokens. The calculation of the proportion when doing the split swap in the function `_multiSwap` doesn't take into account the rounding error, which can lead to scenarios where `curTotalAmount * curPoolInfo.weight` is not divisible by `curTotalWeight`, leaving some tokens after the swap. If a user sets a `minReturnAmount` strictly, it may cause the transaction to revert. For tokens with small decimals and high values, it can cause a big loss for the sender. \n\nThe code snippet linked in the report can be found in the `DODORouteProxy.sol` file on line 415 to 425. The bug was discovered manually by TrungOre.\n\nThe recommendation is to add a accumulation variable to maintain the total amount that is transferred after each split swap. In the last split swap, instead of calculating the `curAmount` by the formula mentioned above, the remaining amount should be taken to swap.",
+      "report_date": {},
+      "contest_prize_txt": "10000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/21",
+      "sponsor_name": "dodo",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-dodo-judging/issues/45",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "21",
+      "slug": "m-2-rounding-error-when-call-function-dodomultiswap-can-lead-to-revert-of-transaction-or-fund-of-user-sherlock-dodo-dodo-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "DODO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "DODO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Dust"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2883",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "198",
+      "title": "[M-08] Rebases can be frontrun with very little token downtime even when warmUpPeriod > 0",
+      "content": "_Submitted by 0x52, also found by elprofesor_\n\nRebases can be frontrun with very little token downtime even when `warmUpPeriod > 0`.\n\n### Proof of Concept\n\n<https://github.com/code-423n4/2022-06-yieldy/blob/524f3b83522125fb7d4677fa7a7e5ba5a2c0fe67/src/contracts/Staking.sol#L415-L417>\n\n<https://github.com/code-423n4/2022-06-yieldy/blob/524f3b83522125fb7d4677fa7a7e5ba5a2c0fe67/src/contracts/Staking.sol#L703>\n\nA user can call stake the block before epoch.endTime <= block.timestamp, allowing the user to bypass the forced rebase called in L416 of the the stake function. If warmUpPeriod > 0 then the user will receive a \"warmUpInfo\" with the value of their deposit. The very next block, the user can then call instantUnstakeCurve.\n\n<https://github.com/code-423n4/2022-06-yieldy/blob/524f3b83522125fb7d4677fa7a7e5ba5a2c0fe67/src/contracts/Staking.sol#L600-L627>\n\nThis will call rebase again in L633 and this time epoch.endTime <= block.timestamp will be true and it will trigger an actual rebase, distributing the pending rewards. \\_retrieveBalanceFromUser (L617) will then allows the user to unstake all the funds locked in warm up. The issue is that when unstaking it uses userWarmInfo.credits meaning that any rebalance rewards are kept. This allows the user to get in, collect the rebase, then immediately get out.\n\n### Recommended Mitigation Steps\n\nBeing able to unstake tokens even when in the warm up period is a useful feature but tokens unstaked during that period should not be allowed to accumulate any rebases or it can lead to situations like this. L537-L539 should be changed to:\n`warmUpBalance = userWarmInfo.amount`.\n\n**[toshiSat (Yieldy) acknowledged](https://github.com/code-423n4/2022-06-yieldy-findings/issues/226)** \n\n\n***\n\n",
+      "summary": "\nThis bug report outlines a vulnerability in the Staking.sol code of the 2022-06-yieldy project on Github. This vulnerability allows a user to frontrun a rebase with very little token downtime, even when the warmUpPeriod is greater than 0. The user can call the stake function before the epoch.endTime is less than or equal to the block.timestamp, allowing them to bypass the forced rebase. If the warmUpPeriod is greater than 0, the user will receive a \"warmUpInfo\" with the value of their deposit. The very next block, the user can then call instantUnstakeCurve, which will call rebase again, triggering an actual rebase. This will distribute pending rewards to the user. _retrieveBalanceFromUser will then allow the user to unstake all the funds locked in warm up, collecting the rebase rewards.\n\nThe recommended mitigation steps for this vulnerability are to change the code in L537-L539 to warmUpBalance = userWarmInfo.amount, so that tokens unstaked during the warm up period cannot accumulate any rebases. This will prevent users from exploiting the vulnerability by getting in, collecting the rebase, and then immediately getting out.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-06-yieldy-contest",
+      "sponsor_name": "Yieldy",
+      "sponsor_link": "https://twitter.com/shapeshift",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-06-yieldy",
+      "github_link": "https://github.com/code-423n4/2022-06-yieldy-findings/issues/31",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "139",
+      "slug": "m-08-rebases-can-be-frontrun-with-very-little-token-downtime-even-when-warmupperiod-0-code4rena-yieldy-yieldy-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Yieldy",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Yieldy",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Dust"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Front-Running"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2261",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 4,
+      "protocol_id": "227",
+      "title": "[M-18] DoS: Attacker may significantly increase the cost of withdrawExcessRewards() by creating a significant number of excess receipts",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2022-05-factorydao/blob/db415804c06143d8af6880bc4cda7222e5463c0e/contracts/PermissionlessBasicPoolFactory.sol#L245\n\n\n## Vulnerability details\n\n## Impact\n\nAn attacker may cause a DoS attack on `withdrawExcessRewards()` by creating a excessive number of `receipts` with minimal value. Each of these receipts will need to be withdrawn before the owner can call `withdrawExcessRewards()`. \n\nThe impact is the owner would have to pay an unbounded amount of gas to `withdraw()` all the accounts and receive their excess funds.\n\n## Proof of Concept\n\n`withdrawExcessRewards()` has the requirement that `totalDepositsWei` for the pool is zero before the owner may call this function as seen on line 245.\n\n```solidity\n        require(pool.totalDepositsWei == 0, 'Cannot withdraw until all deposits are withdrawn');\n```\n\n`pool.totalDepositsWei` is added to each time a user calls `deposit()`. It is increased by the amount the user deposits. There are no restrictions on the amount that may be deposited as a result a user may add 1 wei (or the smallest unit on any currency) which has negligible value.\n\nThe owner can force withdraw these accounts by calling `withdraw()` so long as `block.timestamp > pool.endTime`. They would be required to do this for each account that was created.\n\nThis could be a significant amount of gas costs, especially if the gas price has increased since the attacker originally made the deposits.\n\n## Recommended Mitigation Steps\n\nConsider adding a minimum deposit amount for each pool that can be configured by the pool owner.\n\nAlternatively, allow the owner to call `withdrawExcessRewards()` given some other criteria such as \n- A fix period of time (e.g. 1 month) has passed since the end of the auction; and\n- 90% of the deposits have been withdrawn\nThese criteria can be customised as desired by the design team.",
+      "summary": "\nThis bug report is about a potential Denial of Service (DoS) attack on the function withdrawExcessRewards() in the PermissionlessBasicPoolFactory.sol contract. An attacker could create a large number of accounts with minimal value deposits, which would need to be withdrawn before the owner can call withdrawExcessRewards(). This would result in an unbounded amount of gas costs for the owner, especially if the gas price has increased since the deposits were made. \n\nThe recommended mitigation steps are to either add a minimum deposit amount for each pool, or to allow the owner to call withdrawExcessRewards() given some other criteria such as a fix period of time has passed since the end of the auction, and 90% of the deposits have been withdrawn. This criteria can be customised according to the design team's needs.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 DAI",
+      "contest_link": "https://code4rena.com/contests/2022-05-factorydao-contest",
+      "sponsor_name": "FactoryDAO",
+      "sponsor_link": "https://twitter.com/FactDAO/",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-05-factorydao",
+      "github_link": "https://github.com/code-423n4/2022-05-factorydao-findings/issues/54",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "119",
+      "slug": "m-18-dos-attacker-may-significantly-increase-the-cost-of-withdrawexcessrewards-by-creating-a-significant-number-of-excess-receipts-code4rena-factorydao-factorydao-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "FactoryDAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "FactoryDAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Dust"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "DOS"
+          }
+        }
+      ]
+    }
+  ]
+}

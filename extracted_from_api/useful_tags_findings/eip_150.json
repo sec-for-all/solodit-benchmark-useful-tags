@@ -1,0 +1,100 @@
+{
+  "tag": "EIP-150",
+  "count": 1,
+  "metadata": {
+    "totalResults": 1,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 13,
+    "reset": 1771761060
+  },
+  "findings": [
+    {
+      "id": "5593",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 2,
+      "protocol_id": "131",
+      "title": "[H-08] Gas limit check is inaccurate, leading to an operator being able to fail a job intentionally",
+      "content": "\n[HolographOperator.sol#L316](https://github.com/code-423n4/2022-10-holograph/blob/f8c2eae866280a1acfdc8a8352401ed031be1373/src/HolographOperator.sol#L316)<br>\n\nThere's a check at line 316 that verifies that there's enough gas left to execute the `HolographBridge.bridgeInRequest()` with the `gasLimit` set by the user, however the actual amount of gas left during the call is less than that (mainly due to the `1/64` rule, see below).<br>\nAn attacker can use that gap to fail the job while still having the `executeJob()` function complete.\n\n### Impact\n\nThe owner of the bridged token would loose access to the token since the job failed.\n\n### Proof of Concept\n\nBesides using a few units of gas between the check and the actual call, there's also a rule that only 63/64 of the remaining gas would be dedicated to an (external) function call. Since there are 2 external function calls done (`nonRevertingBridgeCall()` and the actual call to the bridge) `~2/64` of the gas isn't sent to the bridge call and can be used after the bridge call runs out of gas.\n\nThe following PoC shows that if the amount of gas left before the call is at least 1 million then the execution can continue after the bridge call fails:\n\n```solidity\n// SPDX-License-Identifier: UNLICENSED\npragma solidity ^0.8.0;\n\nimport \"forge-std/Test.sol\";\n\ncontract ContractTest is Test {\n    event FailedOperatorJob(bytes32 jobHash);\n    uint256 private _inboundMessageCounter;\n    mapping(bytes32 => bool) private _failedJobs;\n    constructor(){\n        _inboundMessageCounter = 5;\n    }\n    function testGas64() public {\n        this.entryPoint{gas:1000000}();\n    }\n\n    Bridge bridge = new Bridge();\n    event GasLeftAfterFail(uint left);\n\n    function entryPoint() public {\n\n        console2.log(\"Gas left before call: \", gasleft());\n\n        bytes32 hash = 0x987744358512a04274ccfb3d9649da3c116cd6b19c535e633ef8529a80cb06a0;\n\n        try this.intermediate(){\n        }catch{\n            // check out how much gas is left after the call to the bridge failed\n            console2.log(\"Gas left after failure: \", gasleft());\n            // simulate operations done after failure\n            _failedJobs[hash] = true;\n            emit FailedOperatorJob(hash);\n        }\n        ++_inboundMessageCounter;\n        console2.log(\"Gas left at end: \", gasleft());\n\n    }\n\n    function intermediate() public{\n        bridge.bridgeCall();\n    }\n}\n\n\ncontract Bridge{\n    event Done(uint gasLeft);\n\n    uint256[] myArr;\n\n    function bridgeCall() public {\n        for(uint i =1; i <= 100; i++){\n            myArr.push(i);\n        }\n        // this line would never be reached, we'll be out of gas beforehand\n        emit Done(gasleft());\n    }\n}\n\n```\n\nOutput of PoC:\n\n      Gas left before call:  999772\n      Gas left after failure:  30672\n      Gas left at end:  1628\n\nSide note: due to some bug in forge `_inboundMessageCounter` would be considered warm even though it's not necessarily the case. However in a real world scenario we can warm it up if the selected operator is a contract and we'er using another operator contract to execute a job in the same tx beforehand.\n\nReference for the `1/64` rule - [EIP-150](https://github.com/ethereum/EIPs/blob/master/EIPS/eip-150.md). Also check out [evm.codes](https://www.evm.codes/#f1?fork=grayGlacier:\\~:text=From%20the%20Tangerine%20Whistle%20fork%2C%20gas%20is%20capped%20at%20all%20but%20one%2064th%20\\(remaining_gas%20/%2064\\)%20of%20the%20remaining%20gas%20of%20the%20current%20context.%20If%20a%20call%20tries%20to%20send%20more%2C%20the%20gas%20is%20changed%20to%20match%20the%20maximum%20allowed.).\n\n### Recommended Mitigation Steps\n\nModify the required amount of gas left to gasLimit + any amount of gas spent before reaching the `call()`, then multiply it by `32/30` to mitigate the `1/64` rule (+ some margin of safety maybe).\n\n**[gzeon (judge) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/176#issuecomment-1294662144):**\n > There are some risks but would require the nested call gas limit to be pretty high (e.g. 1m used in the poc) to have enough gas (`1/64`) left afterward so that it doesn't revert due to out-of-gas.\n\n**[Trust (warden) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/176#issuecomment-1294682078):**\n > @gzeon - actually this is not a limitation. When the call argument passes a gaslimit which is lower than the available gas, it instantly reverts with no gas wasted. Therefore we will have `64/64` of the gas amount to work with post-revert.<br>\n> I have explained this in duplicate report [`#437`](https://github.com/code-423n4/2022-10-holograph-findings/issues/437).\n\n**[0xA5DF (warden) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/176#issuecomment-1294770261):**\n > > When the call argument passes a gaslimit which is lower than the available gas, it instantly reverts with no gas wasted.\n> \n> You mean *higher* than the available gas?<br>\n> I thought the same, but doing some testing and reading the Yellow Paper it turns out it wouldn't revert just because the gas parameter is higher than the available gas.<br>\n> You can modify the PoC above to test that too.\n\n**[Trust (warden) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/176#issuecomment-1294786488):**\n > You can check this example in Remix:\n> ```\n> contract Storage {\n>     /**\n>      * @dev Return value \n>      * @return value of 'number'\n>      */\n>     function gas_poc() public  returns (uint256, uint256){\n>         uint256 left_gas = gasleft();\n>         address this_address = address(this);\n>         assembly {\n>             let result := call(\n>         /// @dev gas limit is retrieved from last 32 bytes of payload in-memory value\n>             left_gas,\n>             /// @dev destination is bridge contract\n>             this_address,\n>             /// @dev any value is passed along\n>             0,\n>             /// @dev data is retrieved from 0 index memory position\n>             0,\n>             /// @dev everything except for last 32 bytes (gas limit) is sent\n>             0,\n>             0,\n>             0\n>             )\n>         }\n>         uint256 after_left_gas = gasleft();\n>         return (left_gas, after_left_gas);\n>     }\n> \n>     fallback() external {\n> \n>     }\n> }\n> ```\n> We pass a lower gas limit than what we have in the \"call\" opcode, which reverts.<br>\n> The function returns \n> ```\n> {\n> \t\"0\": \"uint256: 3787\",\n> \t\"1\": \"uint256: 3579\"\n> }\n> ```\n> Meaning only the gas consumed by the call opcode was deducted, not 63/64.\n\n**[0xA5DF (warden) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/176#issuecomment-1294800675):**\n > In your example the fallback function is actually being called, it's just doesn't use much gas, I've added an event to confirm that:\n> \n> ```solidity\n> contract Storage {\n>     event Cool();\n>     /**\n>      * @dev Return value \n>      * @return value of 'number'\n>      */\n>     function gas_poc() public  returns (uint256, uint256){\n>         uint256 left_gas = gasleft();\n>         address this_address = address(this);\n>         assembly {\n>             let result := call(\n>         /// @dev gas limit is retrieved from last 32 bytes of payload in-memory value\n>             left_gas,\n>             /// @dev destination is bridge contract\n>             this_address,\n>             /// @dev any value is passed along\n>             0,\n>             /// @dev data is retrieved from 0 index memory position\n>             0,\n>             /// @dev everything except for last 32 bytes (gas limit) is sent\n>             0,\n>             0,\n>             0\n>             )\n>         }\n>         uint256 after_left_gas = gasleft();\n>         return (left_gas, after_left_gas);\n>     }\n> \n>     fallback() external {\n>         emit Cool();\n>     }\n> }\n> ```\n> Output:<br>\n> ![image](https://user-images.githubusercontent.com/108216601/198561406-53968c73-3196-4f94-ad65-9ce4f2877d28.png)\n\n**[gzeon (judge) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/176#issuecomment-1294817386):**\n > A child call can never use more than 63/64 of gasleft post eip-150.\n\n**[Trust (warden) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/176#issuecomment-1294843497):**\n > @0xA5DF - Yeah , it seems my setup when I tested this during the contest was wrong, because it instantly reverted in the CALL opcode.<br>\n> Page 37 of the Yellow book describes the GASCAP as minimum of gasLeft input and current gas counter minus costs:<br>\n> ![image](https://user-images.githubusercontent.com/9900020/198568925-2f91aaed-61e2-454d-b8cf-42e9f1ce1477.png)<br>\n> Thanks for the good direct counterexample.<br>\n> \n> @gzeon - Right, we were discussing if call to child will instantly revert because `requestedGas > availableGas`, but it doesn't.\n\n**[gzeon (judge) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/176#issuecomment-1294849312):**\n > That's true, and the code also doesn't forward a limited amount of gas explicitly too.\n\n**[Trust (warden) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/176#issuecomment-1294854809):**\n > The point was that executor can always craft supplied gas to the contract, so that during the CALL opcode, gas left would be smaller than requested gas limit. If EVM behavior reverts in this check, we have deterministic failing of `bridgeIn`.\n\n**[alexanderattar (Holograph) confirmed and commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/176#issuecomment-1307829065):**\n > Nice find! Gas limit sent by operator could be used maliciously to ensure that job fails. This will be updated to mitigate the issue observed.\n\n**[ACC01ADE (Holograph) resolved](https://github.com/code-423n4/2022-10-holograph-findings/issues/176#event-7817152060):**\n > [Feature/HOLO-604: implementing critical issue fixes](https://github.com/holographxyz/holograph-protocol/pull/84)\n\n\n\n***\n \n",
+      "summary": "\nThis bug report is about a vulnerability in the code of a HolographOperator.sol contract. The vulnerability is related to a check at line 316, which verifies that there is enough gas left to execute the HolographBridge.bridgeInRequest() with the gasLimit set by the user. However, due to the 1/64 rule, the actual amount of gas left during the call is less than that. An attacker can use this gap to fail the job while still having the executeJob() function complete.\n\nThe impact of this vulnerability is that the owner of the bridged token would lose access to the token since the job failed. A proof-of-concept code was provided to demonstrate that if the amount of gas left before the call is at least 1 million, then the execution can continue after the bridge call fails.\n\nThe recommended mitigation step is to modify the required amount of gas left to gasLimit + any amount of gas spent before reaching the call(), then multiply it by 32/30 to mitigate the 1/64 rule (+ some margin of safety maybe).",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-10-holograph-contest",
+      "sponsor_name": "Holograph",
+      "sponsor_link": "https://twitter.com/holographxyz",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2022-10-holograph",
+      "github_link": "https://github.com/code-423n4/2022-10-holograph-findings/issues/176",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "170",
+      "slug": "h-08-gas-limit-check-is-inaccurate-leading-to-an-operator-being-able-to-fail-a-job-intentionally-code4rena-holograph-holograph-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Holograph",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Holograph",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Marketplace"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Gas Limit"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "EIP-150"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "1/64 Rule"
+          }
+        }
+      ]
+    }
+  ]
+}

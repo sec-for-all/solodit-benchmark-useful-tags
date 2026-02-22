@@ -1,0 +1,159 @@
+{
+  "tag": "Add/Subtract Match",
+  "count": 2,
+  "metadata": {
+    "totalResults": 2,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 15,
+    "reset": 1771760940
+  },
+  "findings": [
+    {
+      "id": "64886",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "16",
+      "impact": "LOW",
+      "finders_count": 1,
+      "protocol_id": "3702",
+      "title": "[L-11] New withdrawal requests can take precedence over pending withdrawals",
+      "content": "\n_Acknowledged_\n\n`requestWithdrawal()` completes the withdrawal immediately if there are sufficient funds in the vault and queues it otherwise.\n\nThe problem is that for the calculation of available USDC, only `totalClaimableWithdrawals` is considered, and not `totalPendingWithdrawals`.\n\n```solidity\n\tuint256 availableUsdc = vaultBalance > $.totalClaimableWithdrawals\n\t\t? vaultBalance - $.totalClaimableWithdrawals\n\t\t: 0;\n```\n\nThis means that when USDC is added to the contract balance by deposits or by funds returned from the strategy, new withdrawal requests may be fulfilled ahead of pending withdrawals.\n\nConsider the following scenario:\n\n1. Alice requests a withdrawal of 100 USDC, which is queued as pending because there are insufficient funds in the vault.\n2. After one day, the balance of the vault increases by 100 USDC due to a deposit or the operator transferring funds back from the strategy.\n3. Before the operator fulfills Alice's withdrawal, Bob requests a withdrawal of 100 USDC, which is completed immediately. \n4. Alice has to keep waiting until new funds are available.\n\n**Proof of Concept**\n\n```solidity\nfunction test_frontRunFulfillment() public {\n\t// User1 and User2 deposit 1,000 USDC each\n\tuint256 depositAmount = 1000e6;\n\tvm.startPrank(user1);\n\tusdc.approve(address(vault), depositAmount);\n\tuint256 sharesUser1 = vault.deposit(depositAmount, user1);\n\tvm.stopPrank();\n\n\tvm.startPrank(user2);\n\tusdc.approve(address(vault), depositAmount);\n\tuint256 sharesUser2 = vault.deposit(depositAmount, user2);\n\tvm.stopPrank();\n\n\t// USDC is moved to strategy\n\tvm.prank(operator);\n\tvault.sweepToStrategy(depositAmount * 2);\n\n\t// User1 requests withdrawal (pending)\n\tvm.prank(user1);\n\t(uint256 netAssets, bool claimed) = vault.requestWithdrawal(sharesUser1);\n\tassertFalse(claimed);\n\n\t// Operator sends funds back to vault to fulfill withdrawals\n\t// (or a new deposit from another user is made)\n\tusdc.mint(address(vault), netAssets);\n\n\t// User2 withdraws instantly before User1's pending withdrawal is fulfilled\n\tvm.prank(user2);\n\t(, claimed) = vault.requestWithdrawal(sharesUser2);\n\tassertTrue(claimed);\n\n\t// User1 withdrawal cannot be fulfilled\n\tvm.prank(operator);\n\tvm.expectRevert();\n\tvault.fulfillWithdrawal(user1, netAssets);\n}\n```\n\n**Recommendations**\n\n```diff\n    function requestWithdrawal(\n(...)\n\n-       uint256 availableUsdc = vaultBalance > $.totalClaimableWithdrawals\n+       uint256 availableUsdc = vaultBalance > $.totalClaimableWithdrawals + $.totalPendingWithdrawals\n\n-           ? vaultBalance - $.totalClaimableWithdrawals\n+           ? vaultBalance - $.totalClaimableWithdrawals - $.totalPendingWithdrawals\n            : 0;\n(...)\n    function getAvailableWithdrawalCapacity() external view returns (uint256) {\n        ShredVaultStorage storage $ = _getShredVaultStorage();\n        uint256 balance = $.usdc.balanceOf(address(this));\n\n-       return balance > $.totalClaimableWithdrawals ? balance - $.totalClaimableWithdrawals : 0;\n+       return balance > $.totalClaimableWithdrawals + $.totalPendingWithdrawals\n+           ? balance - $.totalClaimableWithdrawals - $.totalPendingWithdrawals\n+           : 0;\n```\n\n### Shred comments\n\nStatus: Acknowledged (Will Not Fix)\n\nUpdated Docs for clarity - commit: https://github.com/redshift-labs/shred_contracts/commit/f9ab1c27bd6226493ebe532ef8949bf8a637f208\n\nResponse: \n\nWe acknowledge this finding. This is an intentional design decision with the following rationale:\n\n1. UX Optimization for the Majority\nThe protocol targets instant withdrawals for ~99% of users. By allowing new withdrawals to complete instantly from available USDC (including recent deposits), we optimize UX for the majority rather than queuing everyone behind pending users.\n\n2. Pending Users Have Reduced Time Sensitivity\nWhen a withdrawal goes to pending, the UI displays an estimated fulfillment window (up to 24 hours). These users are not likely actively monitoring - e.g they'll check back once before and once after the estimation. The marginal \"early fulfillment\" benefit is outweighed by instant UX for newly withdrawing users.\n\n3. Atomic Operator Fulfillment Prevents Race Conditions\nThe vault operator can execute USDC return + batch fulfillment in a single atomic multicall transaction. The \"operator sends funds, then someone front-runs\" scenario described in the PoC doesn't occur in practice with current implementation - funds arrive and are immediately allocated to pending users atomically.\n\n4. Deposit Netting is Also Intentional\nWe also don't auto-fulfill pending withdrawals on new deposit in the SC code for the same reason - optimizing instant UX by allowing new deposits and withdrawals to net out.\n\nConclusion\nUpdated the docs to give more details on this design trade-off. The architecture optimizes for instant UX for the majority while pending users are serviced within the stated on UI 24-hour estimate through atomic operator fulfillment.\n\n\n",
+      "summary": "",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/pashov/audits/blob/master/team/md/Shred-security-review_2026-01-31.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "l-11-new-withdrawal-requests-can-take-precedence-over-pending-withdrawals-pashov-audit-group-none-shred_2026-01-31-markdown",
+      "firm_name": "Pashov Audit Group",
+      "firm_logo_square": "Pashov_square.png",
+      "protocol_name": "Shred_2026-01-31",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Pashov Audit Group",
+        "logo_square": "Pashov_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Shred_2026-01-31",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Auction"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "AutoRoll"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Add/Subtract Match"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "51% Attack"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "1/64 Rule"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3590",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 3,
+      "protocol_id": "103",
+      "title": "H-2: `Staking.unstake()` doesn't decrease the original voting power that was used in `Staking.stake()`.",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-frankendao-judging/issues/70 \n\n## Found by \nHaruxe, 0x52, hansfriese\n\n## Summary\n`Staking.unstake()` doesn't decrease the original voting power that was used in `Staking.stake()`.\n\n## Vulnerability Detail\nWhen users stake/unstake the underlying NFTs, it calculates the token voting power using [getTokenVotingPower()](https://github.com/sherlock-audit/2022-11-frankendao/blob/main/src/Staking.sol#L507-L515) and increases/decreases their voting power accordingly.\n\n```solidity\n    function getTokenVotingPower(uint _tokenId) public override view returns (uint) {\n      if (ownerOf(_tokenId) == address(0)) revert NonExistentToken();\n\n      // If tokenId < 10000, it's a FrankenPunk, so 100/100 = a multiplier of 1\n      uint multiplier = _tokenId < 10_000 ? PERCENT : monsterMultiplier;\n      \n      // evilBonus will return 0 for all FrankenMonsters, as they are not eligible for the evil bonus\n      return ((baseVotes * multiplier) / PERCENT) + stakedTimeBonus[_tokenId] + evilBonus(_tokenId);\n    }\n```\n\nBut `getTokenVotingPower()` uses some parameters like `monsterMultiplier` and `baseVotes` and the output would be changed for the same `tokenId` after the admin changed these settings.\n\nCurrently, `_stake()` and `_unstake()` calculates the token voting power independently and the below scenario would be possible.\n\n- At the first time, `baseVotes = 20, monsterMultiplier = 50`.\n- A user staked a `FrankenMonsters` and his voting power = 10 [here](https://github.com/sherlock-audit/2022-11-frankendao/blob/main/src/Staking.sol#L369-L371).\n- After that, the admin changed `monsterMultiplier = 60`.\n- When a user tries to unstake the NFT, the token voting power will be `20 * 60 / 100 = 12` [here](https://github.com/sherlock-audit/2022-11-frankendao/blob/main/src/Staking.sol#L514).\n- So it will revert with uint underflow [here](https://github.com/sherlock-audit/2022-11-frankendao/blob/main/src/Staking.sol#L436).\n- After all, he can't unstake the NFT.\n\n## Impact\n`votesFromOwnedTokens` might be updated wrongly or users can't unstake for the worst case because it doesn't decrease the same token voting power while unstaking.\n\n## Code Snippet\nhttps://github.com/sherlock-audit/2022-11-frankendao/blob/main/src/Staking.sol#L427-L440\n\n## Tool used\nManual Review\n\n## Recommendation\nI think we should add a mapping like `tokenVotingPower` to save an original token voting power when users stake the token and decrease the same amount when they unstake.\n\n## Discussion\n\n**zobront**\n\nFixed: https://github.com/Solidity-Guild/FrankenDAO/pull/17",
+      "summary": "\nThis bug report is about an issue found in the code of the FrankenDAO, a decentralized autonomous organization. The issue is that when users stake and unstake the underlying NFTs (non-fungible tokens), the token voting power is not being decreased accordingly. This is due to the fact that `getTokenVotingPower()` uses some parameters like `monsterMultiplier` and `baseVotes` and the output would be changed for the same `tokenId` after the admin changed these settings. As a result, users cannot unstake their NFTs and `votesFromOwnedTokens` might be updated wrongly. \n\nThe issue was found by Haruxe, 0x52, and hansfriese and was fixed by zobront in the following pull request: https://github.com/Solidity-Guild/FrankenDAO/pull/17. The recommendation given was to add a mapping like `tokenVotingPower` to save an original token voting power when users stake the token and decrease the same amount when they unstake.",
+      "report_date": {},
+      "contest_prize_txt": "16000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/18",
+      "sponsor_name": "3D FrankenPunks",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-frankendao-judging/issues/70",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "18",
+      "slug": "h-2-stakingunstake-doesnt-decrease-the-original-voting-power-that-was-used-in-stakingstake-sherlock-3d-frankenpunks-frankendao-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "FrankenDAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "FrankenDAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Payments"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "DAO"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Add/Subtract Match"
+          }
+        }
+      ]
+    }
+  ]
+}

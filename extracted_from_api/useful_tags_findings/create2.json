@@ -1,0 +1,149 @@
+{
+  "tag": "CREATE2",
+  "count": 2,
+  "metadata": {
+    "totalResults": 2,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 4,
+    "reset": 1771760940
+  },
+  "findings": [
+    {
+      "id": "18929",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "13",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "844",
+      "title": "TRST-M-5 Attacker can make a signer gate creation fail",
+      "content": "**Description:** \nDAOs can deploy a HSG using `deployHatsSignerGateAndSafe()` or \n`deployMultiHatsSignerGateAndSafe()`.The parameters are encoded and passed to \n`moduleProxyFactory.deployModule()`:\n```solidity\n    bytes memory initializeParams = abi.encode(_ownerHatId, _signersHatId, _safe, hatsAddress, _minThreshold, \n    _targetThreshold, _maxSigners, version );\n        hsg = moduleProxyFactory.deployModule(hatsSignerGateSingleton, abi.encodeWithSignature(\"setUp(bytes)\", \n    initializeParams), _saltNonce );\n```\nThis function will call `createProxy()`:\n```solidity\n    proxy = createProxy( masterCopy, keccak256(abi.encodePacked(keccak256(initializer), saltNonce)) );\n```\nThe second parameter is the generated salt, which is created from the initializer and passed \nsaltNonce. Finally `createProxy()` will use CREATE2 to create the contract:\n```solidity\n        function createProxy(address target, bytes32 salt)  internal  returns (address result)\n        {\n            if (address(target) == address(0)) revert ZeroAddress(target);\n            if (address(target).code.length == 0) revert \n        TargetHasNoCode(target);\n                bytes memory deployment = abi.encodePacked(\n                  hex\"602d8060093d393df3363d3d373d3d3d363d73\", target, hex\"5af43d82803e903d91602b57fd5bf3\" );\n            // solhint-disable-next-line no-inline-assembly\n                assembly {\n                     result := create2(0, add(deployment, 0x20), \n        mload(deployment), salt)\n              }\n                  if (result == address(0)) revert TakenAddress(result);\n             }\n```\nAn issue could be that an attacker can frontrun the creation TX with their own creation \nrequest, with the same parameters. This would create the exact address created by the \nCREATE2 call, since the parameters and therefore the final salt will be the same. When the \nvictim's transaction would be executed, the address is non-empty so the EVM would reject \nits creation. This would result in a bad UX for a user, who thinks the creation did not \nsucceed. The result contract would still be usable, but would be hard to track as it was \ncreated in another TX.\n\n**Recommended Mitigation:**\nUse an ever-increasing nonce counter to guarantee unique contract addresses.\n\n**Team response:**\nAccepted.",
+      "summary": "\nA bug report has been filed regarding the deployment of a HSG (Hats Signer Gate) using `deployHatsSignerGateAndSafe()` or `deployMultiHatsSignerGateAndSafe()`. The parameters are encoded and passed to `moduleProxyFactory.deployModule()` which calls `createProxy()` and uses CREATE2 to create the contract. The issue is that an attacker can frontrun the creation TX with their own creation request, with the same parameters, resulting in a bad user experience. \n\nThe recommended mitigation is to use an ever-increasing nonce counter to guarantee unique contract addresses. This has been accepted by the team. This would ensure that the contract address created by the CREATE2 call is unique and that the victim's transaction is executed correctly.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/solodit/solodit_content/blob/main/reports/Trust%20Security/2023-02-20-Hats%20Protocol.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "trst-m-5-attacker-can-make-a-signer-gate-creation-fail-trust-security-none-hats-protocol-markdown",
+      "firm_name": "Trust Security",
+      "firm_logo_square": "Trust_Security_square.png",
+      "protocol_name": "Hats Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Trust Security",
+        "logo_square": "Trust_Security_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Hats Protocol",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Front-Running"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "CREATE2"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3188",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 5,
+      "protocol_id": "167",
+      "title": "[M-02] Attacker contract can avoid being blocked by BlockList.sol",
+      "content": "_Submitted by JohnSmith, also found by ayeslick, reassor, rokinot, and scaraven_\n\nTo block an address it must pass the `isContract(address)` check:<br>\n<https://github.com/code-423n4/2022-08-fiatdao/blob/main/contracts/features/Blocklist.sol#L25>\n\n    contracts/features/Blocklist.sol\n    25:         require(_isContract(addr), \"Only contracts\");\n\nWhich just checks code length at the address provided.\n\n    contracts/features/Blocklist.sol\n    37:     function _isContract(address addr) internal view returns (bool) {\n    38:         uint256 size;\n    39:         assembly {\n    40:             size := extcodesize(addr)\n    41:         }\n    42:         return size > 0;\n    43:     }\n\nAttacker can interact with the system and selfdestruct his contract, and with help of CREATE2 recreate it at same address when he needs to interact with the system again.\n\n### Proof of concept\n\nBelow is a simple example of salted contract creation, which you can test against `_isContract(address)` function.\n\n```solidity\npragma solidity 0.8.15;\n\ncontract BlockList {\n    function _isContract(address addr) external view returns (bool) {\n        uint256 size;\n        assembly {\n            size := extcodesize(addr)\n        }\n        return size > 0;\n    }\n}\n\ncontract AttackerContract {\n  function destroy() external {\n    selfdestruct(payable(0));\n  }\n}\n\ncontract AttackerFactory {\n    function deploy() external returns (address) {\n        return address(new AttackerContract{salt: bytes32(\"123\")}());\n    }\n}\n```\n\n### Recommended Mitigation Steps\n\nOne of the goals of Ethereum is for humans and smart contracts to both be treated equally. This leads into a future where smart contracts interact seamlessly with humans and other contracts. It might change in the future , but for now an arbitrary address is ambiguous.<br>\nWe should consider blacklisting addresses without checking if they are contracts.\n\n**[lacoop6tu (FIAT DAO) commented](https://github.com/code-423n4/2022-08-fiatdao-findings/issues/75#issuecomment-1217810274):**\n > Duplicate of [#168](https://github.com/code-423n4/2022-08-fiatdao-findings/issues/168) \n\n**[Justin Goro (judge) commented](https://github.com/code-423n4/2022-08-fiatdao-findings/issues/75#issuecomment-1232222354):**\n > This is a valid attack vector that undermines the blocking mechanism and is not a duplicate of #168.\n\n**[lacoop6tu (FIAT DAO) commented](https://github.com/code-423n4/2022-08-fiatdao-findings/issues/75#issuecomment-1232403488):**\n > IMO this is more acknowledged in this case, the only interaction possible is locking LP tokens first so if someone then selfdestructs, another attacker could create a contract with that address and take ownership (and quitLock for example) similar to what happened with optimism and wintermute.\n\n**[Justin Goro (judge) commented](https://github.com/code-423n4/2022-08-fiatdao-findings/issues/75#issuecomment-1232415680):**\n > The reason it's maintained as a medium risk is because there is a bit of circumventing of protocol restrictions. But as you indicated, it's not serious enough that marking it acknowledged is irresponsible.\n\n**[elnilz (FIAT DAO) acknowledged](https://github.com/code-423n4/2022-08-fiatdao-findings/issues/75)**\n\n**IllIllI (warden) reviewed mitigation:**\n > The sponsor acknowledges that the `BlockList` can be bypassed, but [states](https://github.com/code-423n4/2022-08-fiatdao-findings/issues/75#issuecomment-1232403488) that \"the only interaction possible is locking LP tokens first\". However, looking at the code, the `checkBlocklist` modifier is applied to not just `createLock()`, but `increaseAmount()`, `increaseUnlockTime()`, and `delegate()`. An attacker can bypass the block list for every one of these functions by making their SmartWallet a specially-constructed `create2()` contract that does external calls to an other contract in its constructor, for instructions on what to execute, before self-destructing. Whenever the attacker wants to interact with the token, they update their external instruction-providing contract with the action to take, re-create the attack contract. It's not clear why the block list is only for contracts, and if it can be bypassed by using this method, or by transferring the tokens to an EOA.\n\n > In discussions of the issue, the sponsor clarified that the `BlockList`'s purpose is to prevent lock tokenization, and acknowledged that using an updated `BlockList` that blocks specific EOAs may be required if an attacker uses the features described above to work around being blocked.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about the vulnerability in the Blocklist.sol code, which allows an attacker to avoid being blocked by the contract. The vulnerability lies in the `_isContract(address)` function, which only checks the code length at the address provided. The attacker can interact with the system, selfdestruct their contract, and recreate it at the same address when they need to interact with the system again. A proof of concept is provided in the report to demonstrate the vulnerability. \n\nTo mitigate this vulnerability, it is suggested that addresses should be blacklisted without checking if they are contracts. This would allow both humans and smart contracts to be treated equally and interact seamlessly with each other.",
+      "report_date": {},
+      "contest_prize_txt": "$35,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-08-fiat-dao-vefdt-contest",
+      "sponsor_name": "FIAT DAO",
+      "sponsor_link": "https://twitter.com/fiatdao",
+      "quality_score": 4,
+      "general_score": 4.5,
+      "source_link": "https://code4rena.com/reports/2022-08-fiatdao",
+      "github_link": "https://github.com/code-423n4/2022-08-fiatdao-findings/issues/75",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "154",
+      "slug": "m-02-attacker-contract-can-avoid-being-blocked-by-blocklistsol-code4rena-fiat-dao-fiat-dao-vefdt-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "FIAT DAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "FIAT DAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Selfdestruct"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "CREATE2"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Blacklisted"
+          }
+        }
+      ]
+    }
+  ]
+}

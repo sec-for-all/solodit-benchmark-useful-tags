@@ -1,0 +1,940 @@
+{
+  "tag": "Refund Ether",
+  "count": 12,
+  "metadata": {
+    "totalResults": 12,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 12,
+    "reset": 1771761120
+  },
+  "findings": [
+    {
+      "id": "15957",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "MEDIUM",
+      "finders_count": 4,
+      "protocol_id": "31",
+      "title": "Calls to PausableZone 'sexecuteMatchAdvancedOrders and executeMatchOrders would revert if unused native tokens would need to be returned",
+      "content": "## Severity: Medium Risk\n\n## Context\n- PausableZone.sol#L34\n- PausableZone.sol#L149\n- PausableZone.sol#L188\n- OrderCombiner.sol#L704-L707\n\n## Description\nIn match (advanced) orders, one can provide native tokens as offer and consideration items. So, a PausableZone would need to provide msg.value to call the corresponding Seaport endpoints. There are a few scenarios where not all the msg.value native tokens amount provided to the Seaport marketplace will be used:\n\n1. Rounding errors in calculating the current amount of offer or consideration items. The zone can prevent sending extra native tokens to Seaport by pre-calculating these values and making sure to have its transaction to be included in the specific block that these values were calculated for (this is important when the start and end amount of an item are not equal).\n2. The zone (un)intentionally sends more native tokens than are necessary to Seaport.\n3. The (advanced) orders sent for matching in Seaport include order type of CONTRACT offerer order and the offerer contract provides a different amount for at least one item that would eventually make the whole transaction not use the full amount of msg.value provided to it.\n\nIn all these cases, since PausableZone does not have a receive or fallback endpoint to accept native tokens, when Seaport tries to send back the unused native token amount, the transaction may revert.\n\n### PausableZone not accepting native tokens:\n```bash\n$ export CODE=$(jq -r '.deployedBytecode' artifacts/contracts/zones/PausableZone.sol/PausableZone.json | tr -d '\\n')\n$ evm --code $CODE --value 1 --prestate genesis.json --sender 0xb4d0000000000000000000000000000000000000 --nomemory=false --debug run\n$ evm --input $(echo $CODE | head -c 44 - | sed -E s/0x//) disasm\n```\n\n```\n6080806040526004908136101561001557600080fd\n...\n```\n\n#### TRACE\n```plaintext\nPUSH1 pc=00000000 gas=4700000 cost=3\nDUP1 pc=00000002 gas=4699997 cost=3\n...\n```\n\n#### LOGS\n```json\ngenesis.json : {\n  \"gasLimit\": \"4700000\",\n  \"difficulty\": \"1\",\n  \"alloc\": {\n    \"0xb4d0000000000000000000000000000000000000\": {\n      \"balance\": \"10000000000000000000000000\",\n      \"code\": \"\",\n      \"storage\": {}\n    }\n  }\n}\n```\n\n```typescript\n// file: test/zone.spec.ts\n...\nit(\"Fulfills an order with executeMatchAdvancedOrders with NATIVE Consideration Item\", async () => {\n  const pausableZoneControllerFactory = await ethers.getContractFactory(\n    \"PausableZoneController\",\n    owner\n  );\n  const pausableZoneController = await pausableZoneControllerFactory.deploy(\n    owner.address\n  );\n  // Deploy pausable zone\n  const zoneAddr = await createZone(pausableZoneController);\n  ...\n});\n...\n```\n\nThis bug also applies to Seaport 1.1 and PausableZone (0x004C00500000aD104D7DBd00e3ae0A5C00560C00)\n\n## Recommendation\nIt is really important for zones that are trying to match orders that involve native tokens to be able to receive those tokens back from Seaport if all of them are not used. In the case of Solidity contracts, one should define receive or fallback endpoints for these contracts (or the __default__ function if using Vyper).\n\n**Seaport:** Acknowledged.\n\n**Spearbit:** Acknowledged.",
+      "summary": "\nA bug has been reported in the PausableZone (0x004C00500000aD104D7DBd00e3ae0A5C00560C00 ) and Seaport 1.1 which affects the matching of orders that include native tokens. In these cases, the PausableZone does not have a receive orfallback endpoint to accept native tokens, so when Seaport tries to send back the unsued native token amount the transaction may revert. \n\nThis bug can be caused by a few scenarios where not all the msg.value native tokens amount provided to the Seaport marketplace will be used. These scenarios include rounding errors, the zone (un)intentionally sending more native tokens than necessary, and the (advanced) orders sent for matching in Seaport include order type of CONTRACT offerer order and the offerer contract provides different amount for at least one item.\n\nIn order to prevent this bug, it is important for zones that are trying to match orders that would involve native tokens to be able to receive those tokens back from Seaport if all of them are not used. In case of Solidity contracts, one should define receive orfallback endpoints for these contracts (or the __default__ function if using Vyper).",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Seaport-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Seaport-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/Seaport-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 13,
+      "contest_id": "",
+      "slug": "calls-to-pausablezone-sexecutematchadvancedorders-and-executematchorders-would-revert-if-un-spearbit-seaport-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "SEAPORT",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "SEAPORT",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Marketplace"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Prediction Market"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Refund Ether"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "DOS"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3636",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "99",
+      "title": "M-4: Native funds can be lost by submit() as msg.value isn't synchronized with amount",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-telcoin-judging/issues/76 \n\n## Found by \nhyh\n\n## Summary\n\nWhen used with native funds FeeBuyback#submit() doesn't check for the `amount` argument to correspond to `msg.value` actually linked to the call. \n\n## Vulnerability Detail\n\nThis can lead either to bloating or to underpaying of the actual fee depending on the mechanics that will be used to call submit(). I.e. as two values can differ, and only one can be correct, the difference is a fund loss either to the `owner` (when the fee is overpaid) or to `recipient` (when the fee is underpaid vs correct formula).\n\n## Impact\n\nNet impact is a fund loss proportional to the difference of the `amount` and `msg.value`. This can be either incomplete setup (native funds case isn't fully covered in a calling script) or an operational mistake (it is covered correctly, but a wrong value was occasionally left from a testing, and so on) situation.\n\nSetting the severity to be medium as this is conditional on the actual usage of submit().\n\n## Code Snippet\n\nsubmit() uses `msg.value`, which can differ from `amount`:\n\nhttps://github.com/sherlock-audit/2022-11-telcoin/blob/main/contracts/fee-buyback/FeeBuyback.sol#L35-L82\n\n```solidity\n  /**\n   * @notice submits wallet transactions\n   * @dev a secondary swap may occur\n   * @dev staking contract updates may be made\n   * @dev function can be paused\n   * @param wallet address of the primary transaction\n   * @param walletData bytes wallet data for primary transaction\n   * @param token address the token that is being swapped from in a secondary transaction\n   * @param amount uint256 the quantity of the token being swapped\n   * @param swapData bytes swap data from primary transaction\n   * @return boolean representing if a referral transaction was made\n   */\n  function submit(address wallet, bytes memory walletData, address token, address recipient, uint256 amount, bytes memory swapData) external override payable onlyOwner() returns (bool) {\n    //Perform user swap first\n    ...\n\n    //check if this is a referral transaction\n    //if not exit execution\n    if (token == address(0) || recipient == address(0) || amount == 0 ) {\n      return false;\n    }\n\n    //if swapped token is in TEL, no swap is necessary\n    //do simple transfer from and submit\n    if (token == address(_telcoin)) {\n      ...\n    }\n\n    //MATIC does not allow for approvals\n    //ERC20s only\n    if (token != MATIC) {\n      IERC20(token).transferFrom(_safe, address(this), amount);\n      IERC20(token).approve(_aggregator, amount);\n    }\n\n    //Perform secondary swap from fee token to TEL\n    //do simple transfer from and submit\n    (bool swapResult,) = _aggregator.call{value: msg.value}(swapData);\n    require(swapResult, \"FeeBuyback: swap transaction failed\");\n    _telcoin.approve(address(_referral), _telcoin.balanceOf(address(this)));\n    require(_referral.increaseClaimableBy(recipient, _telcoin.balanceOf(address(this))), \"FeeBuyback: balance was not adjusted\");\n    return true;\n  }\n```\n\nI.e. the funds in the native case aren't checked (can be zero, can be 100x of the fee needed), provided `amount` is just ignored.\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nIn order to maintain the uniform approach consider requiring that `amount` does exactly correspond to `msg.value`, when MATIC is used, for example:\n\nhttps://github.com/sherlock-audit/2022-11-telcoin/blob/main/contracts/fee-buyback/FeeBuyback.sol#L68-L73\n\n```solidity\n    //MATIC does not allow for approvals\n    //ERC20s only\n    if (token != MATIC) {\n      IERC20(token).transferFrom(_safe, address(this), amount);\n      IERC20(token).approve(_aggregator, amount);\n+   } else {\n+     require(amount == msg.value, \"FeeBuyback: wrong amount\");    \n    }\n```\n\n## Discussion\n\n**amshirif**\n\nhttps://github.com/telcoin/telcoin-staking/pull/10",
+      "summary": "\nThis bug report is about a vulnerability found in the FeeBuyback#submit() function in the Telcoin project. When used with native funds, the function does not check for the `amount` argument to correspond to `msg.value` actually linked to the call, leading to either bloating or underpaying of the actual fee. This can result in a fund loss proportional to the difference of the `amount` and `msg.value`. The severity of this issue has been set to medium, as it is conditional on the actual usage of submit(). The bug was found manually and the recommended fix is to require that `amount` does exactly correspond to `msg.value`, when MATIC is used. This will ensure that the uniform approach is maintained and that the funds in the native case are checked.",
+      "report_date": {},
+      "contest_prize_txt": "10000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/25",
+      "sponsor_name": "Telcoin",
+      "sponsor_link": "",
+      "quality_score": 3,
+      "general_score": 3,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-telcoin-judging/issues/76",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "25",
+      "slug": "m-4-native-funds-can-be-lost-by-submit-as-msgvalue-isnt-synchronized-with-amount-sherlock-telcoin-telcoin-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Telcoin",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Telcoin",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Refund Ether"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5930",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "106",
+      "title": "[M-22] ETH sent when calling executeAsSmartWallet function can be lost",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2022-11-stakehouse/blob/main/contracts/liquid-staking/LiquidStakingManager.sol#L202-L215\nhttps://github.com/code-423n4/2022-11-stakehouse/blob/main/contracts/smart-wallet/OwnableSmartWallet.sol#L52-L64\n\n\n## Vulnerability details\n\n## Impact\nCalling the `executeAsSmartWallet` function by the DAO further calls the `OwnableSmartWallet.execute` function. Since the `executeAsSmartWallet` function is `payable`, an ETH amount can be sent when calling it. However, since the sent ETH amount is not forwarded to the smart wallet contract, such sent amount can become locked in the `LiquidStakingManager` contract. For example, when the DAO attempts to call the `executeAsSmartWallet` function for sending some ETH to the smart wallet so the smart wallet can use it when calling its `execute` function, if the smart wallet's ETH balance is also higher than this sent ETH amount, calling the `executeAsSmartWallet` function would not revert, and the sent ETH amount is locked in the `LiquidStakingManager` contract while such amount is deducted from the smart wallet's ETH balance for being sent to the target address. Besides that this is against the intention of the DAO, the DAO loses the sent ETH amount that becomes locked in the `LiquidStakingManager` contract, and the node runner loses the amount that is unexpectedly deducted from the corresponding smart wallet's ETH balance.\n\nhttps://github.com/code-423n4/2022-11-stakehouse/blob/main/contracts/liquid-staking/LiquidStakingManager.sol#L202-L215\n```solidity\n    function executeAsSmartWallet(\n        address _nodeRunner,\n        address _to,\n        bytes calldata _data,\n        uint256 _value\n    ) external payable onlyDAO {\n        address smartWallet = smartWalletOfNodeRunner[_nodeRunner];\n        require(smartWallet != address(0), \"No wallet found\");\n        IOwnableSmartWallet(smartWallet).execute(\n            _to,\n            _data,\n            _value\n        );\n    }\n```\n\nhttps://github.com/code-423n4/2022-11-stakehouse/blob/main/contracts/smart-wallet/OwnableSmartWallet.sol#L52-L64\n```solidity\n    function execute(\n        address target,\n        bytes memory callData,\n        uint256 value\n    )\n        external\n        override\n        payable\n        onlyOwner // F: [OSW-6A]\n        returns (bytes memory)\n    {\n        return target.functionCallWithValue(callData, value); // F: [OSW-6]\n    }\n```\n\n## Proof of Concept\nPlease add the following code in `test\\foundry\\LSDNFactory.t.sol`.\n\n1. Add the following `receive` function for the POC purpose.\n```solidity\n    receive() external payable {}\n```\n\n2. Add the following test. This test will pass to demonstrate the described scenario.\n```solidity\n    function testETHSentWhenCallingExecuteAsSmartWalletFunctionCanBeLost() public {\n        vm.prank(address(factory));\n        manager.updateDAOAddress(admin);\n\n        uint256 nodeStakeAmount = 4 ether;\n        address nodeRunner = accountOne;\n        vm.deal(nodeRunner, nodeStakeAmount);\n\n        address eoaRepresentative = accountTwo;\n\n        vm.prank(nodeRunner);\n        manager.registerBLSPublicKeys{value: nodeStakeAmount}(\n            getBytesArrayFromBytes(blsPubKeyOne),\n            getBytesArrayFromBytes(blsPubKeyOne),\n            eoaRepresentative\n        );\n\n        // Before the executeAsSmartWallet function is called, the manager contract owns 0 ETH,\n        //   and nodeRunner's smart wallet owns 4 ETH. \n        assertEq(address(manager).balance, 0);\n        assertEq(manager.smartWalletOfNodeRunner(nodeRunner).balance, 4 ether);\n\n        uint256 amount = 1.5 ether;\n\n        vm.deal(admin, amount);\n\n        vm.startPrank(admin);\n\n        // admin, who is dao at this moment, calls the executeAsSmartWallet function while sending 1.5 ETH\n        manager.executeAsSmartWallet{value: amount}(nodeRunner, address(this), bytes(\"\"), amount);\n\n        vm.stopPrank();\n\n        // Although admin attempts to send the 1.5 ETH through calling the executeAsSmartWallet function,\n        //   the sent 1.5 ETH was not transferred to nodeRunner's smart wallet but is locked in the manager contract instead.\n        assertEq(address(manager).balance, amount);\n\n        // Because nodeRunner's smart wallet owns more than 1.5 ETH, 1.5 ETH of this smart wallet's ETH balance is actually sent to address(this).\n        assertEq(manager.smartWalletOfNodeRunner(nodeRunner).balance, 4 ether - amount);\n    }\n```\n\n## Tools Used\nVSCode\n\n## Recommended Mitigation Steps\nhttps://github.com/code-423n4/2022-11-stakehouse/blob/main/contracts/liquid-staking/LiquidStakingManager.sol#L210-L214 can be updated to the following code.\n\n```solidity\n        IOwnableSmartWallet(smartWallet).execute{value: msg.value}(\n            _to,\n            _data,\n            _value\n        );\n```",
+      "summary": "\nThis bug report is about the LiquidStakingManager and OwnableSmartWallet contracts. Calling the `executeAsSmartWallet` function by the DAO further calls the `OwnableSmartWallet.execute` function. If the sent ETH amount is not forwarded to the smart wallet contract, such sent amount can become locked in the LiquidStakingManager contract. This is against the intention of the DAO, the DAO loses the sent ETH amount that becomes locked in the `LiquidStakingManager` contract, and the node runner loses the amount that is unexpectedly deducted from the corresponding smart wallet's ETH balance. To mitigate this issue, the code in `LiquidStakingManager.sol` can be updated. The recommended mitigation steps are provided in the report. The proof of concept is also provided in the report.",
+      "report_date": {},
+      "contest_prize_txt": "$90,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-11-lsd-network-stakehouse-contest",
+      "sponsor_name": "Stakehouse Protocol",
+      "sponsor_link": "https://twitter.com/blockswap_team",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-11-stakehouse",
+      "github_link": "https://github.com/code-423n4/2022-11-stakehouse-findings/issues/377",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "182",
+      "slug": "m-22-eth-sent-when-calling-executeassmartwallet-function-can-be-lost-code4rena-stakehouse-protocol-lsd-network-stakehouse-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Stakehouse Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Stakehouse Protocol",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Business Logic"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Refund Ether"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5911",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 5,
+      "protocol_id": "106",
+      "title": "[M-03] Giant pools cannot receive ETH from vaults",
+      "content": "\n<https://github.com/code-423n4/2022-11-stakehouse/blob/4b6828e9c807f2f7c569e6d721ca1289f7cf7112/contracts/liquid-staking/GiantSavETHVaultPool.sol#L137><br>\n<https://github.com/code-423n4/2022-11-stakehouse/blob/4b6828e9c807f2f7c569e6d721ca1289f7cf7112/contracts/liquid-staking/GiantMevAndFeesPool.sol#L126>\n\nBoth giant pools are affected:\n\n1.  GiantSavETHVaultPool\n2.  bringUnusedETHBackIntoGiantPool\n\nThe giant pools have a `bringUnusedETHBackIntoGiantPool` function that calls the vaults to send back any unused ETH.\nCurrently, any call to this function will revert.<br>\nUnused ETH will not be sent to the giant pools and will stay in the vaults.\n\nThis causes an insolvency issue when many users want to withdraw ETH and there is not enough liquidity inside the giant pools.\n\n### Proof of Concept\n\n`bringUnusedETHBackIntoGiantPool` calls the vaults to receive ETH:<br>\n<https://github.com/code-423n4/2022-11-stakehouse/blob/4b6828e9c807f2f7c569e6d721ca1289f7cf7112/contracts/liquid-staking/GiantSavETHVaultPool.sol#L137>\n\n        function bringUnusedETHBackIntoGiantPool(\n            address[] calldata _savETHVaults,\n            LPToken[][] calldata _lpTokens,\n            uint256[][] calldata _amounts\n        ) external {\n            uint256 numOfVaults = _savETHVaults.length;\n            require(numOfVaults > 0, \"Empty arrays\");\n            require(numOfVaults == _lpTokens.length, \"Inconsistent arrays\");\n            require(numOfVaults == _amounts.length, \"Inconsistent arrays\");\n            for (uint256 i; i < numOfVaults; ++i) {\n                SavETHVault vault = SavETHVault(_savETHVaults[i]);\n                for (uint256 j; j < _lpTokens[i].length; ++j) {\n                    require(\n                        vault.isDETHReadyForWithdrawal(address(_lpTokens[i][j])) == false,\n                        \"ETH is either staked or derivatives minted\"\n                    );\n                }\n                vault.burnLPTokens(_lpTokens[i], _amounts[i]);\n            }\n        }\n\nthe vaults go through a process of burning the `_lpTokens` and sending the caller giant pool ETH.\n\n`burnLPToken`<br>\n<https://github.com/code-423n4/2022-11-stakehouse/blob/4b6828e9c807f2f7c569e6d721ca1289f7cf7112/contracts/liquid-staking/SavETHVault.sol#L126>\n\n        function burnLPToken(LPToken _lpToken, uint256 _amount) public nonReentrant returns (uint256) {\n            /// .....\n            (bool result,) = msg.sender.call{value: _amount}(\"\");\n            // .....\n        }\n\nGiant pools do not have a `fallback` or `receive` function. ETH cannot be sent to them\n\nAdditionally, there is no accounting of `idleETH`, which should be increased with the received ETH in order to facilitate withdraws\n\n### Tools Used\n\nVS Code\n\n### Recommended Mitigation Steps\n\n1.  Add a `fallback` or `receive` function to the pools.\n2.  `idleETH` should be increased with the received ETH\n\n**[vince0656 (Stakehouse) confirmed](https://github.com/code-423n4/2022-11-stakehouse-findings/issues/74#issuecomment-1329518912)**\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about two giant pools, GiantSavETHVaultPool and GiantMevAndFeesPool, both of which have a `bringUnusedETHBackIntoGiantPool` function that calls the vaults to send back any unused ETH. However, the current version of this function will cause a revert, meaning that any unused ETH will not be sent to the giant pools and will stay in the vaults. This can cause an insolvency issue when many users want to withdraw ETH and there is not enough liquidity inside the giant pools.\n\nThe proof of concept provided in the report shows that the vaults go through a process of burning the `_lpTokens` and sending the caller giant pool ETH, but since the giant pools do not have a `fallback` or `receive` function, ETH cannot be sent to them. Additionally, there is no accounting of `idleETH`, which should be increased with the received ETH in order to facilitate withdraws.\n\nThe tools used to identify this bug were VS Code. The recommended mitigation steps are to add a `fallback` or `receive` function to the pools, and to increase `idleETH` with the received ETH.",
+      "report_date": {},
+      "contest_prize_txt": "$90,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-11-lsd-network-stakehouse-contest",
+      "sponsor_name": "Stakehouse Protocol",
+      "sponsor_link": "https://twitter.com/blockswap_team",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-11-stakehouse",
+      "github_link": "https://github.com/code-423n4/2022-11-stakehouse-findings/issues/74",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "182",
+      "slug": "m-03-giant-pools-cannot-receive-eth-from-vaults-code4rena-stakehouse-protocol-lsd-network-stakehouse-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Stakehouse Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Stakehouse Protocol",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Refund Ether"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Don't update state"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6248",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 11,
+      "protocol_id": "119",
+      "title": "[M-08] Mistakenly sent eth could be locked",
+      "content": "\nIf ERC20 and eth are transferred at same time, the mistakenly sent eth will be locked.\n\nThere are several functions that could be affected and cause user fund lock:\n\n*   `addCollateral()`\n*   `addCredit()`\n*   `increaseCredit()`\n*   `depositAndClose()`\n*   `depositAndRepay()`\n*   `close()`\n\n### Proof of Concept\n\nIn `receiveTokenOrETH()`, different logic is used to handle ERC20 and eth transfer. However, in the ERC20 if block, mistakenly sent eth will be ignored. This part of eth will be locked in the contract.\n\n```solidity\n// Line-of-Credit/contracts/utils/LineLib.sol\n    function receiveTokenOrETH(\n      address token,\n      address sender,\n      uint256 amount\n    )\n      external\n      returns (bool)\n    {\n        if(token == address(0)) { revert TransferFailed(); }\n        if(token != Denominations.ETH) { // ERC20\n            IERC20(token).safeTransferFrom(sender, address(this), amount);\n        } else { // ETH\n            if(msg.value < amount) { revert TransferFailed(); }\n        }\n        return true;\n    }\n```\n\n### Recommended Mitigation Steps\n\nIn the ERC20 part, add check for `msg.value` to ensure no eth is sent:\n\n```solidity\n        if(token != Denominations.ETH) { // ERC20\n            if (msg.value > 0) { revert TransferFailed(); }\n            IERC20(token).safeTransferFrom(sender, address(this), amount);\n        } else { // ETH\n```\n\n**[kibagateaux (Debt DAO) confirmed](https://github.com/code-423n4/2022-11-debtdao-findings/issues/355#issuecomment-1405077581)**\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the LineLib.sol contract from the Line-of-Credit repository. This vulnerability can cause user funds to be locked if ERC20 and Ether are sent at the same time. This affects several functions, including addCollateral(), addCredit(), increaseCredit(), depositAndClose(), depositAndRepay(), and close(). The bug was found by manual analysis. \n\nThe vulnerability is caused by different logic being used to handle ERC20 and Ether transfers in the receiveTokenOrETH() function. In the ERC20 if block, mistakenly sent Ether is ignored and locked in the contract. To mitigate this vulnerability, it is recommended to add a check for msg.value in the ERC20 part to ensure no Ether is sent.",
+      "report_date": {},
+      "contest_prize_txt": "$115,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-11-debt-dao-contest",
+      "sponsor_name": "Debt DAO",
+      "sponsor_link": "https://twitter.com/debtdao",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-11-debtdao",
+      "github_link": "https://github.com/code-423n4/2022-11-debtdao-findings/issues/355",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "174",
+      "slug": "m-08-mistakenly-sent-eth-could-be-locked-code4rena-debt-dao-debt-dao-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Debt DAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Debt DAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Payments"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA Lending"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Refund Ether"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6243",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 29,
+      "protocol_id": "119",
+      "title": "[M-03] Borrower/Lender excessive ETH not refunded and permanently locked in protocol",
+      "content": "\n<https://github.com/debtdao/Line-of-Credit/blob/e8aa08b44f6132a5ed901f8daa231700c5afeb3a/contracts/modules/credit/LineOfCredit.sol#L292>\n\n<https://github.com/debtdao/Line-of-Credit/blob/e8aa08b44f6132a5ed901f8daa231700c5afeb3a/contracts/modules/credit/LineOfCredit.sol#L315>\n\n<https://github.com/debtdao/Line-of-Credit/blob/e8aa08b44f6132a5ed901f8daa231700c5afeb3a/contracts/modules/credit/LineOfCredit.sol#L223>\n\n<https://github.com/debtdao/Line-of-Credit/blob/e8aa08b44f6132a5ed901f8daa231700c5afeb3a/contracts/modules/credit/LineOfCredit.sol#L265>\n\n<https://github.com/debtdao/Line-of-Credit/blob/e8aa08b44f6132a5ed901f8daa231700c5afeb3a/contracts/utils/LineLib.sol#L71>\n\n<https://github.com/debtdao/Line-of-Credit/blob/e8aa08b44f6132a5ed901f8daa231700c5afeb3a/contracts/modules/credit/LineOfCredit.sol#L388>\n\n### Impact\n\nThe protocol does not refund overpayment of ETH. Excessive ETH is not included in the protocols accounting. As a result, the funds are permanently locked in the protocol **(Loss of funds)**.\n\nThere are multiple scenarios where excessive ETH could be sent by Borrowers and Lenders to the protocol.\n\nThe vulnerability effects at least five different scenarios and locks both the lender and borrowers ETH in LineOfCredit if overpaid. **There is no way to transfer the locked ETH back to the users**, as the withdraw methods are dependent on accounting (which is not updated with locked ETH).\n\nThis vulnerability impacts EscrowedLine, LineOfCredit, SpigotedLine and SecuredLine.\n\n### Proof of Concept\n\nThe bug resides in `receiveTokenOrETH` function when receiving ETH.\n\nThe function does not handle cases where `msg.value` is larger than `amount` meaning a refund is needed (`msg.value` - `amount`). In such cases, `msg.value` is added to the balance of LineOfCredit although only `amount` is used in internal accounting. Thus the excessive ETH  is permanently locked in the contract as the withdraw methods are dependent on the internal accounting.\n\n<https://github.com/debtdao/Line-of-Credit/blob/e8aa08b44f6132a5ed901f8daa231700c5afeb3a/contracts/utils/LineLib.sol#L59>\n\n      function receiveTokenOrETH(\n          address token,\n          address sender,\n          uint256 amount\n        )\n          external\n          returns (bool)\n        {\n            if(token == address(0)) { revert TransferFailed(); }\n            if(token != Denominations.ETH) { // ERC20\n                IERC20(token).safeTransferFrom(sender, address(this), amount);\n            } else { // ETH\n                if(msg.value < amount) { revert TransferFailed(); }\n            }\n            return true;\n        }\n\nScenarios where borrowers ETH funds will be locked in LineOfCredit:\n\n1.  Borrower calls `depositAndClose` with an ETH value that is above the owed debt.\n2.  Borrower calls `depositAndRepay` with an ETH value that is above the amount specified in the parameters.\n3.  Borrower calls `close` with an ETH value that is above the owed fees.\n\nScenarios where lenders ETH funds will be locked in LineOfCredit:\n\n1.  Lender calls `addCredit` with and ETH value that is greater than the `amount` parameter.\n2.  Lender calls `increaseCredit` with and ETH value that is greater than the `amount` parameter.\n\nThe above scenarios will happen when:\n\n*   Excessive ETH is sent with the confidence that it will be refunded (expected). Intentionally or by mistake.\n*   Excessive ETH will be sent (and expected to be refunded) when calling `depositeAndClose()`, `close(id)` and `depositAndRepay(amount)` as they internally update the fees with the `_accrue` method. The amount changes every second because part of the formula that calculates the fees is based on a multiplication of seconds past the previous calculations. In most cases, the caller will not know the amount of interest that will be accrued and must send excessive ETH to not revert the transaction.\n    *   The formula that calculates interest:\n\n`InterestAccrued = (rate.dRate * drawnBalance * timespan) / INTEREST_DENOMINATOR + \n(rate.fRate * (facilityBalance - drawnBalance) * timespan) / INTEREST_DENOMINATOR`<br>\nWhere `timespan` is `timespan= block.timestamp - rate.lastAccrued`<br>\n    *   Attached link to Debt DAO docs with more information: <https://docs.debtdao.finance/faq/accrued-interest-calculation>\n\nThe POC includes four of the mentioned scenarios. To run the POC add the below code to the LineOfCredit.t.sol test and execute `forge test -v`. Expected output:\n\n    Running 4 tests for contracts/tests/LineOfCredit.t.sol:LineTest\n    [PASS] test_freeze_eth_addCredit() (gas: 277920)\n    [PASS] test_freeze_eth_depositAndClose() (gas: 280378)\n    [PASS] test_freeze_eth_depositAndRepay() (gas: 302991)\n    [PASS] test_freeze_eth_increaseCredit() (gas: 318830)\n    Test result: ok. 4 passed; 0 failed; finished in 1.59ms\n\nAdd the following code to tests:\n\n        function _addCreditEth(address token, uint256 amount) internal {\n            vm.prank(borrower);\n            line.addCredit(dRate, fRate, amount, token, lender);\n            vm.stopPrank();\n            vm.prank(lender);\n            line.addCredit{value: amount}(dRate, fRate, amount, token, lender);\n            vm.stopPrank();\n        }\n        function test_freeze_eth_depositAndClose() public {\n            uint256 amount = 1 ether;\n            address eth = address(0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE);\n\n            // fund lender\n            deal(lender, amount*5);\n            // fund borrower\n            deal(borrower, amount*5);\n\n            // add credit to line\n            _addCreditEth(eth, amount);\n\n            //borrow 1 ether\n            bytes32 id = line.ids(0);\n            vm.startPrank(borrower);\n            line.borrow(id, amount);\n            vm.stopPrank();\n            \n            //depositAndClose full extra funds (amount * 2)\n            vm.startPrank(borrower);\n            line.depositAndClose{value:amount*2}();\n            vm.stopPrank();\n\n            //validate funds are stuck\n            console.log(address(line).balance);\n            assert(address(line).balance == amount*2 - amount);\n        }\n\n         function test_freeze_eth_depositAndRepay() public {\n            uint256 amount = 1 ether;\n            address eth = address(0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE);\n\n            // fund lender\n            deal(lender, amount*5);\n            // fund borrower\n            deal(borrower, amount*5);\n\n            // add credit to line\n            _addCreditEth(eth, amount);\n\n            //borrow 1 ether\n            bytes32 id = line.ids(0);\n            vm.startPrank(borrower);\n            line.borrow(id, amount);\n            vm.stopPrank();\n            \n            //depositAndRepay full extra funds (amount * 2)\n            vm.startPrank(borrower);\n            line.depositAndRepay{value:amount*2}(amount);\n            vm.stopPrank();\n\n\n            // Lender calls withdraw \n            vm.startPrank(lender);\n            line.withdraw(id, amount);\n            vm.stopPrank();\n\n            //validate funds are stuck\n            assert(address(line).balance == amount*2 - amount);\n        }\n\n        function test_freeze_eth_addCredit() public {\n            uint256 amount = 1 ether;\n            address eth = address(0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE);\n\n            // fund lender\n            deal(lender, amount*5);\n            // fund borrower\n            deal(borrower, amount*5);\n\n            // add credit to line\n            vm.prank(borrower);\n            line.addCredit(dRate, fRate, amount, eth, lender);\n            vm.stopPrank();\n            vm.prank(lender);\n            //double msg.value then amount\n            line.addCredit{value: amount*2}(dRate, fRate, amount, eth, lender);\n            vm.stopPrank();\n\n            //borrow 1 ether\n            bytes32 id = line.ids(0);\n            vm.startPrank(borrower);\n            line.borrow(id, amount);\n            vm.stopPrank();\n            \n            //depositAndClose full extra funds (amount)\n            vm.startPrank(borrower);\n            line.depositAndClose{value:amount}();\n            vm.stopPrank();\n\n            //validate funds are stuck\n            assert(address(line).balance == amount*2 - amount);\n        }\n\n        function test_freeze_eth_increaseCredit() public {\n            uint256 amount = 1 ether;\n            address eth = address(0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE);\n\n            // fund lender\n            deal(lender, amount*5);\n            // fund borrower\n            deal(borrower, amount*5);\n\n            // add credit to line\n            _addCreditEth(eth, amount);\n            \n            // get id\n            bytes32 id = line.ids(0);\n\n            // increase credit to line\n            vm.prank(borrower);\n            line.increaseCredit(id, amount);\n            vm.stopPrank();\n            vm.prank(lender);\n            //double msg.value then amount\n            line.increaseCredit{value:amount*2}(id, amount);\n            vm.stopPrank();\n\n            //total amount * 3 in contract\n\n            //borrow 2 ether\n            vm.startPrank(borrower);\n            line.borrow(id, amount * 2);\n            vm.stopPrank();\n            \n            //depositAndClose full extra funds (amount)\n            vm.startPrank(borrower);\n            line.depositAndClose{value:amount*2}();\n            vm.stopPrank();\n\n            //validate funds are stuck\n            assert(address(line).balance == amount*3 - amount*2);\n        }\n\nThe POC demonstrates how Borrower and Lender funds get locked in the protocol.\n\n### Tools Used\n\nVS Code, Foundry\n\n### Recommended Mitigation Steps\n\nOptions:\n\n1.  refund - in receiveTokenOrETH, refund tokens back to ` msg.sender  `if `msg.value > amount`\n2.  revert - change the expression `if(msg.value < amount)` to `if(msg.value != amount)` and revert the transaction.\n\n**[dmvt (judge) decreased severity to Medium and commented](https://github.com/code-423n4/2022-11-debtdao-findings/issues/39#issuecomment-1339519753):**\n > This has been rated Medium because it requires that the borrower or lender send too much ETH in the first place (external factor). Great report quality!\n\n**[kibagateaux (Debt DAO) confirmed](https://github.com/code-423n4/2022-11-debtdao-findings/issues/39#issuecomment-1405075453)**\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the Line of Credit protocol, which does not refund overpayment of ETH. This means that excessive ETH is not included in the protocol's accounting, resulting in the funds being permanently locked in the protocol (Loss of funds). This vulnerability impacts EscrowedLine, LineOfCredit, SpigotedLine and SecuredLine, and affects at least five different scenarios where excessive ETH could be sent by Borrowers and Lenders to the protocol. \n\nThe bug resides in the `receiveTokenOrETH` function when receiving ETH. This function does not handle cases where `msg.value` is larger than `amount`, meaning a refund is needed (`msg.value` - `amount`). In such cases, `msg.value` is added to the balance of LineOfCredit although only `amount` is used in internal accounting. This results in the excessive ETH being permanently locked in the contract, as the withdraw methods are dependent on the internal accounting. \n\nThe scenarios where borrowers ETH funds will be locked in LineOfCredit include: \n1. Borrower calls `depositAndClose` with an ETH value that is above the owed debt.\n2. Borrower calls `depositAndRepay` with an ETH value that is above the amount specified in the parameters.\n3. Borrower calls `close` with an ETH value that is above the owed fees.\n\nThe scenarios where lenders ETH funds will be locked in LineOfCredit include:\n1. Lender calls `addCredit` with and ETH value that is greater than the `amount` parameter.\n2. Lender calls `increaseCredit` with and ETH value that is greater than the `amount` parameter.\n\nThe POC demonstrates how Borrower and Lender funds get locked in the protocol. It includes four of the mentioned scenarios and can be added to the LineOfCredit.t.sol test and executed using `forge test -v`.\n\nThe recommended mitigation steps are to either refund the tokens back to `msg.sender `if `msg.value > amount`, or change the expression `if(msg.value < amount)` to `if(msg.value != amount)` and revert the transaction. \n\nTools used to investigate this bug include VS Code and Foundry.",
+      "report_date": {},
+      "contest_prize_txt": "$115,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-11-debt-dao-contest",
+      "sponsor_name": "Debt DAO",
+      "sponsor_link": "https://twitter.com/debtdao",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-11-debtdao",
+      "github_link": "https://github.com/code-423n4/2022-11-debtdao-findings/issues/39",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "174",
+      "slug": "m-03-borrowerlender-excessive-eth-not-refunded-and-permanently-locked-in-protocol-code4rena-debt-dao-debt-dao-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Debt DAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Debt DAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Payments"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA Lending"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Refund Ether"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5601",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 6,
+      "protocol_id": "131",
+      "title": "[M-08] `_payoutEth()` calculates `balance` with an offset, always leaving dust `ETH` in the contract",
+      "content": "\n[PA1D.sol#L391](https://github.com/code-423n4/2022-10-holograph/blob/f8c2eae866280a1acfdc8a8352401ed031be1373/contracts/enforcer/PA1D.sol#L391)<br>\n[PA1D.sol#L395](https://github.com/code-423n4/2022-10-holograph/blob/f8c2eae866280a1acfdc8a8352401ed031be1373/contracts/enforcer/PA1D.sol#L395)<br>\n\nPayout recipients can call `getEthPayout()` to transfer the ETH balance of the contract to all payout recipients.<br>\nThis function makes an internal call to `_payoutEth`, which sends the payment to the recipients based on their associated `bp`.\n\nThe issue is that the `balance` used in the `transfer` calls is not the contract ETH balance, but the balance minus a `gasCost`.\n\nThis means `getEthPayout()` calls will leave dust in the contract.\n\n### Impact\n\nIf the dust is small enough, a subsequent call to `getEthPayout` is likely to revert because of [this check](https://github.com/code-423n4/2022-10-holograph/blob/f8c2eae866280a1acfdc8a8352401ed031be1373/contracts/enforcer/PA1D.sol#L390).<br>\nAnd `enforcer/PA1D` does not have any other ETH withdrawal function. While `enforcer/PA1D` is meant to be used via delegate calls from a NFT collection contract, if the NFT contract does not have any withdrawal function either, this dust mentioned above is effectively lost.\n\n### Proof of Concept\n\nLet us take the example of a payout recipient trying to retrieve their share of the balance, equal to `40_000` For simplicity, assume one payout address, owned by Alice:\n\n*   Alice calls `getEthPayout()`, which in turn calls `_payoutEth()`\n*   `gasCost = (23300 * length) + length = 23300 + 1 = 23301`\n*   `balance = address(this).balance = 40000`\n*   `balance - gasCost = 40000 - 23301 = 16699`,\n*   `sending = ((bps[i] * balance) / 10000) = 10000 * 16699 / 10000 = 16699`\n*   Alice receives `16699`.\n\nAlice has to wait for the balance to increase to call `getEthPayout()` again. But no matter what, there will always be at least a dust of `10000` left in the contract.\n\n### Recommended Mitigation Steps\n\nThe transfers should be done based on `address(this).balance`. The `gasCost` is redundant as the gas amount is specified by the caller of `getEthPayout()`, the contract does not have to provide gas.\n\n```diff\n-391: balance = balance - gasCost;\n392:     uint256 sending;\n393:     // uint256 sent;\n394:     for (uint256 i = 0; i < length; i++) {\n395:       sending = ((bps[i] * balance) / 10000);\n396:       addresses[i].transfer(sending);\n397:       // sent = sent + sending;\n398:     }\n```\n\n**[gzeon (judge) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/476#issuecomment-1294771534):**\n > I think this is intended, a bit weird why 23300 is chosen, why gas price is not considered and why the withheld fund is not sent to the caller tho. Related to [`#164`](https://github.com/code-423n4/2022-10-holograph-findings/issues/164) and [`#106`](https://github.com/code-423n4/2022-10-holograph-findings/issues/106)\n\n**[Trust (warden) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/476#issuecomment-1294789604):**\n > It doesn't make sense that it's intentional, because gas is never provided by contract, only EOA. Contract can only relay gas passed to it. But interesting to hear what the team says.\n\n**[gzeon (judge) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/476#issuecomment-1294821170):**\n > Agreed, but still seems to be low risk.\n\n**[alexanderattar (Holograph) confirmed and commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/476#issuecomment-1307929686):**\n > This is a valid issue and this function will be refactored.\n\n**[alexanderattar (Holograph) linked a PR](https://github.com/code-423n4/2022-10-holograph-findings/issues/476#ref-pullrequest-1469977783):**\n > [Feature/holo 612 royalty smart contract improvements](https://github.com/holographxyz/holograph-protocol/pull/93)\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability in the code of the 'enforcer/PA1D' contract which is part of the '2022-10-holograph' GitHub repository. The issue is that the `getEthPayout()` function is sending the payments to the payout recipients based on the `balance` minus a `gasCost` instead of the actual contract ETH balance. This means that when the `getEthPayout()` function is called, it will leave a small amount of ETH (known as 'dust') in the contract which cannot be retrieved. \n\nThe impact of this vulnerability is that if the dust is small enough, a subsequent call to `getEthPayout` is likely to fail due to a check in the code. If the 'enforcer/PA1D' contract does not have any other ETH withdrawal function and the NFT contract it is being used with also does not have any withdrawal functions, then the dust mentioned above is effectively lost.\n\nThe bug can be demonstrated using an example of a payout recipient trying to retrieve their share of the balance, equal to `40_000`. If the gas cost is 23301, then the recipient will only receive 16699, leaving 10000 in the contract. \n\nThe bug was discovered through manual analysis and the mitigation is to make sure that the transfers are done based on `address(this).balance` and that the `gasCost` is redundant as the gas amount is specified by the caller of `getEthPayout()`. The code should be changed to reflect this.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-10-holograph-contest",
+      "sponsor_name": "Holograph",
+      "sponsor_link": "https://twitter.com/holographxyz",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-10-holograph",
+      "github_link": "https://github.com/code-423n4/2022-10-holograph-findings/issues/476",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "170",
+      "slug": "m-08-_payouteth-calculates-balance-with-an-offset-always-leaving-dust-eth-in-the-contract-code4rena-holograph-holograph-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Holograph",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Holograph",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Marketplace"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Refund Ether"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5598",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "131",
+      "title": "[M-05] It is possible that operator loses sent ETH after calling `HolographOperator` contract's `executeJob` function",
+      "content": "\nETH can be sent when calling the `HolographOperator` contract's `executeJob` function, which can execute the following code.\n\n```solidity\nFile: contracts\\HolographOperator.sol\n419:     try\n420:       HolographOperatorInterface(address(this)).nonRevertingBridgeCall{value: msg.value}(\n421:         msg.sender,\n422:         bridgeInRequestPayload\n423:       )\n424:     {\n425:       /// @dev do nothing\n426:     } catch {\n427:       _failedJobs[hash] = true;\n428:       emit FailedOperatorJob(hash);\n429:     }\n```\n\nExecuting the `try ... {...} catch {...}` code mentioned above will execute `HolographOperatorInterface(address(this)).nonRevertingBridgeCall{value: msg.value}(...)`. Calling the `nonRevertingBridgeCall` function can possibly execute `revert(0, 0)` if the external call to the bridge contract is not successful. When this occurs, the code in the `catch` block of the `try ... {...} catch {...}` code mentioned above will run, which does not make calling the `executeJob` function revert. As a result, even though the job is not successfully executed, the sent ETH is locked in the `HolographOperator` contract since there is no other way to transfer such sent ETH out from this contract. In this situation, the operator that calls the `executeJob` function will lose the sent ETH.\n\n<https://github.com/code-423n4/2022-10-holograph/blob/main/contracts/HolographOperator.sol#L301-L439>\n\n```solidity\n  function executeJob(bytes calldata bridgeInRequestPayload) external payable {\n    \n    ...\n\n    /**\n     * @dev execute the job\n     */\n    try\n      HolographOperatorInterface(address(this)).nonRevertingBridgeCall{value: msg.value}(\n        msg.sender,\n        bridgeInRequestPayload\n      )\n    {\n      /// @dev do nothing\n    } catch {\n      _failedJobs[hash] = true;\n      emit FailedOperatorJob(hash);\n    }\n    /**\n     * @dev every executed job (even if failed) increments total message counter by one\n     */\n    ++_inboundMessageCounter;\n    /**\n     * @dev reward operator (with HLG) for executing the job\n     * @dev this is out of scope and is purposefully omitted from code\n     */\n    ////  _bondedOperators[msg.sender] += reward;\n  }\n```\n\n<https://github.com/code-423n4/2022-10-holograph/blob/main/contracts/HolographOperator.sol#L445-L478>\n\n```solidity\n  function nonRevertingBridgeCall(address msgSender, bytes calldata payload) external payable {\n    require(msg.sender == address(this), \"HOLOGRAPH: operator only call\");\n    assembly {\n      /**\n       * @dev remove gas price from end\n       */\n      calldatacopy(0, payload.offset, sub(payload.length, 0x20))\n      /**\n       * @dev hToken recipient is injected right before making the call\n       */\n      mstore(0x84, msgSender)\n      /**\n       * @dev make non-reverting call\n       */\n      let result := call(\n        /// @dev gas limit is retrieved from last 32 bytes of payload in-memory value\n        mload(sub(payload.length, 0x40)),\n        /// @dev destination is bridge contract\n        sload(_bridgeSlot),\n        /// @dev any value is passed along\n        callvalue(),\n        /// @dev data is retrieved from 0 index memory position\n        0,\n        /// @dev everything except for last 32 bytes (gas limit) is sent\n        sub(payload.length, 0x40),\n        0,\n        0\n      )\n      if eq(result, 0) {\n        revert(0, 0)\n      }\n      return(0, 0)\n    }\n  }\n```\n\n### Proof of Concept\n\nFirst, please add the following `OperatorAndBridgeMocks.sol` file in `src\\mock\\`.\n\n```solidity\npragma solidity 0.8.13;\n\n// OperatorMock contract simulates the logic flows used in HolographOperator contract's executeJob and nonRevertingBridgeCall functions\ncontract OperatorMock {\n    bool public isJobExecuted = true;\n\n    BridgeMock bridgeMock = new BridgeMock();\n\n    // testExecuteJob function here simulates the logic flow used in HolographOperator.executeJob function\n    function testExecuteJob() external payable {\n        try IOperatorMock(address(this)).testBridgeCall{value: msg.value}() {\n        } catch {\n            isJobExecuted = false;\n        }\n    }\n    \n    // testBridgeCall function here simulates the logic flow used in HolographOperator.nonRevertingBridgeCall function\n    function testBridgeCall() external payable {\n        // as a simulation, the external call that sends ETH to bridgeMock contract will revert\n        (bool success, ) = address(bridgeMock).call{value: msg.value}(\"\");\n        if (!success) {\n            assembly {\n                revert(0, 0)\n            }\n        }\n        assembly {\n            return(0, 0)\n        }\n    }\n}\n\ninterface IOperatorMock {\n    function testBridgeCall() external payable;\n}\n\ncontract BridgeMock {\n    receive() external payable {\n        revert();\n    }\n}\n```\n\nThen, please add the following `POC.ts` file in `test\\`.\n\n```typescript\nimport { expect } from \"chai\";\nimport { ethers } from \"hardhat\";\n\ndescribe('POC', () => {\n    it(\"It is possible that operator loses sent ETH after calling HolographOperator contract's executeJob function\", async () => {\n        // deploy operatorMock contract that simulates\n        //   the logic flows used in HolographOperator contract's executeJob and nonRevertingBridgeCall functions\n        const OperatorMockFactory = await ethers.getContractFactory('OperatorMock');\n        const operatorMock = await OperatorMockFactory.deploy();\n        await operatorMock.deployed();\n\n        await operatorMock.testExecuteJob({value: 500});\n\n        // even though the job is not successfully executed, the sent ETH is locked in operatorMock contract\n        const isJobExecuted = await operatorMock.isJobExecuted();\n        expect(isJobExecuted).to.be.eq(false);\n        expect(await ethers.provider.getBalance(operatorMock.address)).to.be.eq(500);\n    });\n});\n```\n\nLast, please run `npx hardhat test test/POC.ts --network hardhat`. The `It is possible that operator loses sent ETH after calling HolographOperator contract's executeJob function` test will pass to demonstrate the described scenario.\n\n### Tools Used\n\nVSCode\n\n### Recommended Mitigation Steps\n\nIn the `catch` block of the `try ... {...} catch {...}` code mentioned above in the Impact section, the code can be updated to transfer the `msg.value` amount of ETH back to the operator, which is `msg.sender` for the `HolographOperator` contract's `executeJob` function, when this described situation occurs.\n\n**[ACC01ADE (Holograph) confirmed and commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/418#issuecomment-1308898962):**\n > Good catch, good POC.\n\n**[gzeon (judge) decreased severity to Medium](https://github.com/code-423n4/2022-10-holograph-findings/issues/418)**\n\n\n\n***\n\n",
+      "summary": "\nThe bug report describes a vulnerability in the HolographOperator contract's executeJob function, where ETH can be sent when calling the function but the job is not successfully executed and the ETH is locked in the contract. This can result in the operator that calls the function losing the sent ETH. A proof of concept is provided using OperatorAndBridgeMocks.sol and POC.ts, which demonstrates the described scenario. The recommended mitigation step for this vulnerability is to update the code in the catch block of the try ... {...} catch {...} code mentioned in the Impact section to transfer the msg.value amount of ETH back to the operator when the described situation occurs.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-10-holograph-contest",
+      "sponsor_name": "Holograph",
+      "sponsor_link": "https://twitter.com/holographxyz",
+      "quality_score": 4,
+      "general_score": 3,
+      "source_link": "https://code4rena.com/reports/2022-10-holograph",
+      "github_link": "https://github.com/code-423n4/2022-10-holograph-findings/issues/418",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "170",
+      "slug": "m-05-it-is-possible-that-operator-loses-sent-eth-after-calling-holographoperator-contracts-executejob-function-code4rena-holograph-holograph-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Holograph",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Holograph",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Marketplace"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Refund Ether"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3323",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "137",
+      "title": "H-3: `TradingUtils::_executeTrade` will leak ETH to WETH",
+      "content": "Source: https://github.com/sherlock-audit/2022-09-notional-judging/issues/98 \n\n## Found by \nlemonmon\n\n## Summary\n\nIf sellToken is ETH, and using Uniswap for the dex, and it is exact out trade, too much is deposited to the WETH and does not withdraw the excess amount. It will give wrong `amountSold` value as well as accounting error.\n\n## Vulnerability Detail\n\n`trade.sellToken` is ETH and using Uniswap as dex, WETH should be used instead of ETH as Uniswap does not support ETH. There for TradingUtils wraps the ETH to WETH before trading.\n\nIf the trade would be exact out, the amount `trade.limit` will be deposited to WETH instead of the `trade.amount`. However, because it is exact out, not all ETH deposited will be traded. In the current implementation, there is no logic to recover the excess deposit.\n\nAs the `TradingUtils::_executeInternal`, which uses the `TradingUtils::_executeTrade` will calculate the `amountSold` based on the balance of ETH, it will return the `trade.limit` as the `amountSold`, thus resulting in accounting error.\n\nNote: in the current implementation, the trade using Uniswap with ETH as sellToken would not even work, because the WETH is not properly approved (issue 2). This issue assumes that the issue is resolved. \n\n## Impact\n\n`amountSold` will reflect not the amount really sold, rather the `trade.limit`. It is unclear whether the excess amount of ETH, which is deposited for WETH can be recovered.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/contracts/trading/TradingUtils.sol?plain=1#L118-L137\n\nhttps://github.com/sherlock-audit/2022-09-notional/blob/main/leveraged-vaults/contracts/trading/TradingUtils.sol?plain=1#L29-L64\n\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nIn the `_executeTrade`, if the sellToken is ETH and it is exact out trade, recover excess deposit.\n\n\n## Discussion\n\n**jeffywu**\n\n@Evert0x I don't think this is a duplicate of #110\n\n**weitianjie2000**\n\nlegit issue, will be fixed",
+      "summary": "\nThis bug report involves an issue with the TradingUtils::_executeTrade function in the leveraged-vaults contracts of the 2022-09-notional repository on Github. The issue is that if the sellToken is ETH and using Uniswap as the dex, too much ETH will be deposited to the WETH and not withdrawn, resulting in a wrong amountSold value and accounting error. \n\nThe bug was found by lemonmon and the code snippet can be found at the provided link. The impact of the bug is that amountSold will not reflect the real amount sold, rather the trade.limit, and it is unclear whether the excess amount of ETH deposited can be recovered.\n\nThe bug was discussed by jeffywu and weitianjie2000, with the latter confirming it is a legitimate issue that will be fixed. The recommendation is that if the sellToken is ETH and it is an exact out trade, the excess deposit should be recovered in the _executeTrade function.",
+      "report_date": {},
+      "contest_prize_txt": "100000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/2",
+      "sponsor_name": "Notional",
+      "sponsor_link": "",
+      "quality_score": 3,
+      "general_score": 3,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-09-notional-judging/issues/98",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "2",
+      "slug": "h-3-tradingutils_executetrade-will-leak-eth-to-weth-sherlock-notional-notional-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Notional",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Notional",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Refund Ether"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6179",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "139",
+      "title": "[M-02] If L1GraphTokenGateway’s outboundTransfer is called by a contract, the entire msg.value is blackholed, whether the ticket got redeemed or not",
+      "content": "## Lines of code\n\nhttps://github.com/code-423n4/2022-10-thegraph/blob/309a188f7215fa42c745b136357702400f91b4ff/contracts/gateway/L1GraphTokenGateway.sol#L236\n\n\n## Vulnerability details\n\nThe outboundTransfer function in L1GraphTokenGateway is used to transfer user's Graph tokens to L2. To do that it eventually calls the standard Arbitrum Inbox's createRetryableTicket. The issue is that it passes caller's address in the `submissionRefundAddress` and `valueRefundAddress`. This behaves fine if caller is an EOA, but if it's called by a contract it will lead to loss of the submissionRefund (ETH passed to outboundTransfer() minus the total submission fee), or in the event of failed L2 ticket creation, the whole submission fee. The reason it's fine for EOA is because of the fact that ETH and Arbitrum addresses are congruent. However, the calling contract probably does not exist on L2 and even in the rare case it does, it might not have a function to move out the refund.\n\nThe docs don't suggest contracts should not use the TokenGateway, and it is fair to assume it will be used in this way. Multisigs are inherently contracts, which is one of the valid use cases. Since likelihood is high and impact is medium (loss of submission fee), I believe it to be a HIGH severity find.\n\n## Impact\n\nIf L1GraphTokenGateway's outboundTransfer is called by a contract, the entire msg.value is blackholed, whether the ticket got redeemed or not.\n\n## Proof of Concept\n\nAlice has a multisig wallet. She sends 100 Graph tokens to L1GraphTokenGateway, and passes X ETH for submission. She receives an L1 ticket, but since the max gas was too low, the creation failed on L2 and the funds got sent to the multisig address at L2. Therefore, Alice loses X ETH.\n\n## Tools Used\n\nhttps://github.com/OffchainLabs/arbitrum/blob/master/docs/L1_L2_Messages.md\nManual audit\n\n## Recommended Mitigation Steps\n\nA possible fix is to add an `isContract` flag. If sender is a contract, require the flag to be true.\n\nAnother option is to add a `refundAddr` address parameter to the API.",
+      "summary": "\nThis bug report is about the outboundTransfer function in the L1GraphTokenGateway, which is used to transfer user's Graph tokens to L2. The issue is that it passes the caller's address in the submissionRefundAddress and valueRefundAddress, which can cause the loss of the submissionRefund (ETH passed to outboundTransfer() minus the total submission fee), or in the event of failed L2 ticket creation, the whole submission fee. This is because ETH and Arbitrum addresses are congruent, but the calling contract may not exist on L2 and even if it does, it may not have a function to move out the refund. The impact is that if L1GraphTokenGateway's outboundTransfer is called by a contract, the entire msg.value is blackholed, whether the ticket got redeemed or not. \n\nA proof of concept example is provided, which is about Alice who has a multisig wallet. She sends 100 Graph tokens to L1GraphTokenGateway, and passes X ETH for submission. She receives an L1 ticket, but since the max gas was too low, the creation failed on L2 and the funds got sent to the multisig address at L2. Therefore, Alice loses X ETH. \n\nThe recommended mitigation steps are to add an isContract flag, or to add a refundAddr address parameter to the API. \n\nOverall, this bug report is about the outboundTransfer function in the L1GraphTokenGateway, which can cause the loss of the submissionRefund or the whole submission fee if called by a contract. The proof of concept and the recommended mitigation steps are also provided.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-10-the-graph-l2-bridge-contest",
+      "sponsor_name": "The Graph",
+      "sponsor_link": "https://twitter.com/graphprotocol",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-10-thegraph",
+      "github_link": "https://github.com/code-423n4/2022-10-thegraph-findings/issues/294",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "169",
+      "slug": "m-02-if-l1graphtokengateways-outboundtransfer-is-called-by-a-contract-the-entire-msgvalue-is-blackholed-whether-the-ticket-got-redeemed-or-not-code4rena-the-graph-the-graph-l2-bridge-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "The Graph",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "The Graph",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Refund Ether"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Business Logic"
+          }
+        }
+      ]
+    },
+    {
+      "id": "24780",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 0,
+      "protocol_id": "1002",
+      "title": "[M-17] WeVE (FTM) may be lost forever if redemption process is failed",
+      "content": "_Submitted by Chom_\n\n[RedemptionSender.sol#L28-L51](https://github.com/code-423n4/2022-05-velodrome/blob/7fda97c570b758bbfa7dd6724a336c43d4041740/contracts/contracts/redeem/RedemptionSender.sol#L28-L51)<br>\n[RedemptionReceiver.sol#L72-L105](https://github.com/code-423n4/2022-05-velodrome/blob/7fda97c570b758bbfa7dd6724a336c43d4041740/contracts/contracts/redeem/RedemptionReceiver.sol#L72-L105)<br>\n\nWeVE (FTM) may be lost forever if redemption process is failed.\n\nRedemption process is likely to be failed if\n\n*   (redeemedWEVE += amountWEVE) > eligibleWEVE\n*   Not enough USDC or VELO in the contract\n\nThe case that redeem more than eligible can't be fixed because eligibleWEVE is hardcoded on contract initialization.\n\nThis mean that if there are any mistake for example LayerZero slow down and user try to repeatedly redeem their WeVE, user will lose their WeVE token forever due to contract always reverted in the destination chain due to the reason that user has redeemed more than eligible.\n\n### Proof of Concept\n\n1.  User redeem WeVE in fantom chain using redeemWEVE function in RedemptionSender contract.\n2.  LayerZero slow but user think it is failed. (But it is just slow)\n3.  User repeat process 1 again\n4.  LayerZero call lzReceive in RedemptionReceiver contract on Optimism chain for the first time it's success. USDC + VELO is redeemed as intended.\n5.  LayerZero call lzReceive in RedemptionReceiver contract on Optimism chain again due to repeated transaction in step 3. But this time, user has exceeded her redeem limit. Caused lzReceive call to revert with reason \"cannot redeem more than eligible\". **But doesn't refund WeVE to the user**\n\n<!---->\n\n            require(\n                (redeemedWEVE += amountWEVE) <= eligibleWEVE,\n                \"cannot redeem more than eligible\"\n            );\n\n6.  User FUD Velodrome and file a lawsuit against Velodrome.\n\n### Recommended Mitigation Steps\n\n*   In RedemptionReceiver, Wrap lzReceive into another function and perform try catch on new lzReceive function to call old wrapped lzReceive function and on revert add refund amount to that user.\n*   Write refund lzReceive handler on RedemptionSender.\n*   Create a new refund function in RedemptionReceiver. When user call, it will send layerzero message back to lzReceive function in RedemptionSender contract on Fantom.\n\n**[pooltypes (Velodrome) disputed and disagreed with severity](https://github.com/code-423n4/2022-05-velodrome-findings/issues/90)**\n\n**[Alex the Entreprenerd (judge) decreased severity to Medium and commented](https://github.com/code-423n4/2022-05-velodrome-findings/issues/90#issuecomment-1171832618):**\n > I believe the finding to have validity exclusively on the basis of the fact that a user may burn their WeVe and reach cap on the receiving chain, getting nothing out of it.\n> \n> Because that's contingent on reaching cap, the loss will be limited to the capped amount. For that reason, I think Medium Severity to be more appropriate.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about the redemption process of WeVE (FTM) tokens in the Velodrome platform. If the redemption process is failed, the WeVE tokens may be lost forever. The process is likely to fail if the user has redeemed more than their eligible amount, or if there is not enough USDC or VELO in the contract. This is because the eligible amount is hardcoded on contract initialization, so if the user makes a mistake such as trying to redeem their WeVE multiple times, they will lose their tokens. \n\nA proof of concept has been provided to show how this bug works. It shows that if a user tries to redeem their WeVE multiple times due to a slow LayerZero, they will exceed their eligible amount and the redemption will fail, but the WeVE tokens will not be refunded. \n\nTo mitigate this bug, the judge has recommended a few steps. These include wrapping the lzReceive function in RedemptionReceiver into another function, performing a try catch on the new function, writing a refund handler on RedemptionSender, and creating a new refund function in RedemptionReceiver. The judge has decreased the severity of the bug to medium, as the loss will be limited to the capped amount.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/reports/2022-05-velodrome",
+      "sponsor_name": "Velodrome Finance",
+      "sponsor_link": "",
+      "quality_score": 3,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-05-velodrome",
+      "github_link": "https://github.com/code-423n4/2022-05-velodrome-findings/issues/90",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "130",
+      "slug": "m-17-weve-ftm-may-be-lost-forever-if-redemption-process-is-failed-code4rena-velodrome-finance-velodrome-finance-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Velodrome Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Velodrome Finance",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Refund Ether"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2241",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 17,
+      "protocol_id": "227",
+      "title": "[H-01] SpeedBumpPriceGate: Excess ether did not return to the user",
+      "content": "_Submitted by cccz, also found by 0x52, 0xYamiDancho, csanuragjain, GimelSec, gzeon, hickuphh3, horsefacts, hyh, IllIllI, kenzo, leastwood, PPrieditis, reassor, unforgiven, WatchPug, and danb_\n\nThe `passThruGate` function of the `SpeedBumpPriceGate` contract is used to charge NFT purchase fees.\nSince the price of NFT will change due to the previous purchase, users are likely to send more ether than the actual purchase price in order to ensure that they can purchase NFT. However, the passThruGate function did not return the excess ether, which would cause asset loss to the user.\nConsider the following scenario:\n\n1.  An NFT is sold for 0.15 eth\n2.  User A believes that the value of the NFT is acceptable within 0.3 eth, considering that someone may buy the NFT before him, so user A transfers 0.3 eth to buy the NFT\n3.  When user A's transaction is executed, the price of the NFT is 0.15 eth, but since the contract does not return excess eth, user A actually spends 0.3 eth.\n\n### Proof of Concept\n\n<https://github.com/code-423n4/2022-05-factorydao/blob/e22a562c01c533b8765229387894cc0cb9bed116/contracts/SpeedBumpPriceGate.sol#L65-L82>\n\n\n### Recommended Mitigation Steps\n\n    -   function passThruGate(uint index, address) override external payable {\n    +  function passThruGate(uint index, address payer) override external payable {\n            uint price = getCost(index);\n            require(msg.value >= price, 'Please send more ETH');\n\n            // bump up the price\n            Gate storage gate = gates[index];\n            // multiply by the price increase factor\n            gate.lastPrice = (price * gate.priceIncreaseFactor) / gate.priceIncreaseDenominator;\n            // move up the reference\n            gate.lastPurchaseBlock = block.number;\n\n            // pass thru the ether\n            if (msg.value > 0) {\n                // use .call so we can send to contracts, for example gnosis safe, re-entrance is not a threat here\n    -           (bool sent, bytes memory data) = gate.beneficiary.call{value: msg.value}(\"\");\n    +          (bool sent, bytes memory data) = gate.beneficiary.call{value: price}(\"\");\n                require(sent, 'ETH transfer failed');\n            }\n    +      if (msg.value - price > 0){ \n    +         (bool sent, bytes memory data) = payer.call{value: msg.value - price}(\"\");\n    +          require(sent, 'ETH transfer failed');}\n        }\n\n**[illuzen (FactoryDAO) confirmed, but disagreed with severity](https://github.com/code-423n4/2022-05-factorydao-findings/issues/48#issuecomment-1122005082)**\n\n**[illuzen (FactoryDAO) resolved](https://github.com/code-423n4/2022-05-factorydao-findings/issues/48#issuecomment-1145528979):**\n > https://github.com/code-423n4/2022-05-factorydao/pull/4\n\n**[Justin Goro (judge) commented](https://github.com/code-423n4/2022-05-factorydao-findings/issues/48#issuecomment-1154647062):**\n > Maintaining severity as user funds are lost.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report concerns the passThruGate function of the SpeedBumpPriceGate contract which is used to charge NFT purchase fees. The vulnerability of this function is that it does not return excess ether to the user if they send more than the actual purchase price in order to ensure they can purchase an NFT. This can cause asset loss to the user. \n\nFor example, if an NFT is sold for 0.15 eth and a user believes the value of the NFT is acceptable within 0.3 eth, they would send 0.3 eth to buy the NFT. However, when their transaction is executed, the price of the NFT is 0.15 eth, but since the contract does not return excess eth, the user actually spends 0.3 eth.\n\nThe recommended mitigation step is to add code to the passThruGate function which returns the excess ether to the user. The code should be as follows:\n\n```\nif (msg.value - price > 0){ \n    (bool sent, bytes memory data) = payer.call{value: msg.value - price}(\"\");\n    require(sent, 'ETH transfer failed');}\n```\n\nThis code should be added after the existing code for the passThruGate function. This code will ensure that any excess ether is returned to the user.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 DAI",
+      "contest_link": "https://code4rena.com/contests/2022-05-factorydao-contest",
+      "sponsor_name": "FactoryDAO",
+      "sponsor_link": "https://twitter.com/FactDAO/",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2022-05-factorydao",
+      "github_link": "https://github.com/code-423n4/2022-05-factorydao-findings/issues/48",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "119",
+      "slug": "h-01-speedbumppricegate-excess-ether-did-not-return-to-the-user-code4rena-factorydao-factorydao-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "FactoryDAO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "FactoryDAO",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Leveraged Farming"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Refund Ether"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Payable"
+          }
+        }
+      ]
+    }
+  ]
+}

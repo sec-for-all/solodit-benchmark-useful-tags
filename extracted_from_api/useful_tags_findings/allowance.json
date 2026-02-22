@@ -1,0 +1,1174 @@
+{
+  "tag": "Allowance",
+  "count": 15,
+  "metadata": {
+    "totalResults": 15,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 12,
+    "reset": 1771760940
+  },
+  "findings": [
+    {
+      "id": "34253",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 4,
+      "protocol_id": "1342",
+      "title": "H-5: Adding liquidity can be `DoS`ed due to calculation mismatches",
+      "content": "Source: https://github.com/sherlock-audit/2024-03-arrakis-judging/issues/54 \n\n## Found by \nKupiaSec, cu5t0mPe0, juaan, whitehair0330\n## Summary\n\nWhen users add liquidity, they send tokens to the `ArrakisPublicVaultRouter` contract. The `ValantisHOTModulePublic` contract then takes the required tokens from the `ArrakisPublicVaultRouter` contract. However, due to a calculation mismatch, the required amount is often greater than the user-sent amount, causing the transaction to be reverted.\n\n## Vulnerability Detail\n\nLet's consider following scenario:\n1. The current state:\n    - pool: `reserve0 = 1e18 + 1, reserve1 = 1e18 + 1`\n    - vault: `totalSupply = 1e18 + 1`\n2. Bob calls the `ArrakisPublicVaultRouter.addLiquidity()` function with the following parameters:\n    - `amount0Max = 1e18, amount1Max = 1e18`\n3. At [L139](https://github.com/sherlock-audit/2024-03-arrakis/blob/main/arrakis-modular/src/ArrakisPublicVaultRouter.sol#L139), the `_getMintAmounts()` function returns:\n    - `(sharesReceived, amount0, amount1) = (1e18 - 1, 1e18 - 1, 1e18 - 1)`\n4. The router contract takes `token0` and `token1` from Bob in amounts of `1e18 - 1` each and calls the `_addLiquidity()` function with above parameters.\n5. In the `_addLiquidity()` function, `ArrakisMetaVaultPublic.mint(1e18 - 1, Bob)` is invoked at [L898](https://github.com/sherlock-audit/2024-03-arrakis/blob/main/arrakis-modular/src/ArrakisPublicVaultRouter.sol#L898).\n6. In the `ArrakisMetaVaultPublic.mint()` function:\n    - at [L58](https://github.com/sherlock-audit/2024-03-arrakis/blob/main/arrakis-modular/src/ArrakisMetaVaultPublic.sol#L58), the `proportion` is recalculated as `1e18 - 1`\n    - `_deposit(1e18 - 1)` is called at [L71](https://github.com/sherlock-audit/2024-03-arrakis/blob/main/arrakis-modular/src/ArrakisMetaVaultPublic.sol#L71)\n    - in the `_deposit()` function, `ValantisHOTModulePublic.deposit(router, 1e18 - 1)` is invoked at [L150](https://github.com/sherlock-audit/2024-03-arrakis/blob/main/arrakis-modular/src/ArrakisMetaVaultPublic.sol#L150-L151)\n7. In the `ValantisHOTModulePublic.deposit()` function:\n    - `amount0 = 1e18, amount1 = 1e18`(at [L71, L73](https://github.com/sherlock-audit/2024-03-arrakis/blob/main/arrakis-modular/src/modules/ValantisHOTModulePublic.sol#L71-L74))\n    - at [L79, L80](https://github.com/sherlock-audit/2024-03-arrakis/blob/main/arrakis-modular/src/modules/ValantisHOTModulePublic.sol#L79-L80), it takes `token0` and `token1` from the router in amounts of `1e18` each\n\nFinally, the process fails because there is only `1e18 - 1` in the router, as mentioned in step `4`.\n\nThis problem occurs because the calculations in the `ArrakisPublicVaultRouter._getMintAmounts()` function rely on rounding down. In contrast, the proportion calculation in the `ArrakisMetaVaultPublic.mint()` function and the amount calculations in the `ValantisHOTModulePublic.deposit()` function are based on rounding up.\n\n## Impact\n\nAdding liquidity can be `DoS`ed due to the calculation mismatches.\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2024-03-arrakis/blob/main/arrakis-modular/src/ArrakisPublicVaultRouter.sol#L122-L191\n\nhttps://github.com/sherlock-audit/2024-03-arrakis/blob/main/arrakis-modular/src/ArrakisPublicVaultRouter.sol#L869-L901\n\nhttps://github.com/sherlock-audit/2024-03-arrakis/blob/main/arrakis-modular/src/ArrakisPublicVaultRouter.sol#L1194-L1231\n\nhttps://github.com/sherlock-audit/2024-03-arrakis/blob/main/arrakis-modular/src/ArrakisMetaVaultPublic.sol#L51-L74\n\nhttps://github.com/sherlock-audit/2024-03-arrakis/blob/main/arrakis-modular/src/ArrakisMetaVaultPublic.sol#L137-L154\n\nhttps://github.com/sherlock-audit/2024-03-arrakis/blob/main/arrakis-modular/src/modules/ValantisHOTModulePublic.sol#L35-L96\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nThe `ArrakisPublicVaultRouter._getMintAmounts()` function should be updated to return the accurate required amounts.\n\n\n\n## Discussion\n\n**KupiaSecAdmin**\n\nEscalate\n\nThe severity of this issue should be high, as the probability of the calculation mismatch occurring is quite high.\n\n**sherlock-admin3**\n\n> Escalate\n> \n> The severity of this issue should be high, as the probability of the calculation mismatch occurring is quite high.\n\nYou've created a valid escalation!\n\nTo remove the escalation from consideration: Delete your comment.\n\nYou may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.\n\n**WangSecurity**\n\nIn Sherlock, we don't judge issues based on the probabilities. As I understand there's no material loss, but the issue has serious non-material losses, cause as I understand, it's possible that there will always be users who cannot deposit due to this issue. Hence, I agree that high severity is appropriate here, planning to accept the escalation and upgrade severity to high.\n\n**Gevarist**\n\nValid finding, for us it's a low level finding.\n\n**CergyK**\n\n> In Sherlock, we don't judge issues based on the probabilities. As I understand there's no material loss, but the issue has serious non-material losses, cause as I understand, it's possible that there will always be users who cannot deposit due to this issue. Hence, I agree that high severity is appropriate here, planning to accept the escalation and upgrade severity to high.\n\nThis should remain medium, as there is no loss of funds.\n\nIn the hypothetical case some deposit absolutely has to be carried on, the simple work-around of sending some DUST of tokens to the contract would unlock the situation.\n\n> It seems that Sherlock has a new rule to identify high issues which is cited here:\n> `2. Inflicts serious non-material losses (doesn't include contract simply not working).` \n> Which seems inconsistent with how to identify a medium issue:\n> `2. Breaks core contract functionality, rendering the contract useless or leading to loss of funds.`\n> As the rule to identify the medium issue uses a higher impact?\n\n**KupiaSecAdmin**\n\n@CergyK\n\n> In the hypothetical case some deposit absolutely has to be carried on, the simple work-around of sending some DUST of tokens to the contract would unlock the situation.\n> \n\nSending DUST of tokens cann't resolve the problem.\n\nIn the `_addLiquidity()` function of the router contract, the contract approves tokens to the module. Subsequently, in the `deposit()` function of the module, the module brings those tokens from the router contract. For the transaction to succeed, the router contract must approve enough tokens to the module. Therefore, only sending tokens cannot resolve the problem.\n\n```solidity\nIERC20(token0_).safeIncreaseAllowance(module, amount0_);\n```\n\n```solidity\ntoken0.safeTransferFrom(depositor_, address(this), amount0);\n```\n\nImpossibility of deposit should be considered as a HIGH severity issue.\n\n**CergyK**\n\n> @CergyK\n> \n> > In the hypothetical case some deposit absolutely has to be carried on, the simple work-around of sending some DUST of tokens to the contract would unlock the situation.\n> \n> Sending DUST of tokens cann't resolve the problem.\n> \n> In the `_addLiquidity()` function of the router contract, the contract approves tokens to the module. Subsequently, in the `deposit()` function of the module, the module brings those tokens from the router contract. For the transaction to succeed, the router contract must approve enough tokens to the module. Therefore, only sending tokens cannot resolve the problem.\n> \n> ```solidity\n> IERC20(token0_).safeIncreaseAllowance(module, amount0_);\n> ```\n> \n> ```solidity\n> token0.safeTransferFrom(depositor_, address(this), amount0);\n> ```\n> \n> Impossibility of deposit should be considered as a HIGH severity issue.\n\nOk I see. Indeed depositing would be impossible in that case.\nStill this is a medium severity issue since it is a DOS of a core functionality, but no loss demonstrated\n\n**KupiaSecAdmin**\n\n> IV. How to identify a high issue:\n> 2. Inflicts serious non-material losses (doesn't include contract simply not working).\n\nBased on the judging rule, I think the issue deserves high severity, because it inflicts serious non-material losses, which is not contract simply not working.\n\n**0xjuaan**\n\n@KupiaSecAdmin that rule actually says that there must be a non material loss other than the contract simply not working. \n\nSince this bug simply causes a function to not work, I agree with @CergyK that this should be medium.\n\n**WangSecurity**\n\n@0xjuaan could you please elaborate? The rule says non-material losses, excluding the contract simply not working. Here, the contract is working, but the deposits are DOSed?\n\nAlso, another question, are the contracts upgradable and in reality could this issue be solved by updating the contract?\n\n**0xjuaan**\n\nIt seems similar to [this issue](https://github.com/sherlock-audit/2024-02-smilee-finance-judging/issues/40) which is medium severity.\n\nFrom what I understand, the rules say that the non-material loss must not be that a contract/function simply is not functional. However in this bug, that is the impact. \n\nNote I did submit this so am not incentivised to disagree with the escalation, but it based on the rules I don't see any way this can be high severity.\n\n**WangSecurity**\n\n@0xjuaan could you please elaborate on what do you think includes \"serious non-material losses\"? So I can better understand how I can explain my decision better.\n\n**WangSecurity**\n\nThe decision remains the same. I believe in that case it's not just a function simply doesn't work, but deposits into protocol are DOSed, hence, it's serious non-material losses. Planning to accept the escalation and upgrade severity to high.\n\n**0xjuaan**\n\nHonestly I still think @CergyK's stance is correct since deposits are technically not DoS'd, they can occur via the vault directly. \n\nI do benefit from it being converted to H though so I don't mind either way.\n\n**sherlock-admin2**\n\nThe protocol team fixed this issue in the following PRs/commits:\nhttps://github.com/ArrakisFinance/arrakis-modular/pull/88\n\n\n**CergyK**\n\n> @0xjuaan could you please elaborate on what do you think includes \"serious non-material losses\"? So I can better understand how I can explain my decision better.\n\nOne possible interpretation is that the line in the Sherlock rules:\n> 2. Inflicts serious non-material losses (doesn't include contract simply not working).\n\nwas added to enable high severity issues in protocols which are not handling financial assets (SocialFi, data-availability). Otherwise it is too vague, and can be applicable to any valid issue (low, medium, high).\n\n**WangSecurity**\n\n> Honestly I still think @CergyK's stance is correct since deposits are technically not DoS'd, they can occur via the vault directly.\n\nHm, I may have misunderstood that point. As I understand @CergyK talks about sending dust amounts to the contract, to mitigate the DoS. But this was answered [here](https://github.com/sherlock-audit/2024-03-arrakis-judging/issues/54#issuecomment-2176230181), which @CergyK agreed with. If I’m missing something please correct.\n \n > was added to enable high severity issues in protocols which are not handling financial assets (SocialFi, data-availability)\n\nFair point, but I still believe DOS of depositing into the protocol is indeed serious non-material loss.\n\nBut correct me on the first if I’m wrong.\n\n**WangSecurity**\n\nThe decision remains the same. Planning to accept the escalation and upgrade severity to high.\n\n**WangSecurity**\n\nResult:\nHigh\nHas duplicates\n\n**sherlock-admin4**\n\nEscalations have been resolved successfully!\n\nEscalation status:\n- [KupiaSecAdmin](https://github.com/sherlock-audit/2024-03-arrakis-judging/issues/54/#issuecomment-2167570652): accepted",
+      "summary": "\nThe issue reported is that adding liquidity to the Arrakis protocol can cause a \"Denial of Service\" (DoS) due to incorrect calculations. This means that users who try to add liquidity may have their transactions fail due to the system not being able to accurately calculate the required amounts. This bug was found by a group of security researchers and has been identified as a high severity issue. The vulnerability occurs when the system tries to calculate the required amount of tokens from the user and ends up requesting more than what was sent, causing the transaction to fail. This is due to a mismatch in rounding calculations in different parts of the code. The impact of this bug is that users may not be able to add liquidity to the protocol, causing a loss of functionality. The code snippets where the bug occurs have been identified and the recommendation is to update the code to fix the calculations. There was some discussion among the security researchers about the severity of the issue, but ultimately it was agreed that it should be considered a high severity issue. The protocol team has fixed the bug and it has been resolved.",
+      "report_date": {},
+      "contest_prize_txt": "55500 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/195",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2024-03-arrakis-judging/issues/54",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "195",
+      "slug": "h-5-adding-liquidity-can-be-dosed-due-to-calculation-mismatches-sherlock-arrakis-valantis-sot-audit-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Arrakis Valantis SOT Audit",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Arrakis Valantis SOT Audit",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Rounding"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Denial-Of-Service"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "15922",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "HIGH",
+      "finders_count": 4,
+      "protocol_id": "2",
+      "title": "Receiver doesn't always reset allowance",
+      "content": "## Security Report\n\n## Severity\n**High Risk**\n\n## Context\nReceiver.sol#L224-L297\n\n## Description\nThe function `_swapAndCompleteBridgeTokens()` of Receiver resets the approval to the executor at the end of an ERC20 transfer. However, if there is insufficient gas, the approval is not reset. This allows the executor to access any tokens (of the same type) left in the Receiver.\n\n```solidity\nfunction _swapAndCompleteBridgeTokens(...) {\n    ...\n    if (LibAsset.isNativeAsset(assetId)) {\n        ...\n    } else { // case 2: ERC20 asset\n        ...\n        token.safeIncreaseAllowance(address(executor), amount);\n        if (reserveRecoverGas && gasleft() < _recoverGas) {\n            token.safeTransfer(receiver, amount);\n            ...\n            return; // no safeApprove 0\n        }\n        try executor.swapAndCompleteBridgeTokens{...} {\n            ...\n        }\n        token.safeApprove(address(executor), 0);\n    }\n}\n```\n\n## Recommendation\nOnly increase the allowance if sufficient gas is available, for example in the following way:\n\n```solidity\nfunction _swapAndCompleteBridgeTokens(...) {\n    ...\n    if (LibAsset.isNativeAsset(assetId)) {\n        ...\n    } else { // case 2: ERC20 asset\n        ...\n        - token.safeIncreaseAllowance(address(executor), amount);\n        if (reserveRecoverGas && gasleft() < _recoverGas) {\n            token.safeTransfer(receiver, amount);\n            ...\n            return;\n        }\n        + token.safeIncreaseAllowance(address(executor), amount);\n        try executor.swapAndCompleteBridgeTokens{...} {\n            ...\n        }\n        token.safeApprove(address(executor), 0);\n    }\n}\n```\n\n## LiFi\nFixed in PR 247.\n\n## Spearbit\nVerified.",
+      "summary": "\nThis bug report is about the function _swapAndCompleteBridgeTokens() in Receiver.sol. In this function, the approval to the executor is reset at the end of an ERC20 transfer. However, if there is insufficient gas, the approval is not reset, which allows the executor to access any tokens left in the Receiver.\n\nThe recommendation to fix this bug is to only increase the allowance if sufficient gas is available. This can be done by adding a line of code to the function. The fix was implemented in PR 247 and has been verified.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-retainer1-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-retainer1-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/LIFI-retainer1-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 6,
+      "contest_id": "",
+      "slug": "receiver-doesnt-always-reset-allowance-spearbit-lifi-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "LI.FI",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "LI.FI",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6289",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "46",
+      "title": "H-3: CryptoPunks NFTs may be stolen via deposit frontrunning",
+      "content": "Source: https://github.com/sherlock-audit/2023-01-ajna-judging/issues/140 \n\n## Found by \nJeiwan\n\n## Summary\nDepositing of CryptoPunks NFTs may be front run, a malicious actor may deposit someone else's CryptoPunks NFT.\n## Vulnerability Detail\nDue to the CryptoPunks NFT collection not implementing the ERC721 standard, depositing of CryptoPunks NFTs is implemented via a direct sale:\n1. token owner needs to call [offerPunkForSaleToAddress](https://etherscan.io/address/0xb47e3cd837ddf8e4c57f05d70ab865de6e193bbb#code) and set the `toAddress` value to the address of the pool the token will be deposited to;\n1. token owner then calls the [addCollateral](https://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/ERC721Pool.sol#L251) function of the ERC721 pool;\n1. the pool [buys the token](https://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/ERC721Pool.sol#L577) from its owner.\n\nHowever, `addCollateral` can be called by anyone: the pool will buy the token and will deposit it on the caller's account even if the caller is not the owner of the token.\n## Impact\nCryptoPunks NFTs owner may lose their NFTs when trying to deposit them to an ERC721 pool. A malicious actor may front run the depositing and deposit the NFTs to their account. The malicious actor may then withdraw the NFTs.\n## Code Snippet\n[ERC721Pool.sol#L577](https://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/ERC721Pool.sol#L577)\n[CryptoPunksMarket](https://etherscan.io/address/0xb47e3cd837ddf8e4c57f05d70ab865de6e193bbb#code):\n```solidity\nfunction offerPunkForSaleToAddress(uint punkIndex, uint minSalePriceInWei, address toAddress) {\n    if (!allPunksAssigned) throw;\n    if (punkIndexToAddress[punkIndex] != msg.sender) throw;\n    if (punkIndex >= 10000) throw;\n    punksOfferedForSale[punkIndex] = Offer(true, punkIndex, msg.sender, minSalePriceInWei, toAddress);\n    PunkOffered(punkIndex, minSalePriceInWei, toAddress);\n}\n\nfunction buyPunk(uint punkIndex) payable {\n    if (!allPunksAssigned) throw;\n    Offer offer = punksOfferedForSale[punkIndex];\n    if (punkIndex >= 10000) throw;\n    if (!offer.isForSale) throw;                // punk not actually for sale\n    if (offer.onlySellTo != 0x0 && offer.onlySellTo != msg.sender) throw;  // punk not supposed to be sold to this user\n    if (msg.value < offer.minValue) throw;      // Didn't send enough ETH\n    if (offer.seller != punkIndexToAddress[punkIndex]) throw; // Seller no longer owner of punk\n\n    address seller = offer.seller;\n\n    punkIndexToAddress[punkIndex] = msg.sender;\n    balanceOf[seller]--;\n    balanceOf[msg.sender]++;\n    Transfer(seller, msg.sender, 1);\n\n    punkNoLongerForSale(punkIndex);\n    pendingWithdrawals[seller] += msg.value;\n    PunkBought(punkIndex, msg.value, seller, msg.sender);\n\n    // Check for the case where there is a bid from the new owner and refund it.\n    // Any other bid can stay in place.\n    Bid bid = punkBids[punkIndex];\n    if (bid.bidder == msg.sender) {\n        // Kill bid and refund value\n        pendingWithdrawals[msg.sender] += bid.value;\n        punkBids[punkIndex] = Bid(false, punkIndex, 0x0, 0);\n    }\n}\n```\n## Tool used\nManual Review\n## Recommendation\nBefore buying a CryptoPunks NFT, consider checking that `msg.sender` is the owner of the token. For example:\n```diff\ndiff --git a/contracts/src/ERC721Pool.sol b/contracts/src/ERC721Pool.sol\nindex b1bf36b..a512a9d 100644\n--- a/contracts/src/ERC721Pool.sol\n+++ b/contracts/src/ERC721Pool.sol\n@@ -574,6 +574,7 @@ contract ERC721Pool is FlashloanablePool, IERC721Pool {\n                 ICryptoKitties(_getArgAddress(COLLATERAL_ADDRESS)).transferFrom(msg.sender ,address(this), tokenId);\n             }\n             else{\n+                require(ICryptoPunks(_getArgAddress(COLLATERAL_ADDRESS)).punkIndexToAddress(tokenId) == msg.sender);\n                 ICryptoPunks(_getArgAddress(COLLATERAL_ADDRESS)).buyPunk(tokenId);\n             }\n\n```\n\n## Discussion\n\n**grandizzy**\n\nwill fix with the fix for https://github.com/sherlock-audit/2023-01-ajna-judging/issues/163",
+      "summary": "\nThis bug report is about the vulnerability of CryptoPunks NFTs (non-fungible tokens) being stolen via deposit frontrunning. This vulnerability is found by Jeiwan and is due to the CryptoPunks NFTs not implementing the ERC721 standard. The code for the vulnerability is ERC721Pool.sol#L577. The bug allows a malicious actor to front run the depositing and deposit the NFTs to their account, and then withdraw them. This can lead to the token owner losing their NFTs when trying to deposit them to an ERC721 pool.\n\nThe recommendation is to check that the `msg.sender` is the owner of the token before buying a CryptoPunks NFT. This can be done by adding a line of code to the ERC721Pool.sol file. The discussion states that this vulnerability will be fixed with the fix for another issue.\n\nIn conclusion, this bug report outlines a vulnerability with CryptoPunks NFTs, which can lead to the token owner losing their NFTs when trying to deposit them to an ERC721 pool. The recommendation is to check that the `msg.sender` is the owner of the token before buying a CryptoPunks NFT. The vulnerability will be fixed with the fix for another issue.",
+      "report_date": {},
+      "contest_prize_txt": "75000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/32",
+      "sponsor_name": "Ajna",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-01-ajna-judging/issues/140",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "32",
+      "slug": "h-3-cryptopunks-nfts-may-be-stolen-via-deposit-frontrunning-sherlock-ajna-ajna-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Ajna",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Ajna",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Front-Running"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "CryptoPunks"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6288",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "46",
+      "title": "H-2: Anyone who approved quote tokens to a pool can be forced to take",
+      "content": "Source: https://github.com/sherlock-audit/2023-01-ajna-judging/issues/145 \n\n## Found by \nJeiwan\n\n## Summary\nTaking may be executed on behalf of any address who approved spending of quote tokens to a pool: such address will pay quote tokens and will receive collateral.\n## Vulnerability Detail\n[ERC20Pool](https://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/ERC20Pool.sol#L403) and [ERC721Pool](https://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/ERC721Pool.sol#L405) implement the `take` functions, which buy collateral from auction in exchange for quote tokens. The address to pull quote tokens from is specified in the `callee_` argument, which allows anyone to call the functions and pass an address that has previously approved spending of the quote token to the pool. As a result, such an address will pay for the liquidation and will receive the collateral.\n## Impact\nAnyone can initiate a take on behalf of another user. Such user can be a lender who has previously approved spending of the quote token to the pool. Calling `take` with the user's address specified as the `callee_` argument will result in:\n1. the user [receiving collateral](https://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/ERC20Pool.sol#L450), which may have low value;\n1. the user [paying the quote token](https://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/ERC20Pool.sol#L460) to repay the debt being taken.\n## Code Snippet\n[ERC20Pool.sol#L460](https://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/ERC20Pool.sol#L460)\n[ERC721Pool.sol#L463](https://github.com/sherlock-audit/2023-01-ajna/blob/main/contracts/src/ERC721Pool.sol#L463)\n## Tool used\nManual Review\n## Recommendation\nIn the `ERC20Pool.take` and `ERC721Pool.take` functions, consider transferring collateral only from `msg.sender`. Alternatively, consider checking that `callee_` has approved spending quote tokens to `msg.sender`.",
+      "summary": "\nThis bug report was found by Jeiwan and involves the ERC20Pool and ERC721Pool contracts, both of which have a take() function. This function allows anyone to call the function and pass an address that has previously approved spending of the quote token to the pool. As a result, this address will pay for the liquidation and will receive the collateral, which may have low value. The address specified in the callee_ argument is the one that pays for the liquidation and receives the collateral. This means anyone can initiate a take on behalf of another user, and this user can be a lender who has previously approved spending of the quote token to the pool. \n\nTo fix this issue, the ERC20Pool.take and ERC721Pool.take functions should consider transferring collateral only from msg.sender. Alternatively, consider checking that callee_ has approved spending quote tokens to msg.sender.",
+      "report_date": {},
+      "contest_prize_txt": "75000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/32",
+      "sponsor_name": "Ajna",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-01-ajna-judging/issues/145",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "32",
+      "slug": "h-2-anyone-who-approved-quote-tokens-to-a-pool-can-be-forced-to-take-sherlock-ajna-ajna-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Ajna",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Ajna",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6265",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 10,
+      "protocol_id": "58",
+      "title": "M-7: Rebalancing a negative Perp PnL via a Uniswap V3 token swap is broken due to the lack of token spending allowance",
+      "content": "Source: https://github.com/sherlock-audit/2023-01-uxd-judging/issues/339 \n\n## Found by \n0x52, Jeiwan, berndartmueller, koxuan, jprod15, Bahurum, cccz, CRYP70, rvierdiiev, GimelSec\n\n## Summary\n\nThe `ISwapper spotSwapper` (i.e., `Uniswapper`) helper contract, used by the `PerpDepository._rebalanceNegativePnlWithSwap` function to perform the actual Uniswap V3 token swap, is missing the required `assetToken` spending allowance due to a lack of calling the `assetToken.approve` function.\n\n## Vulnerability Detail\n\nRebalancing a negative Perp PnL with the `PerpDepository.rebalance` function calls the `_rebalanceNegativePnlWithSwap` function, which performs a Uniswap swap. However, the required `assetToken` spending allowance for the `ISwapper spotSwapper` (i.e. `Uniswapper`) helper contract is missing. This leads to a revert due to insufficient allowance.\n\n## Impact\n\nRebalancing a negative Perp PnL via a Uniswap swap is missing the token approval and leads to a revert.\n\n## Code Snippet\n\n[integrations/perp/PerpDepository.sol#L507](https://github.com/sherlock-audit/2023-01-uxd/blob/main/contracts/integrations/perp/PerpDepository.sol#L507)\n\n```solidity\nfunction _rebalanceNegativePnlWithSwap(\n    uint256 amount,\n    uint256 amountOutMinimum,\n    uint160 sqrtPriceLimitX96,\n    uint24 swapPoolFee,\n    address account\n) private returns (uint256, uint256) {\n    uint256 normalizedAmount = amount.fromDecimalToDecimal(\n        ERC20(quoteToken).decimals(),\n        18\n    );\n    _checkNegativePnl(normalizedAmount);\n    bool isShort = false;\n    bool amountIsInput = true;\n    (uint256 baseAmount, uint256 quoteAmount) = _placePerpOrder(\n        normalizedAmount,\n        isShort,\n        amountIsInput,\n        sqrtPriceLimitX96\n    );\n    vault.withdraw(assetToken, baseAmount);\n    SwapParams memory params = SwapParams({\n        tokenIn: assetToken,\n        tokenOut: quoteToken,\n        amountIn: baseAmount,\n        amountOutMinimum: amountOutMinimum,\n        sqrtPriceLimitX96: sqrtPriceLimitX96,\n        poolFee: swapPoolFee\n    });\n    uint256 quoteAmountOut = spotSwapper.swapExactInput(params); // @audit-info missing token approval\n\n    // [...]\n}\n```\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nConsider adding the appropriate token approval before the swap in L507.",
+      "summary": "\nThis bug report is about a vulnerability in the `ISwapper spotSwapper` (i.e., `Uniswapper`) helper contract, used by the `PerpDepository._rebalanceNegativePnlWithSwap` function to perform the actual Uniswap V3 token swap. The required `assetToken` spending allowance for the `ISwapper spotSwapper` is missing, which leads to a revert due to insufficient allowance. This issue was found by 0x52, Jeiwan, berndartmueller, koxuan, jprod15, Bahurum, cccz, CRYP70, rvierdiiev, and GimelSec, and was identified through manual review. \n\nThe impact of this issue is that rebalancing a negative Perp PnL via a Uniswap swap is missing the token approval and leads to a revert. The code snippet from line 507 of the PerpDepository.sol file is provided in the report. The recommendation is to consider adding the appropriate token approval before the swap in line 507.",
+      "report_date": {},
+      "contest_prize_txt": "50000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/33",
+      "sponsor_name": "UXD",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-01-uxd-judging/issues/339",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "33",
+      "slug": "m-7-rebalancing-a-negative-perp-pnl-via-a-uniswap-v3-token-swap-is-broken-due-to-the-lack-of-token-spending-allowance-sherlock-uxd-uxd-protocol-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "UXD Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "UXD Protocol",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Derivatives"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6263",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 6,
+      "protocol_id": "58",
+      "title": "M-5: PerpDepository#_rebalanceNegativePnlWithSwap fails to approve vault for quote deposit",
+      "content": "Source: https://github.com/sherlock-audit/2023-01-uxd-judging/issues/372 \n\n## Found by \nHonorLt, 0x52, yixxas, Bahurum, rvierdiiev, GimelSec\n\n## Summary\n\nThroughout the entirety of the contract it grants approval to the vault before depositing either quote or asset. In this case there is no approval which means that the deposit call will fail causing PerpDepository#_rebalanceNegativePnlWithSwap to always revert.\n\n## Vulnerability Detail\n\nSee summary.\n\n## Impact\n\nPerpDepository#_rebalanceNegativePnlWithSwap won't function\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2023-01-uxd/blob/main/contracts/integrations/perp/PerpDepository.sol#L478-L528\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nAdd the missing approve call:\n\n        } else if (shortFall < 0) {\n            // we got excess tokens in the spot swap. Send them to the account paying for rebalance\n            IERC20(quoteToken).transfer(\n                account,\n                _abs(shortFall)\n            );\n        }\n\n    +   IERC20(quoteToken).approve(address(vault), quoteAmount); \n        vault.deposit(quoteToken, quoteAmount);\n\n        emit Rebalanced(baseAmount, quoteAmount, shortFall);\n        return (baseAmount, quoteAmount);\n\n## Discussion\n\n**WarTech9**\n\nThis is a duplicate of #339 \n\n**0x00052**\n\nTwo separate issues here. #339 is pointing out it's not approved for the swapper. This one is pointing out it's not approved for the vault. It should be approved for both\n\n**WarTech9**\n\n@0x00052 good catch. You're right. This is a separate issue from #339",
+      "summary": "\nThis bug report is about an issue with PerpDepository#_rebalanceNegativePnlWithSwap failing to approve vault for quote deposit. It was found by HonorLt, 0x52, yixxas, Bahurum, rvierdiiev, and GimelSec. The problem is that the contract grants approval to the vault before depositing either quote or asset, but in this case, there is no approval which means that the deposit call will fail causing PerpDepository#_rebalanceNegativePnlWithSwap to always revert. The impact of this issue is that PerpDepository#_rebalanceNegativePnlWithSwap won't function. The code snippet can be found at https://github.com/sherlock-audit/2023-01-uxd/blob/main/contracts/integrations/perp/PerpDepository.sol#L478-L528. The tool used to find the issue was manual review. The recommended solution is to add the missing approve call. Lastly, it was pointed out that this is a separate issue from #339.",
+      "report_date": {},
+      "contest_prize_txt": "50000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/33",
+      "sponsor_name": "UXD",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-01-uxd-judging/issues/372",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "33",
+      "slug": "m-5-perpdepository_rebalancenegativepnlwithswap-fails-to-approve-vault-for-quote-deposit-sherlock-uxd-uxd-protocol-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "UXD Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "UXD Protocol",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Derivatives"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6252",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 20,
+      "protocol_id": "58",
+      "title": "H-1: PerpDespository#reblance and rebalanceLite can be called to drain funds from anyone who has approved PerpDepository",
+      "content": "Source: https://github.com/sherlock-audit/2023-01-uxd-judging/issues/288 \n\n## Found by \nclems4ever, dipp, 0xNazgul, DecorativePineapple, ctf\\_sec, unforgiven, 0x52, ck, HollaDieWaldfee, GimelSec, chiranz, berndartmueller, yixxas, Zarf, carrot, koxuan, hl\\_, Ruhum, kankodu, Bahurum\n\n## Summary\n\nPerpDespository#reblance and rebalanceLite allows anyone to specify the account that pays the quote token. These functions allow a malicious user to abuse any allowance provided to PerpDirectory. rebalance is the worst of the two because the malicious user could sandwich attack the rebalance to steal all the funds and force the unsuspecting user to pay the `shortfall`.\n\n## Vulnerability Detail\n\n    function rebalance(\n        uint256 amount,\n        uint256 amountOutMinimum,\n        uint160 sqrtPriceLimitX96,\n        uint24 swapPoolFee,\n        int8 polarity,\n        address account // @audit user specified payer\n    ) external nonReentrant returns (uint256, uint256) {\n        if (polarity == -1) {\n            return\n                _rebalanceNegativePnlWithSwap(\n                    amount,\n                    amountOutMinimum,\n                    sqrtPriceLimitX96,\n                    swapPoolFee,\n                    account // @audit user address passed directly\n                );\n        } else if (polarity == 1) {\n            // disable rebalancing positive PnL\n            revert PositivePnlRebalanceDisabled(msg.sender);\n            // return _rebalancePositivePnlWithSwap(amount, amountOutMinimum, sqrtPriceLimitX96, swapPoolFee, account);\n        } else {\n            revert InvalidRebalance(polarity);\n        }\n    }\n\n`rebalance` is an unpermissioned function that allows anyone to call and rebalance the PNL of the depository. It allows the caller to specify the an account that passes directly through to `_rebalanceNegativePnlWithSwap`\n\n    function _rebalanceNegativePnlWithSwap(\n        uint256 amount,\n        uint256 amountOutMinimum,\n        uint160 sqrtPriceLimitX96,\n        uint24 swapPoolFee,\n        address account\n    ) private returns (uint256, uint256) {\n        ...\n        // @audit this uses user supplied swap parameters which can be malicious\n        SwapParams memory params = SwapParams({\n            tokenIn: assetToken,\n            tokenOut: quoteToken,\n            amountIn: baseAmount,\n            amountOutMinimum: amountOutMinimum,\n            sqrtPriceLimitX96: sqrtPriceLimitX96,\n            poolFee: swapPoolFee\n        });\n        uint256 quoteAmountOut = spotSwapper.swapExactInput(params);\n        int256 shortFall = int256(\n            quoteAmount.fromDecimalToDecimal(18, ERC20(quoteToken).decimals())\n        ) - int256(quoteAmountOut);\n        if (shortFall > 0) {\n            // @audit shortfall is taken from account specified by user\n            IERC20(quoteToken).transferFrom(\n                account,\n                address(this),\n                uint256(shortFall)\n            );\n        } else if (shortFall < 0) {\n            ...\n        }\n        vault.deposit(quoteToken, quoteAmount);\n\n        emit Rebalanced(baseAmount, quoteAmount, shortFall);\n        return (baseAmount, quoteAmount);\n    }\n\n`_rebalanceNegativePnlWithSwap` uses both user specified swap parameters and takes the shortfall from the account specified by the user. This is where the function can be abused to steal funds from any user that sets an allowance for this contract. A malicious user can sandwich attack the swap and specify malicious swap parameters to allow them to steal the entire rebalance. This creates a large shortfall which will be taken from the account that they specify, effectively stealing the funds from the user. \n\nExample:\nAny account that gives the depository allowance can be stolen from. Imagine the following scenario. The multisig is going to rebalance the contract for 15000 USDC worth of ETH and based on current market conditions they are estimating that there will be a 1000 USDC shortfall because of the difference between the perpetual and spot prices (divergences between spot and perpetual price are common in trending markets). They first approve the depository for 1000 USDC. A malicious user sees this approval and immediately submits a transaction of their own. They request to rebalance only 1000 USDC worth of ETH and sandwich attack the swap to steal the rebalance. They specify the multisig as `account` and force it to pay the 1000 USDC shortfall and burn their entire allowance, stealing the USDC.\n\n## Impact\n\nAnyone that gives the depository allowance can easily have their entire allowance stolen\n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2023-01-uxd/blob/main/contracts/integrations/perp/PerpDepository.sol#L478-L528\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nPerpDespository#reblance and rebalanceLite should use msg.sender instead of account:\n\n         function rebalance(\n            uint256 amount,\n            uint256 amountOutMinimum,\n            uint160 sqrtPriceLimitX96,\n            uint24 swapPoolFee,\n            int8 polarity,\n    -       address account\n        ) external nonReentrant returns (uint256, uint256) {\n            if (polarity == -1) {\n                return\n                    _rebalanceNegativePnlWithSwap(\n                        amount,\n                        amountOutMinimum,\n                        sqrtPriceLimitX96,\n                        swapPoolFee,\n    -                   account \n    +                   msg.sender\n                    );\n            } else if (polarity == 1) {\n                // disable rebalancing positive PnL\n                revert PositivePnlRebalanceDisabled(msg.sender);\n                // return _rebalancePositivePnlWithSwap(amount, amountOutMinimum, sqrtPriceLimitX96, swapPoolFee, account);\n            } else {\n                revert InvalidRebalance(polarity);\n            }\n        }",
+      "summary": "\nThis bug report details a vulnerability found in the PerpDespository#reblance and rebalanceLite functions. These functions allow anyone to specify the account that pays the quote token, which can be abused by a malicious user to steal any allowance provided to PerpDirectory. This is done by sandwich attacking the rebalance and specifying malicious swap parameters to force the unsuspecting user to pay the `shortfall`. This creates a large shortfall which will be taken from the account that they specify, effectively stealing the funds from the user. \n\nThis vulnerability was found by clems4ever, dipp, 0xNazgul, DecorativePineapple, ctf\\_sec, unforgiven, 0x52, ck, HollaDieWaldfee, GimelSec, chiranz, berndartmueller, yixxas, Zarf, carrot, koxuan, hl\\_, Ruhum, kankodu, Bahurum and was detected through manual review.\n\nThe impact of this vulnerability is that anyone that gives the depository allowance can easily have their entire allowance stolen.\n\nThe code snippet of the vulnerability can be found at https://github.com/sherlock-audit/2023-01-uxd/blob/main/contracts/integrations/perp/PerpDepository.sol#L478-L528.\n\nThe recommendation to fix this vulnerability is to use msg.sender instead of account.",
+      "report_date": {},
+      "contest_prize_txt": "50000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/33",
+      "sponsor_name": "UXD",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2023-01-uxd-judging/issues/288",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "33",
+      "slug": "h-1-perpdespositoryreblance-and-rebalancelite-can-be-called-to-drain-funds-from-anyone-who-has-approved-perpdepository-sherlock-uxd-uxd-protocol-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "UXD Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "UXD Protocol",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Derivatives"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Business Logic"
+          }
+        }
+      ]
+    },
+    {
+      "id": "25839",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "41",
+      "title": "[M-23] Function `withdraw()` and `redeem()` in ERC4626RouterBase would revert always because they have unnecessary allowance setting",
+      "content": "\n<https://github.com/AstariaXYZ/astaria-gpl/blob/4b49fe993d9b807fe68b3421ee7f2fe91267c9ef/src/ERC4626RouterBase.sol#L48><br>\n<https://github.com/AstariaXYZ/astaria-gpl/blob/4b49fe993d9b807fe68b3421ee7f2fe91267c9ef/src/ERC4626RouterBase.sol#L62>\n\nFunctions withdraw() and redeem()  in ERC4626RouterBase  are used to withdraw user funds from vaults and they call `vault.withdraw()` and `vault.redeem()` and logics in vault transfer user shares and user required to give spending allowance for vault and there is no need for ERC4626RouterBase to set approval for vault and because those approved tokens won't be used and code uses `safeApprove()` so next calls to `withdraw()` and `redeem()` would revert because code would tries to change allowance amount while it's not zero. those functions would revert always and AstariaRouter uses them and user won't be able to use those function and any other protocol integrating with Astaria calling those function would have broken logic. also if UI interact with protocol with router functions then UI would have broken parts too. and functions in router support users to set slippage allowance and without them users have to interact with vault directly and they may lose funds because of the slippage.\n\n### Proof of Concept\n\nThis is `withdraw()` and `redeem()` code in ERC4626RouterBase:\n\n      function withdraw(\n        IERC4626 vault,\n        address to,\n        uint256 amount,\n        uint256 maxSharesOut\n      ) public payable virtual override returns (uint256 sharesOut) {\n\n        ERC20(address(vault)).safeApprove(address(vault), amount);\n        if ((sharesOut = vault.withdraw(amount, to, msg.sender)) > maxSharesOut) {\n          revert MaxSharesError();\n        }\n      }\n\n      function redeem(\n        IERC4626 vault,\n        address to,\n        uint256 shares,\n        uint256 minAmountOut\n      ) public payable virtual override returns (uint256 amountOut) {\n\n        ERC20(address(vault)).safeApprove(address(vault), shares);\n        if ((amountOut = vault.redeem(shares, to, msg.sender)) < minAmountOut) {\n          revert MinAmountError();\n        }\n      }\n\nAs you can see the code sets approval for vault to spend routers vault tokens and then call vault function. This is `_redeemFutureEpoch()` code in the vault which handles withdraw and redeem:\n\n      function _redeemFutureEpoch(\n        VaultData storage s,\n        uint256 shares,\n        address receiver,\n        address owner,\n        uint64 epoch\n      ) internal virtual returns (uint256 assets) {\n        // check to ensure that the requested epoch is not in the past\n\n        ERC20Data storage es = _loadERC20Slot();\n\n        if (msg.sender != owner) {\n          uint256 allowed = es.allowance[owner][msg.sender]; // Saves gas for limited approvals.\n\n          if (allowed != type(uint256).max) {\n            es.allowance[owner][msg.sender] = allowed - shares;\n          }\n        }\n\n        if (epoch < s.currentEpoch) {\n          revert InvalidState(InvalidStates.EPOCH_TOO_LOW);\n        }\n        require((assets = previewRedeem(shares)) != 0, \"ZERO_ASSETS\");\n        // check for rounding error since we round down in previewRedeem.\n\n        //this will underflow if not enough balance\n        es.balanceOf[owner] -= shares;\n\n        // Cannot overflow because the sum of all user\n        // balances can't exceed the max uint256 value.\n        unchecked {\n          es.balanceOf[address(this)] += shares;\n        }\n\n        emit Transfer(owner, address(this), shares);\n        // Deploy WithdrawProxy if no WithdrawProxy exists for the specified epoch\n        _deployWithdrawProxyIfNotDeployed(s, epoch);\n\n        emit Withdraw(msg.sender, receiver, owner, assets, shares);\n\n        // WithdrawProxy shares are minted 1:1 with PublicVault shares\n        WithdrawProxy(s.epochData[epoch].withdrawProxy).mint(shares, receiver);\n      }\n\nAs you can see this code only checks spending allowance that real owner of shares gives to the `msg.sender` and there is no check or updating spending allowance of the router vaulttokens for vault. so those approvals in the `withdraw()` and `redeem()` are unnecessary and they would cause code to revert always because code tries to set approval with `safeApprove()` while the current allowance is not zero.\n\nThis issue would cause calls to withdraw() and redeem() function to revert. any other protocol integrating with Astaria using those functions would have broken logic and also users would lose gas if they use those functions. contract AstariaRouter inherits ERC4626RouterBase and uses its `withdraw()` and `redeem()` function so users can't call `AstariaRouter.withdraw()` or `AstariaRouter.redeem()`which supports slippage allowance and they have to call vault's functions directly and they may lose funds because of the slippage.\n\n### Tools Used\n\nVIM\n\n### Recommended Mitigation Steps\n\nRemove unnecessary code.\n\n**[androolloyd (Astaria) confirmed](https://github.com/code-423n4/2023-01-astaria-findings/issues/175)**\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about the functions `withdraw()` and `redeem()` in the ERC4626RouterBase contract. These functions are used to withdraw user funds from vaults and they call `vault.withdraw()` and `vault.redeem()` and logics in the vault transfer user shares. The code uses `safeApprove()` which sets an approval for the vault to spend router vault tokens. The problem is that there is no need for ERC4626RouterBase to set approval for the vault and because those approved tokens won't be used, the code tries to change allowance amount while it's not zero, causing calls to `withdraw()` and `redeem()` to revert. This issue would cause any other protocol integrating with Astaria using those functions to have broken logic and users would lose gas if they use those functions. Furthermore, users would have to call vault's functions directly, which may lead to lost funds due to slippage.\n\nThe recommended mitigation steps for this issue are to remove the unnecessary code. Androolloyd (Astaria) has confirmed the bug report.",
+      "report_date": {},
+      "contest_prize_txt": "$90,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-01-astaria",
+      "sponsor_name": "Astaria",
+      "sponsor_link": "",
+      "quality_score": 1,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-01-astaria",
+      "github_link": "https://github.com/code-423n4/2023-01-astaria-findings/issues/175",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "202",
+      "slug": "m-23-function-withdraw-and-redeem-in-erc4626routerbase-would-revert-always-because-they-have-unnecessary-allowance-setting-code4rena-astaria-astaria-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Astaria",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Astaria",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "SafeApprove"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "ERC4626"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "EIP-4626"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "6044",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 12,
+      "protocol_id": "97",
+      "title": "[M-07] Deposit Feature Of The Vault Will Break If Update To A New Platform",
+      "content": "\n<https://github.com/code-423n4/2022-11-redactedcartel/blob/03b71a8d395c02324cb9fdaf92401357da5b19d1/src/vaults/AutoPxGmx.sol#L73>\n\n<https://github.com/code-423n4/2022-11-redactedcartel/blob/03b71a8d395c02324cb9fdaf92401357da5b19d1/src/vaults/AutoPxGmx.sol#L152>\n\n### Proof of Concept\n\nDuring initialization, the `AutoPxGMX` vault will grant max allowance to the platform (PirexGMX) to spend its GMX tokens in Line 97 of the constructor method below. This is required because the vault needs to deposit GMX tokens to the platform (PirexGMX) contract. During deposit, the platform (PirexGMX) contract will pull the GMX tokens within the vault and send them to GMX protocol for staking. Otherwise, the deposit feature within the vault will not work.\n\n<https://github.com/code-423n4/2022-11-redactedcartel/blob/03b71a8d395c02324cb9fdaf92401357da5b19d1/src/vaults/AutoPxGmx.sol#L73>\n\n```solidity\nFile: AutoPxGmx.sol\n73:     constructor(\n74:         address _gmxBaseReward,\n75:         address _gmx,\n76:         address _asset,\n77:         string memory _name,\n78:         string memory _symbol,\n79:         address _platform,\n80:         address _rewardsModule\n81:     ) Owned(msg.sender) PirexERC4626(ERC20(_asset), _name, _symbol) {\n82:         if (_gmxBaseReward == address(0)) revert ZeroAddress();\n83:         if (_gmx == address(0)) revert ZeroAddress();\n84:         if (_asset == address(0)) revert ZeroAddress();\n85:         if (bytes(_name).length == 0) revert InvalidAssetParam();\n86:         if (bytes(_symbol).length == 0) revert InvalidAssetParam();\n87:         if (_platform == address(0)) revert ZeroAddress();\n88:         if (_rewardsModule == address(0)) revert ZeroAddress();\n89: \n90:         gmxBaseReward = ERC20(_gmxBaseReward);\n91:         gmx = ERC20(_gmx);\n92:         platform = _platform;\n93:         rewardsModule = _rewardsModule;\n94: \n95:         // Approve the Uniswap V3 router to manage our base reward (inbound swap token)\n96:         gmxBaseReward.safeApprove(address(SWAP_ROUTER), type(uint256).max);\n97:         gmx.safeApprove(_platform, type(uint256).max);\n98:     }\n```\n\nHowever, when the owner calls the `AutoPxGmx.setPlatform` function to update the `platform` to a new address, it does not grant any allowance to the new platform address. As a result, the new platform (PirexGMX) will not be able to pull the GMX tokens from the vault. Thus, the deposit feature of the vault will break, and no one will be able to deposit.\n\n<https://github.com/code-423n4/2022-11-redactedcartel/blob/03b71a8d395c02324cb9fdaf92401357da5b19d1/src/vaults/AutoPxGmx.sol#L152>\n\n```solidity\nFile: AutoPxGmx.sol\n152:     function setPlatform(address _platform) external onlyOwner {\n153:         if (_platform == address(0)) revert ZeroAddress();\n154: \n155:         platform = _platform;\n156: \n157:         emit PlatformUpdated(_platform);\n158:     }\n```\n\n### Impact\n\nThe deposit feature of the vault will break, and no one will be able to deposit.\n\n### Recommended Mitigation Steps\n\nEnsure that allowance is given to the new platform address so that it can pull the GMX tokens from the vault.\n\n```diff\nfunction setPlatform(address _platform) external onlyOwner {\n    if (_platform == address(0)) revert ZeroAddress();\n+   if (_platform == platform) revert SamePlatformAddress();\n    \n+   gmx.safeApprove(platform, 0); // set the old platform approval amount to zero\n+   gmx.safeApprove(_platform, type(uint256).max); // approve the new platform contract address allowance to the max\n\n    platform = _platform;\n\n    emit PlatformUpdated(_platform);\n}\n```\n\n**[kphed (Redacted Cartel) confirmed](https://github.com/code-423n4/2022-11-redactedcartel-findings/issues/182)** \n\n**[Picodes (judge) decreased severity to Medium and commented](https://github.com/code-423n4/2022-11-redactedcartel-findings/issues/182#issuecomment-1368421159):**\n > Changing to Medium risk as the DOS would just be temporary as the platform could be reset to its previous value, and there is no clear risk of loss of funds.\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about a vulnerability found in the AutoPxGmx.sol vault contract. During initialization, the contract grants the maximum allowance to the platform (PirexGMX) to spend its GMX tokens (Line 97). However, when the owner calls the `AutoPxGmx.setPlatform` function to update the `platform` to a new address, it does not grant any allowance to the new platform address. As a result, the new platform (PirexGMX) will not be able to pull the GMX tokens from the vault, and the deposit feature of the vault will break.\n\nThe impact of this vulnerability is that no one will be able to deposit. To mitigate this vulnerability, the code should be modified to ensure that allowance is given to the new platform address so that it can pull the GMX tokens from the vault. This can be done by setting the old platform approval amount to zero and approving the new platform contract address allowance to the max.",
+      "report_date": {},
+      "contest_prize_txt": "$90,500 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-11-redacted-cartel-contest",
+      "sponsor_name": "Redacted Cartel",
+      "sponsor_link": "https://twitter.com/redactedcartel",
+      "quality_score": 5,
+      "general_score": 3,
+      "source_link": "https://code4rena.com/reports/2022-11-redactedcartel",
+      "github_link": "https://github.com/code-423n4/2022-11-redactedcartel-findings/issues/182",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "183",
+      "slug": "m-07-deposit-feature-of-the-vault-will-break-if-update-to-a-new-platform-code4rena-redacted-cartel-redacted-cartel-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Redacted Cartel",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Redacted Cartel",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3559",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 7,
+      "protocol_id": "109",
+      "title": "M-1: Anyone can spend on behalf of roller periphery",
+      "content": "Source: https://github.com/sherlock-audit/2022-11-sense-judging/issues/48 \n\n## Found by \n8olidity, 0x52, supernova, ctf\\_sec, pashov, cryptphi, minhquanym\n\n## Summary\nThe approve() function in RollerPeriphery contract allows anyone to spend ERC20 token owned by the contract\n\n## Vulnerability Detail\nRollerPeriphery.approve() does not have any access control, this allows any user to be able to call the approve call which would make an ERC20 approve call to the token inputed, and allowing the 'to' address to spend. In the cases where RollerPeriphery owns some ERC20 tokens. The user will be able to transfer the tokens from the contract as a spender.\n\n## Impact\nLoss of funds\n\n## Code Snippet\nhttps://github.com/sherlock-audit/2022-11-sense/blob/main/contracts/src/RollerPeriphery.sol#L100-L102\n\n```solidity\nfunction approve(ERC20 token, address to, uint256 amount) public payable {\n        token.safeApprove(to, amount);\n    }\n```\n\nERC20 approve call is:\n```solidity\nfunction approve(address spender, uint256 amount) public virtual returns (bool) {\n        allowance[msg.sender][spender] = amount;\n\n        emit Approval(msg.sender, spender, amount);\n\n        return true;\n    }\n```\n\n## Tool used\nManual Review\n\n## Recommendation\nThere should be some access control, according to the provided contracts, this function is called by RollerFactory, this can be the only address allowed to call the RollerPeriphery.approve() function.\n\n## Discussion\n\n**jparklev**\n\nWe don't expect that the Periphery will ever hold onto funds of its own, so this is acceptable behavior to us. However, the DOS version of this ticket #46 might be valid as a `medium`\n\n**Evert0x**\n\nGrouping all as medium as they point out the same flaw with different impacts.",
+      "summary": "\nThis bug report is about the approve() function in the RollerPeriphery contract. This function allows anyone to spend ERC20 tokens owned by the contract, leading to a potential loss of funds. The code snippet provided shows that the approve call does not have any access control, meaning that any user can call the approve call and transfer the tokens from the contract as a spender. The bug was found by 8olidity, 0x52, supernova, ctf\\_sec, pashov, cryptphi, minhquanym and was confirmed by manual review. It was suggested to add access control to the approve call, so that only the RollerFactory can call it. Finally, it was decided to group all the issues as medium as they point out the same flaw with different impacts.",
+      "report_date": {},
+      "contest_prize_txt": "25333 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/19",
+      "sponsor_name": "Sense",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 5,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-11-sense-judging/issues/48",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "19",
+      "slug": "m-1-anyone-can-spend-on-behalf-of-roller-periphery-sherlock-sense-sense-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Sense",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Sense",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC20"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7043",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "MEDIUM",
+      "finders_count": 3,
+      "protocol_id": "2",
+      "title": "LibSwap may pull tokens that are different from the specified asset",
+      "content": "## Security Report\n\n## Severity\n**Medium Risk**\n\n## Context\n**LibSwap.sol**#L30-L55\n\n## Description\n`LibSwap.swap` is responsible for executing swaps. It is designed to swap one asset at a time. The `_swapData.callData` is provided by the user, and the LiFi protocol only checks its signature. As a result, users can build calldata to swap a different asset as specified.\n\nFor example, users can set `fromAssetId = dai` while providing `addLiquidity(usdc, dai, ...)` as call data. The Uniswap router would then pull `usdc` and `dai` at the same time. If there are remaining tokens left in the LiFi protocol, users can sweep tokens from the protocol.\n\n```solidity\nlibrary LibSwap {\n    function swap(bytes32 transactionId, SwapData calldata _swapData) internal {\n        ...\n        if (!LibAsset.isNativeAsset(fromAssetId)) {\n            LibAsset.maxApproveERC20(IERC20(fromAssetId), _swapData.approveTo, fromAmount);\n            if (toDeposit != 0) {\n                LibAsset.transferFromERC20(fromAssetId, msg.sender, address(this), toDeposit);\n            }\n        } else {\n            nativeValue = fromAmount;\n        }\n        // solhint-disable-next-line avoid-low-level-calls\n        (bool success, bytes memory res) = _swapData.callTo.call{ value: nativeValue }(_swapData.callData);\n        if (!success) {\n            string memory reason = LibUtil.getRevertMsg(res);\n            revert(reason);\n        }\n    }\n}\n```\n\n## Recommendation\nRecommend clearing the allowance after the external call.\n\n```solidity\nif (!LibAsset.isNativeAsset(fromAssetId)) {\n    LibAsset.maxApproveERC20(IERC20(fromAssetId), _swapData.approveTo, fromAmount);\n    if (toDeposit != 0) {\n        LibAsset.transferFromERC20(fromAssetId, msg.sender, address(this), toDeposit);\n    }\n} else {\n    nativeValue = fromAmount;\n}\n// solhint-disable-next-line avoid-low-level-calls\n(bool success, bytes memory res) = _swapData.callTo.call{ value: nativeValue }(_swapData.callData);\n// @audit: clear the allowance\nIERC20(fromAssetId).safeApprove(_swapData.approveTo, 0);\nif (!success) {\n    string memory reason = LibUtil.getRevertMsg(res);\n    revert(reason);\n}\n```\n\n## LiFi's Position\nThe LiFi Team claims that they acknowledge the risk but will encourage the user to utilize their API and pass the correct calldata rather than strictly checking this at the contract level.\n\n## Spearbit's Position\nAcknowledged.",
+      "summary": "\nThis bug report is about a vulnerability in the LibSwap.sol code, which is part of the LiFi protocol. The vulnerability is that users can build a calldata to swap a different asset than what was specified, which could result in tokens being swept from the LiFi protocol. The code in question is located on lines 30-55 in LibSwap.sol. The recommendation is to clear the allowance after the external call is made. The LiFi Team acknowledges the risk but encourages users to utilize their API and pass the correct calldata rather than strictly checking it at the contract level.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/LIFI-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 14,
+      "contest_id": "",
+      "slug": "libswap-may-pull-tokens-that-are-different-from-the-specified-asset-spearbit-lifi-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "LI.FI",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "LI.FI",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7089",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "HIGH",
+      "finders_count": 3,
+      "protocol_id": "133",
+      "title": "allowance() doesn’t limit withdraw() s",
+      "content": "## High Risk Severity Report\n\n## Context\n- **PermissiveWithdrawalValidator.sol**: Lines 17-27\n- **IWithdrawalValidator.sol**\n- **AeraVaultV1.sol**: Lines 456-514\n\n## Description\nThe `allowance()` function is meant to limit withdrawal amounts. However, `allowance()` can only read and not alter state because its visibility is set to `view`. Therefore, the `withdraw()` function can be called on demand until the entire Vault/Pool balance has been drained, rendering the `allowance()` function ineffective.\n\n```solidity\nfunction withdraw(uint256[] calldata amounts) ... {\n    ...\n    uint256[] memory allowances = validator.allowance();\n    ...\n    for (uint256 i = 0; i < tokens.length; i++) {\n        if (amounts[i] > holdings[i] || amounts[i] > allowances[i]) {\n            revert Aera__AmountExceedAvailable(... );\n        }\n    }\n}\n```\n\n### Note on `allowance()`\n```solidity\n// can't update state due to view\nfunction allowance() external view override returns (uint256[] memory amounts) {\n    amounts = new uint256[](count);\n    for (uint256 i = 0; i < count; i++) {\n        amounts[i] = ANY_AMOUNT;\n    }\n}\n```\n\n## Recommendation\nRemove the `view` keyword from the `allowance()` template, e.g., from both `IWithdrawalValidator.sol` and `PermissiveWithdrawalValidator.sol`, to allow for state updates in future versions of `allowance()`.\n\n## Gauntlet\nI would say we need an additional callback to the Validator to notify it of actual withdrawal amounts. In cases where allowance is greater than holdings, there is no way for the Validator to know how much of its allowance was actually used.",
+      "summary": "\nThis bug report concerns the withdrawal function of the AeraVaultV1.sol code. The allowance() function is meant to limit the amount of funds that can be withdrawn, however, the visibility of the allowance() function is set to view, meaning it can only read and not alter state. This renders the allowance() function ineffective and allows the withdraw() function to be called on demand until the entire Vault/Pool balance has been drained. \n\nThe recommendation is to remove the view keyword from the allowance() template in both IWithdrawalValidator.sol and PermissiveWithdrawalValidator.sol in order to update state in future versions of the allowance() function. Additionally, an additional callback to the Validator is suggested to notify it of actual withdraw amounts, as in cases when allowance is greater than holdings there is no way for the Validator to know how much of its allowance was used.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Gauntlet-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Gauntlet-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/Gauntlet-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 11,
+      "contest_id": "",
+      "slug": "allowance-doesnt-limit-withdraw-s-spearbit-gauntlet-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Gauntlet",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Gauntlet",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Insurance"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "7219",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "HIGH",
+      "finders_count": 2,
+      "protocol_id": "72",
+      "title": "Malicious call data can DOS execute",
+      "content": "## Vulnerability Report\n\n## Severity\n**High Risk**\n\n## Context\n`Executor.sol#L142-L243`\n\n## Description\nAn attacker can Denial of Service (DOS) the executor contract by giving infinite allowance to normal users. Since the executor increases allowance before triggering an external call, the transaction will always revert if the allowance is already infinite.\n\n```solidity\nfunction execute(ExecutorArgs memory _args) external payable override onlyConnext returns (bool, bytes memory) {\n    ...\n    if (!isNative && hasValue) {\n        SafeERC20.safeIncreaseAllowance(IERC20(_args.assetId), _args.to, _args.amount); // reverts if set to `infinite` before\n    }\n    ...\n    (success, returnData) = ExcessivelySafeCall.excessivelySafeCall(...); // can set to `infinite` allowance\n    ...\n}\n```\n\n## Recommendation\nSet the allowance to 0 before using `safeIncreaseAllowance`.\n\n## Note\nAlso see issue Not always `safeApprove(..., 0)`.\n\n## Connext\nSolved in PR 1550.\n\n## Spearbit\nVerified.",
+      "summary": "\nThis bug report is about a high risk vulnerability in the Executor.sol contract. An attacker can use the vulnerability to cause a Denial of Service (DoS) attack on the contract by giving an infinite allowance to normal users. This is possible because the executor increases the allowance before triggering an external call, and this will always revert if the allowance is already infinite.\n\nThe recommendation is to set the allowance to 0 before using safeIncreaseAllowance. It should be noted that there is also an issue with Not always safeApprove(..., 0).\n\nThis issue has been solved in PR 1550 and verified by Spearbit.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Connext-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/Connext-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/Connext-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 12,
+      "contest_id": "",
+      "slug": "malicious-call-data-can-dos-execute-spearbit-connext-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "Connext",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Connext",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "1076",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "344",
+      "title": "[H-04] Approvals not cleared after key transfer",
+      "content": "_Submitted by cmichel_\n\nThe locks implement three different approval types, see `onlyKeyManagerOrApproved` for an overview:\n\n*   key manager (map `keyManagerOf`)\n*   single-person approvals (map `approved`). Cleared by `_clearApproval` or `_setKeyManagerOf`\n*   operator approvals (map `managerToOperatorApproved`)\n\nThe `MixinTransfer.transferFrom` requires any of the three approval types in the `onlyKeyManagerOrApproved` modifier on the tokenId to authenticate transfers from `from`.\n\nNotice that if the `to` address previously had a key but it expired only the `_setKeyManagerOf` call is performed, which does not clear `approved` if the key manager was already set to 0:\n\n```solidity\nfunction transferFrom(\n  address _from,\n  address _recipient,\n  uint _tokenId\n)\n  public\n  onlyIfAlive\n  hasValidKey(_from)\n  onlyKeyManagerOrApproved(_tokenId)\n{\n  // @audit this is skipped if user had a key that expired\n  if (toKey.tokenId == 0) {\n    toKey.tokenId = _tokenId;\n    _recordOwner(_recipient, _tokenId);\n    // Clear any previous approvals\n    _clearApproval(_tokenId);\n  }\n\n  if (previousExpiration <= block.timestamp) {\n    // The recipient did not have a key, or had a key but it expired. The new expiration is the sender's key expiration\n    // An expired key is no longer a valid key, so the new tokenID is the sender's tokenID\n    toKey.expirationTimestamp = fromKey.expirationTimestamp;\n    toKey.tokenId = _tokenId;\n\n    // Reset the key Manager to the key owner\n    // @audit  doesn't clear approval if key manager already was 0\n    _setKeyManagerOf(_tokenId, address(0));\n\n    _recordOwner(_recipient, _tokenId);\n  }\n  // ...\n}\n\n// \nfunction _setKeyManagerOf(\n  uint _tokenId,\n  address _keyManager\n) internal\n{\n  // @audit-ok only clears approved if key manager updated\n  if(keyManagerOf[_tokenId] != _keyManager) {\n    keyManagerOf[_tokenId] = _keyManager;\n    _clearApproval(_tokenId);\n    emit KeyManagerChanged(_tokenId, address(0));\n  }\n}\n```\n\n#### Impact\n\nIt's possible to sell someone a key and then claim it back as the approvals are not always cleared.\n\n#### Proof Of Concept\n\n*   Attacker A has a valuable key (`tokenId = 42`) with an expiry date far in the future.\n*   A sets approvals for their second attacker controlled account A' by calling `MixinKeys.setApprovalForAll(A', true)`, which sets `managerToOperatorApproved[A][A'] = true`.\n*   A clears the key manager by setting it to zero, for example, by transferring it to a second account that does not have a key yet, this calls the above `_setKeyManagerOf(42, address(0));` in `transferFrom`\n*   A sets single-token approval to A' by calling `MixinKeys.approve(A', 42)`, setting `approved[42] = A'`.\n*   A sells the token to a victim V for a discount (compared to purchasing it from the Lock). The victim needs to have owned a key before which already expired. The `transferFrom(A, V, 42)` call sets the owner of token 42 to `V`, but does not clear the `approved[42] == A'` field as described above. (`_setKeyManagerOf(_tokenId, address(0));` is called but the key manager was already zero, which then does not clear approvals.)\n*   A' can claim back the token by calling `transferFrom(V, A', 42)` and the `onlyKeyManagerOrApproved(42)` modifier will pass as `approved[42] == A'` is still set.\n\n#### Recommended Mitigation Steps\n\nThe `_setKeyManagerOf` function should not handle clearing approvals of single-token approvals (`approved`) as these are two separate approval types.\nThe `transferFrom` function should always call `_clearApproval` in the `(previousExpiration <= block.timestamp)` case.\n\n**[julien51 (Unlock Protocol) confirmed and commented](https://github.com/code-423n4/2021-11-unlock-findings/issues/160#issuecomment-991687080):**\n > Thanks for reporting this.\n > This is valid and we will fix it.\n\n\n\n",
+      "summary": "\nThis bug report details a vulnerability in the locks implementation of the MixinTransfer.transferFrom function, which requires any of the three approval types in the onlyKeyManagerOrApproved modifier on the tokenId to authenticate transfers from from. The bug is that if the to address previously had a key but it expired, only the _setKeyManagerOf call is performed, which does not clear approved if the key manager was already set to 0. This means that an attacker could sell someone a key, and then claim it back as the approvals are not always cleared. The recommended mitigation steps are for the _setKeyManagerOf function to not handle clearing approvals of single-token approvals, and for the transferFrom function to always call _clearApproval in the (previousExpiration <= block.timestamp) case.",
+      "report_date": {},
+      "contest_prize_txt": "$50,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2021-11-unlock-protocol-contest",
+      "sponsor_name": "Unlock Protocol",
+      "sponsor_link": "https://twitter.com/UnlockProtocol",
+      "quality_score": 3,
+      "general_score": 3,
+      "source_link": "https://code4rena.com/reports/2021-11-unlock",
+      "github_link": "https://github.com/code-423n4/2021-11-unlock-findings/issues/160",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "54",
+      "slug": "h-04-approvals-not-cleared-after-key-transfer-code4rena-unlock-protocol-unlock-protocol-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Unlock Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Unlock Protocol",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Synthetics"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Privacy"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Approve"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "1011",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "HIGH",
+      "finders_count": 2,
+      "protocol_id": "322",
+      "title": "[H-26] All user assets which are approved to VaderPoolV2 may be stolen",
+      "content": "_Submitted by TomFrenchBlockchain, also found by cmichel_\n\n#### Impact\n\nTotal loss of funds which have been approved on `VaderPoolV2`\n\n#### Proof of Concept\n\n`VaderPoolV2` allows minting of fungible LP tokens with the `mintFungible` function\n\n<https://github.com/code-423n4/2021-11-vader/blob/607d2b9e253d59c782e921bfc2951184d3f65825/contracts/dex-v2/pool/VaderPoolV2.sol#L284-L290>\n\nCrucially this function allows a user supplied value for `from` which specifies where the `nativeAsset` and `foreignAsset` should be pulled from. An attacker can then provide any address which has a token approval onto `VaderPoolV2` and mint themselves LP tokens - stealing the underlying tokens.\n\n#### Recommended Mitigation Steps\n\nRemove `from` argument and use msg.sender instead.\n\n**[SamSteinGG (Vader) disputed)](https://github.com/code-423n4/2021-11-vader-findings/issues/221#issuecomment-979180340):**\n > pool is not meant to be interacted with\n\n**[alcueca (judge) commented](https://github.com/code-423n4/2021-11-vader-findings/issues/221#issuecomment-991472193):**\n > And how are you going to ensure that the pool is not interacted with, @SamSteinGG?\n\n**[SamSteinGG (Vader) confirmed](https://github.com/code-423n4/2021-11-vader-findings/issues/221#issuecomment-995709116):**\n > @alcueca Upon second consideration, the functions relating to the minting of synths and wrapped tokens should have had the onlyRouter modifier and thus are indeed vulnerable. Issue accepted.\n>\n\n\n\n",
+      "summary": "\nThis bug report concerns a vulnerability in the `VaderPoolV2` smart contract which allows an attacker to mint fungible LP tokens and steal the underlying tokens. This is possible because the `mintFungible` function allows a user supplied value for `from` which specifies where the `nativeAsset` and `foreignAsset` should be pulled from. The recommended mitigation step is to remove the `from` argument and use `msg.sender` instead. This would ensure that the underlying tokens are not stolen.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2021-11-vader-protocol-contest",
+      "sponsor_name": "Vader Protocol",
+      "sponsor_link": "https://twitter.com/VaderProtocol",
+      "quality_score": 3,
+      "general_score": 3,
+      "source_link": "https://code4rena.com/reports/2021-11-vader",
+      "github_link": "https://github.com/code-423n4/2021-11-vader-findings/issues/221",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "52",
+      "slug": "h-26-all-user-assets-which-are-approved-to-vaderpoolv2-may-be-stolen-code4rena-vader-protocol-vader-protocol-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Vader Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Vader Protocol",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Oracle"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquid Staking"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Yield Aggregator"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Business Logic"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Allowance"
+          }
+        }
+      ]
+    }
+  ]
+}

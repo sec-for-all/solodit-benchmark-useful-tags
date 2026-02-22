@@ -1,0 +1,271 @@
+{
+  "tag": "EIP-165",
+  "count": 5,
+  "metadata": {
+    "totalResults": 5,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 12,
+    "reset": 1771761060
+  },
+  "findings": [
+    {
+      "id": "58572",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "LOW",
+      "finders_count": 0,
+      "protocol_id": "2856",
+      "title": "[12] `supportsInterface` Implementation Non-Compliant with ERC-165",
+      "content": "\n**Contract Name:** `DefaultAdapter.sol`\n\n**Function Name:** `supportsInterface`\n\n**Description:**\nThe `supportsInterface` function does not return `true` for the ERC-165 interface ID (`0x01ffc9a7`), violating the standard and potentially causing compatibility issues.\n\n**Mitigation:**\nUpdate the function:\n```\n\nfunction supportsInterface(bytes4 interfaceId) external view returns (bool) {\n    return interfaceId == type(IOracleAdapter).interfaceId || interfaceId == type(IERC165).interfaceId;\n}\n```\n\n",
+      "summary": "",
+      "report_date": {},
+      "contest_prize_txt": "35000",
+      "contest_link": "https://code4rena.com/reports/2025-04-kinetiq",
+      "sponsor_name": "Kinetiq",
+      "sponsor_link": "",
+      "quality_score": 3,
+      "general_score": 1,
+      "source_link": "https://code4rena.com/reports/2025-04-kinetiq",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "502",
+      "slug": "12-supportsinterface-implementation-non-compliant-with-erc-165-code4rena-kinetiq-kinetiq-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Kinetiq",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Kinetiq",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "EIP-165"
+          }
+        }
+      ]
+    },
+    {
+      "id": "57761",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "16",
+      "impact": "LOW",
+      "finders_count": 1,
+      "protocol_id": "3086",
+      "title": "[L-03] Missing `IERC165` support in `supportsInterface()`",
+      "content": "The `supportsInterface` function in the `ERC721WithURIBuilderUpgradeable` contract overrides the IERC165 interface but fails to provide support for the necessary interface IDs(`IERC165`). This is not a good practice and may return incorrect results.\n\n```solidity\n    function supportsInterface(bytes4 interfaceId)\n        public\n        view\n        virtual\n        override(IERC165, ERC721EnumerableUpgradeable)\n        returns (bool)\n    {\n        return ERC721EnumerableUpgradeable.supportsInterface(interfaceId);\n    }\n```\n\nTo mitigate this issue, change it to:\n\n````solidity\n    function supportsInterface(bytes4 interfaceId)\n        public\n        view\n        virtual\n        override(IERC165, ERC721EnumerableUpgradeable)\n        returns (bool)\n    {\n        return ERC721EnumerableUpgradeable.supportsInterface(interfaceId) || super.supportsInterface(interfaceId);\n    }",
+      "summary": "",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/pashov/audits/blob/master/team/md/Hyperhyper-security-review_2025-03-30.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "l-03-missing-ierc165-support-in-supportsinterface-pashov-audit-group-none-hyperhyper_2025-03-30-markdown",
+      "firm_name": "Pashov Audit Group",
+      "firm_logo_square": "Pashov_square.png",
+      "protocol_name": "Hyperhyper_2025-03-30",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Pashov Audit Group",
+        "logo_square": "Pashov_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Hyperhyper_2025-03-30",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "EIP-165"
+          }
+        }
+      ]
+    },
+    {
+      "id": "41074",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "LOW",
+      "finders_count": 0,
+      "protocol_id": "1561",
+      "title": "[01] Allowing DSSes that do not implement `ERC165.supportsInterface` function to be registered is problematic",
+      "content": "\n### Description\nhttps://github.com/code-423n4/2024-07-karak?tab=readme-ov-file#eip-compliance-checklist states that `DSS contract should comply with ERC-165`. Therefore, the protocol requires that each DSS is ERC-165 compliant.\n\nAccording to https://eips.ethereum.org/EIPS/eip-165#how-a-contract-will-publish-the-interfaces-it-implements, `A contract that is compliant with ERC-165 shall implement the following interface`:\n\n```solidity\ninterface ERC165 {\n    /// @notice Query if a contract implements an interface\n    /// @param interfaceID The interface identifier, as specified in ERC-165\n    /// @dev Interface identification is specified in ERC-165. This function\n    ///  uses less than 30,000 gas.\n    /// @return `true` if the contract implements `interfaceID` and\n    ///  `interfaceID` is not 0xffffffff, `false` otherwise\n    function supportsInterface(bytes4 interfaceID) external view returns (bool);\n}\n```\n\nThus, each DSS needs to implement the `ERC165.supportsInterface` function to comply with ERC-165. However, calling the following `Core.registerDSS` function does not check if the DSS implements the `ERC165.supportsInterface` function or not so a DSS that does not implement the `ERC165.supportsInterface` function and hence is not ERC-165 compliant can also be registered.\n\nhttps://github.com/code-423n4/2024-07-karak/blob/53eb78ebda718d752023db4faff4ab1567327db4/src/Core.sol#L262-L267\n```solidity\n    function registerDSS(uint256 maxSlashablePercentageWad) external {\n        IDSS dss = IDSS(msg.sender);\n        if (!address(dss).isSmartContract()) revert NotSmartContract();\n        _self().setDSSMaxSlashablePercentageWad(dss, maxSlashablePercentageWad);\n        emit DSSRegistered(msg.sender, maxSlashablePercentageWad);\n    }\n```\n\nFor a DSS that does not implement the `ERC165.supportsInterface` function, calling the following `callHookIfInterfaceImplemented` function returns `false` without further calling the DSS's corresponding hook even if such DSS does implement such hook. In this situation, although the DSS expects the relevant hooks to be called, all of these hooks fail to be called; for instance, such DSS's `registrationHook` function cannot be called at all so it fails to only accept its chosen operators even though https://github.com/code-423n4/2024-07-karak?tab=readme-ov-file#dss-distributed-secure-services states that `DSS would be able to choose which operator it would like to accept`.\n\nhttps://github.com/code-423n4/2024-07-karak/blob/d19a4de35bcaf31ccec8bccd36e2d26594d05aad/src/entities/HookLib.sol#L78-L103\n```solidity\n    function callHookIfInterfaceImplemented(\n        IERC165 dss,\n        bytes memory data,\n        bytes4 interfaceId,\n        bool ignoreFailure,\n        uint32 hookCallGasLimit,\n        uint32 supportsInterfaceGasLimit,\n        uint32 hookGasBuffer\n    ) internal returns (bool) {\n        if (gasleft() < (supportsInterfaceGasLimit * 64 / 63 + hookGasBuffer)) {\n            revert NotEnoughGas();\n        }\n\n        (bool success, bytes32 result) = performLowLevelCallAndLimitReturnData(\n            address(dss),\n            abi.encodeWithSelector(IERC165.supportsInterface.selector, interfaceId),\n            supportsInterfaceGasLimit\n        );\n\n        if (!success || result == bytes32(0)) {\n            // Either call failed or interface isn't implemented\n            emit InterfaceNotSupported();\n            return false;\n        }\n        return callHook(address(dss), data, ignoreFailure, hookCallGasLimit, hookGasBuffer);\n    }\n```\n\n### Recommended Mitigation\nThe `Core.registerDSS` function can be updated to only allow DSSes that do implement the `ERC165.supportsInterface` function and comply with ERC-165 to be registered.\n\n",
+      "summary": "",
+      "report_date": {},
+      "contest_prize_txt": "55500",
+      "contest_link": "https://code4rena.com/reports/2024-07-karak",
+      "sponsor_name": "Karak",
+      "sponsor_link": "",
+      "quality_score": 4,
+      "general_score": 2,
+      "source_link": "https://code4rena.com/reports/2024-07-karak",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "404",
+      "slug": "01-allowing-dsses-that-do-not-implement-erc165supportsinterface-function-to-be-registered-is-problematic-code4rena-karak-karak-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Karak",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Karak",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "EIP-165"
+          }
+        }
+      ]
+    },
+    {
+      "id": "25995",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "932",
+      "title": "[M-03] LSP8 and LSP9's `ERC-165` interface ID differs from their specification",
+      "content": "\nAccording to [LSP7's specification](https://github.com/lukso-network/LIPs/blob/main/LSPs/LSP-7-DigitalAsset.md#specification), the [ERC-165](https://eips.ethereum.org/EIPS/eip-165) interface ID for LSP7 token contracts should be `0x5fcaac27`:\n\n> ERC165 interface id: `0x5fcaac27`\n\nHowever, `_INTERFACEID_LSP7` has a different value in the code:\n\n[LSP7Constants.sol#L4-L5](https://github.com/code-423n4/2023-06-lukso/blob/main/contracts/LSP7DigitalAsset/LSP7Constants.sol#L4-L5)\n\n```solidity\n// --- ERC165 interface ids\nbytes4 constant _INTERFACEID_LSP7 = 0xda1f85e4;\n```\n\nSimilarly, LSP8's interface ID should be `0x49399145` according to [LSP8's specification](https://github.com/lukso-network/LIPs/blob/main/LSPs/LSP-8-IdentifiableDigitalAsset.md#specification):\n\n> ERC165 interface id: `0x49399145`\n\nHowever, `_INTERFACEID_LSP8` has a different value in the code:\n\n[LSP8Constants.sol#L4-L5](https://github.com/code-423n4/2023-06-lukso/blob/main/contracts/LSP8IdentifiableDigitalAsset/LSP8Constants.sol#L4-L5)\n\n```solidity\n// --- ERC165 interface ids\nbytes4 constant _INTERFACEID_LSP8 = 0x622e7a01;\n```\n\nThese constants are used in `supportsInterface()` for the `LSP7DigitalAsset` and `LSP8IdentifiableDigitalAsset` contracts.\n\n### Impact\n\nProtocols that check for LSP7/LSP8 compatibility using the `ERC-165` interface IDs declared in the specification will receive incorrect return values when calling `supportsInterface()`.\n\n### Recommended Mitigation\n\nEnsure that the interface ID declared in the code matches their respective ones in their specifications.\n\n### Assessed type\n\nError\n\n**[CJ42 (LUKSO) disputed and commented via duplicate issue #101](https://github.com/code-423n4/2023-06-lukso-findings/issues/101#issuecomment-1649836277):**\n> The bytes4 interface ID is correct according to the specs.\n\n**[CJ42 (LUKSO) responded via private discord communication in regards to their previous comment above](https://github.com/code-423n4/2023-06-lukso-findings/issues/101#issuecomment-1649836277):**\n> The interface IDs for LSP7 + LSP8 are correct in terms of they represent correctly the XOR of all the function selectors of ILSP7 and ILSP8. So they are correct according to the Solidity code.\n> It’s in the LIP specs that there was an error (had not been updated and forgotten in a previous PR).\n> We fixed it in the LIP specs document. Reference this [PR](https://github.com/lukso-network/LIPs/pull/226).\n\n***\n\n",
+      "summary": "\nThis bug report concerns the interface ID for LSP7 and LSP8 token contracts, which should be `0x5fcaac27` and `0x49399145` respectively according to their specifications. However, the interface ID in the code is different, with `_INTERFACEID_LSP7` set to `0xda1f85e4` and `_INTERFACEID_LSP8` set to `0x622e7a01`. This would cause incorrect return values when calling `supportsInterface()`.\n\nThe impact of this bug is that protocols that check for LSP7/LSP8 compatibility using the `ERC-165` interface IDs declared in the specification would receive incorrect return values when calling `supportsInterface()`.\n\nThe recommended mitigation for this bug is to ensure that the interface ID declared in the code matches their respective ones in their specifications. This bug was assessed as an Error.\n\nLUKSO disputed and commented via a duplicate issue that the bytes4 interface ID is correct according to the specs. They responded via private discord communication that the interface IDs for LSP7 + LSP8 are correct in terms of they represent correctly the XOR of all the function selectors of ILSP7 and ILSP8. They also fixed it in the LIP specs document with a reference to a PR.",
+      "report_date": {},
+      "contest_prize_txt": "$100,000 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-06-lukso",
+      "sponsor_name": "LUKSO",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 2,
+      "source_link": "https://code4rena.com/reports/2023-06-lukso",
+      "github_link": "https://github.com/code-423n4/2023-06-lukso-findings/issues/122",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "253",
+      "slug": "m-03-lsp8-and-lsp9s-erc-165-interface-id-differs-from-their-specification-code4rena-lukso-lukso-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "LUKSO",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "LUKSO",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "EIP-165"
+          }
+        }
+      ]
+    },
+    {
+      "id": "5608",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "131",
+      "title": "[M-15] `HolographERC721.safeTransferFrom` not compliant with EIP-721",
+      "content": "\n[HolographERC721.sol#L366](https://github.com/code-423n4/2022-10-holograph/blob/24bc4d8dfeb6e4328d2c6291d20553b1d3eff00b/src/enforcer/HolographERC721.sol#L366)<br>\n\nAccording to EIP-721, we have the following for `safeTransferFrom`:\n\n```solidity\n///  (...) When transfer is complete, this function\n///  checks if `_to` is a smart contract (code size > 0). If so, it calls\n///  `onERC721Received` on `_to` and throws if the return value is not\n///  `bytes4(keccak256(\"onERC721Received(address,address,uint256,bytes)\"))`.\n```\n\nAccording to the specification, the function must therefore always call `onERC721Received`, not only when it has determined via ERC-165 that the contract provides this function. Note that in the EIP, the provided interface for `ERC721TokenReceiver` does not mention ERC-165. For the token itself, we have: `interface ERC721 /* is ERC165 */ {`<br>\nHowever, for the receiver, the provided interface there is just: `interface ERC721TokenReceiver {`<br>\nThis leads to failed transfers when they should not fail, because many receivers will just implement the `onERC721Received` function (which is sufficient according to the EIP), and not `supportsInterface` for ERC-165 support.\n\n### Proof Of Concept\n\nLet's say a receiver just implements the `IERC721Receiver` from OpenZeppelin: <https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC721/IERC721Receiver.sol><br>\nLike the provided interface in the EIP itself, this interface does not derive from EIP-165. All of these receivers (which are most receivers in practice) will not be able to receive those tokens, because the `require` statement (that checks for ERC-165 support) reverts.\n\n### Recommended Mitigation Steps\n\nRemove the ERC-165 check in the `require` statement (like OpenZeppelin does: <https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC721/ERC721.sol#L436>).\n\n**[alexanderattar (Holograph) commented](https://github.com/code-423n4/2022-10-holograph-findings/issues/203#issuecomment-1307809122):**\n > This will be updated to be fully ERC721 compliant\n\n**[ACC01ADE (Holograph) linked a PR](https://github.com/code-423n4/2022-10-holograph-findings/issues/203#ref-pullrequest-1452472274):**\n > [Feature/HOLO-605: C4 medium risk fixes](https://github.com/holographxyz/holograph-protocol/pull/88)\n\n\n\n***\n\n",
+      "summary": "\nThis bug report is about the `safeTransferFrom` function in the HolographERC721.sol code. According to the EIP-721 specification, the function must always call `onERC721Received` when transferring tokens, not only when it has determined via ERC-165 that the contract provides this function. However, many receivers will just implement the `onERC721Received` function, and not `supportsInterface` for ERC-165 support, leading to failed transfers when they should not fail. The recommended mitigation step is to remove the ERC-165 check in the `require` statement.",
+      "report_date": {},
+      "contest_prize_txt": "$75,000 USDC",
+      "contest_link": "https://code4rena.com/contests/2022-10-holograph-contest",
+      "sponsor_name": "Holograph",
+      "sponsor_link": "https://twitter.com/holographxyz",
+      "quality_score": 4,
+      "general_score": 4,
+      "source_link": "https://code4rena.com/reports/2022-10-holograph",
+      "github_link": "https://github.com/code-423n4/2022-10-holograph-findings/issues/203",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "170",
+      "slug": "m-15-holographerc721safetransferfrom-not-compliant-with-eip-721-code4rena-holograph-holograph-contest-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Holograph",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Holograph",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Launchpad"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Marketplace"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "ERC721"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "EIP-165"
+          }
+        }
+      ]
+    }
+  ]
+}

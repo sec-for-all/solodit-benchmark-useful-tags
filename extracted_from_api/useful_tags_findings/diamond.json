@@ -1,0 +1,90 @@
+{
+  "tag": "Diamond",
+  "count": 1,
+  "metadata": {
+    "totalResults": 1,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 16,
+    "reset": 1771761000
+  },
+  "findings": [
+    {
+      "id": "7038",
+      "kind": "PDF",
+      "auditfirm_id": "6",
+      "impact": "HIGH",
+      "finders_count": 3,
+      "protocol_id": "2",
+      "title": "Use the getStorage() /NAMESPACE pattern instead of global variables",
+      "content": "## Severity: High Risk\n\n## Context\n- `Swapper.sol#L17`\n- `SwapperV2.sol#L17`\n- `DexManagerFacet.sol#L21`\n\n## Description\nThe facet `DexManagerFacet` and the inherited contracts `Swapper.sol` / `SwapperV2.sol` define a global variable `appStorage` on the first storage slot. These two overlap, which in this case is intentional. However, it is dangerous to use this construction in a Diamond contract as this uses `delegatecall`. If any other contract uses a global variable, it will overlap with `appStorage` with unpredictable results. This is especially important because it involves access control.\n\nFor example, if the contract `IAxelarExecutable.sol` were to be inherited in a facet, then its global variable `gateway` would overlap. Luckily, this is currently not the case.\n\n```solidity\ncontract DexManagerFacet {\n    ...\n    LibStorage internal appStorage;\n    ...\n}\n\ncontract Swapper is ILiFi {\n    ...\n    LibStorage internal appStorage; // overlaps with DexManagerFacet which is intentional\n    ...\n}\n```\n\n## Recommendation\nUse the `getStorage()` / `NAMESPACE` pattern for `appStorage`, as is done in other parts of the code.\n\nLiFi: We will refactor the underlying functionality into a Library that uses the `getStorage()` pattern. Refactored with PR #43.\n\nSpearbit: Verified.",
+      "summary": "\nThis bug report is about the overlapping of global variables in the contracts Swapper.sol, SwapperV2.sol and DexManagerFacet.sol. These contracts use a global variable called appStorage, which is placed on the first storage slot. This overlap can cause unpredictable results if any other contract uses a global variable that overlaps with appStorage, especially when it involves access control. To prevent this, the getStorage()/NAMESPACE pattern should be used for appStorage. The underlying functionality was refactored into a library using the getStorage() pattern with PR #43, and was verified.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-Spearbit-Security-Review.pdf",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 4,
+      "source_link": "https://github.com/spearbit/portfolio/blob/master/pdfs/LIFI-Spearbit-Security-Review.pdf",
+      "github_link": "",
+      "pdf_link": "https://solodit-bucket.s3.amazonaws.com/storage/reports/spearbit/LIFI-Spearbit-Security-Review.pdf",
+      "pdf_page_from": 10,
+      "contest_id": "",
+      "slug": "use-the-getstorage-namespace-pattern-instead-of-global-variables-spearbit-lifi-pdf",
+      "firm_name": "Spearbit",
+      "firm_logo_square": "spearbit_square.png",
+      "protocol_name": "LI.FI",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Spearbit",
+        "logo_square": "spearbit_square.png"
+      },
+      "protocols_protocol": {
+        "name": "LI.FI",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Bridge"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Services"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Liquidity manager"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Diamond"
+          }
+        }
+      ]
+    }
+  ]
+}

