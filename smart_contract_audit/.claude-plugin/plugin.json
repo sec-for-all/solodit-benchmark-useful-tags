@@ -1,0 +1,8 @@
+{
+    "name": "smart_contract_audit_checklist_skill",
+    "description": "A plugin for auditing smart contracts, identifying vulnerabilities",
+    "version": "1.0.0",
+    "author": {
+        "name": "chrisyy2003"
+    }
+}
