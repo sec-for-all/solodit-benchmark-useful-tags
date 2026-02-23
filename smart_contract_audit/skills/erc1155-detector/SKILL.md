@@ -20,14 +20,10 @@ Use this skill when auditing `ERC1155`-related protocol logic in Solidity/EVM co
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `set`, `transfer`, `burn`, `mint`, `swap`.
-8. Start from repeatedly referenced functions: `uniswapV2Call()`, `onERC1155Receive()`, `transferFrom()`, `setFallbackHandler()`, `doTokenIdsIntersect()`.
+1. Verify safe transfer acceptance checks for single and batch transfer paths.
+2. Check operator approvals and per-id balance accounting cannot be bypassed.
+3. Ensure batch loops keep amount/id arrays aligned and length-equal.
+4. Confirm receiver hooks cannot reenter and duplicate mint/burn/transfer effects.
 
 ## Remediation Patterns
 

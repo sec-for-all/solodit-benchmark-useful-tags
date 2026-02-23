@@ -20,14 +20,10 @@ Use this skill when auditing `Deposit/Reward tokens`-related protocol logic in S
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `deposit`, `transfer`, `withdraw`, `mint`, `claim`.
-8. Start from repeatedly referenced functions: `openPositionFarm()`, `closePositionFarm()`, `_getDepositedBalance()`, `user_checkpoint()`, `ERC20()`.
+1. Separate accounting for deposit token and reward token so one cannot be mistaken for the other.
+2. Check reward accrual denominator uses staked supply, not reward token balance.
+3. Verify token address updates cannot redirect rewards to attacker-controlled assets.
+4. Confirm reward claim and deposit/withdraw sequencing cannot over-claim pending rewards.
 
 ## Remediation Patterns
 

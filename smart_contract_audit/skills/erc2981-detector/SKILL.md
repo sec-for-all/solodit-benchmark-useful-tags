@@ -20,14 +20,10 @@ Use this skill when auditing `ERC2981`-related protocol logic in Solidity/EVM co
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `set`, `mint`, `initialize`, `update`, `transfer`.
-8. Start from repeatedly referenced functions: `initialize()`, `royaltyInfo()`, `update()`, `updateConfig()`, `address()`.
+1. Verify `royaltyInfo` returns valid recipient and amount for given sale price.
+2. Check royalty basis points and denominator usage to prevent overpayment.
+3. Ensure royalty overrides per-token vs default follow intended precedence.
+4. Confirm updates to royalty parameters are properly permissioned.
 
 ## Remediation Patterns
 

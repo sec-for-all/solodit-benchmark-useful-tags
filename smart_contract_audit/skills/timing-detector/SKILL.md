@@ -20,14 +20,10 @@ Use this skill when auditing `Timing`-related protocol logic in Solidity/EVM cod
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `deposit`, `set`, `update`, `withdraw`, `liquidat`.
-8. Start from repeatedly referenced functions: `claim()`, `_updatePrice()`, `pauseForUpdate()`, `getAccountData()`, `getDepositsSinceLastUpdate()`.
+1. Inspect timestamp/block-number based checks for exploitable windows.
+2. Check deadline comparisons (`<` vs `<=`) for one-block bypass opportunities.
+3. Verify epoch rollover and period reset code cannot be front-run for unfair advantage.
+4. Ensure time-dependent rewards/fees cannot be manipulated via tiny timing offsets.
 
 ## Remediation Patterns
 

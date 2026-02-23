@@ -20,14 +20,10 @@ Use this skill when auditing `ABI Encoding`-related protocol logic in Solidity/E
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `mint`, `liquidat`, `set`, `transfer`.
-8. Start from repeatedly referenced functions: `executeAutomationCloseOrderCallback()`, `getTradeValuePure()`, `getTradeValue()`, `matchAdvancedOrders()`, `keccak256()`.
+1. Inspect every `abi.encode`, `abi.encodePacked`, and decode site for type/length alignment between producer and consumer.
+2. Flag packed-encoding usage where two dynamic values or mixed-width integers can collide after concatenation.
+3. Check selector construction (`abi.encodeWithSelector`/`abi.encodeWithSignature`) for argument order and width mismatches.
+4. Verify off-chain signed payload encoding matches on-chain decoding fields exactly, including array and struct layout.
 
 ## Remediation Patterns
 

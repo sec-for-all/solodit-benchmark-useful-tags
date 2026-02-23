@@ -16,12 +16,10 @@ Use this skill when auditing `ERC721Checkpointable`-related protocol logic in So
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
+1. Verify checkpoint writes on mint, burn, and transfer update voting/history correctly.
+2. Check checkpoint lookup for past blocks returns deterministic values.
+3. Ensure delegation changes cannot skip checkpoint updates.
+4. Confirm checkpoint arrays remain ordered and append-only.
 
 ## Remediation Patterns
 

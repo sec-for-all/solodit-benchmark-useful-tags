@@ -20,14 +20,10 @@ Use this skill when auditing `Chain Reorganization Attack`-related protocol logi
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `deposit`, `claim`, `set`, `transfer`, `liquidat`.
-8. Start from repeatedly referenced functions: `act()`, `move()`, `comment()`, `confirmTransaction()`, `attack()`.
+1. Locate actions finalized after too few confirmations and mark reorg-sensitive state transitions.
+2. Ensure payout/mint logic waits required confirmation depth before irreversible effects.
+3. Check duplicate processing protection when the same event appears in competing branches.
+4. Verify watchers/oracles handle block rollback without stale state commitment.
 
 ## Remediation Patterns
 

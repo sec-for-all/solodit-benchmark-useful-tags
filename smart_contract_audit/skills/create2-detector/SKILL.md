@@ -20,14 +20,10 @@ Use this skill when auditing `CREATE2`-related protocol logic in Solidity/EVM co
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `initialize`, `update`, `mint`, `transfer`, `set`.
-8. Start from repeatedly referenced functions: `createProxy()`, `deployHatsSignerGateAndSafe()`, `deployMultiHatsSignerGateAndSafe()`, `isContract()`, `_isContract()`.
+1. Verify salt derivation includes user/context fields required to prevent address collisions.
+2. Check predicted address assumptions against actual init code hash used at deployment.
+3. Ensure CREATE2 factory cannot be used to front-run and occupy precomputed addresses maliciously.
+4. Confirm re-deployment protections after selfdestruct or upgrade flows.
 
 ## Remediation Patterns
 

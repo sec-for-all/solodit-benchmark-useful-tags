@@ -20,14 +20,10 @@ Use this skill when auditing `Rebasing Tokens`-related protocol logic in Solidit
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `deposit`, `set`, `withdraw`, `borrow`, `transfer`.
-8. Start from repeatedly referenced functions: `deposit()`, `withdraw()`, `checkWithdrawal()`, `rigidRedemption()`, `excessIncomeDistribution()`.
+1. Check integrations that store absolute token balances across rebases.
+2. Verify share-based accounting is used where rebasing assets are supported.
+3. Inspect reward/fee calculations for balance changes that happen without transfer events.
+4. Confirm debt and collateral logic cannot be broken by sudden supply rebase events.
 
 ## Remediation Patterns
 

@@ -20,14 +20,10 @@ Use this skill when auditing `EOA`-related protocol logic in Solidity/EVM code.
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `claim`, `register`, `approve`, `set`, `update`.
-8. Start from repeatedly referenced functions: `registerBLSPublicKeys()`, `require()`.
+1. Find `tx.origin` and EOA-only gates that block multisig/AA wallets.
+2. Check whether EOA checks protect security or only reduce compatibility.
+3. Verify privileged actions do not rely solely on EOA assumptions for auth.
+4. Confirm contract-callable paths cannot bypass intended EOA restrictions indirectly.
 
 ## Remediation Patterns
 

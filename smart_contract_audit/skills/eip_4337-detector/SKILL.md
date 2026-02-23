@@ -16,12 +16,10 @@ Use this skill when auditing `EIP-4337`-related protocol logic in Solidity/EVM c
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
+1. Review user operation validation for nonce, signature, and paymaster authorization.
+2. Check validation and execution separation so side effects cannot occur during validation.
+3. Verify aggregator/paymaster data cannot be swapped post-signature.
+4. Ensure prefund and refund accounting cannot be exploited for free execution.
 
 ## Remediation Patterns
 

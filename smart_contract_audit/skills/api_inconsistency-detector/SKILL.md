@@ -20,14 +20,10 @@ Use this skill when auditing `API Inconsistency`-related protocol logic in Solid
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `set`, `transfer`, `swap`.
-8. Start from repeatedly referenced functions: `callExecutor()`, `decimals()`.
+1. Compare paired functions that should be equivalent (view vs stateful, internal vs external wrappers) and list parameter/return differences.
+2. Detect inconsistent revert behavior for the same invalid input across endpoints.
+3. Check event emission parity across equivalent state changes.
+4. Confirm units, decimals, and access requirements are identical for APIs with the same business meaning.
 
 ## Remediation Patterns
 

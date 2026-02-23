@@ -20,14 +20,10 @@ Use this skill when auditing `Reentrancy`-related protocol logic in Solidity/EVM
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `set`, `transfer`, `withdraw`, `mint`, `deposit`.
-8. Start from repeatedly referenced functions: `redeem()`, `checkTransaction()`, `deposit()`, `checkAfterExecution()`, `withdraw()`.
+1. Identify external calls made before completing critical state updates.
+2. Test callback entry from ERC777/ERC721/ERC1155 hooks and low-level call recipients.
+3. Check cross-function reentry where function B touches state partially updated by function A.
+4. Verify lock coverage across all mutable entrypoints that share accounting state.
 
 ## Remediation Patterns
 

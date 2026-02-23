@@ -20,14 +20,10 @@ Use this skill when auditing `Diamond`-related protocol logic in Solidity/EVM co
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `swap`.
-8. Start from repeatedly referenced functions: `getStorage()`.
+1. Check facet cut permissions and ensure only authorized entity can add/replace/remove selectors.
+2. Verify selector collisions cannot shadow security-critical functions.
+3. Inspect shared storage slot layout across facets for corruption risks.
+4. Confirm loupe/introspection reports active selectors correctly after upgrades.
 
 ## Remediation Patterns
 

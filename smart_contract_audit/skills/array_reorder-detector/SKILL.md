@@ -20,14 +20,10 @@ Use this skill when auditing `Array Reorder`-related protocol logic in Solidity/
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `set`, `claim`, `approve`, `redeem`, `mint`.
-8. Start from repeatedly referenced functions: `claimFromIndividualPlugin()`, `removePlugin()`.
+1. Inspect swap-and-pop and sorting paths to ensure companion mappings are updated to new indices.
+2. Check order-dependent logic (priority, queue, ranking) after reorder operations.
+3. Verify signatures/proofs referencing array position include stable identifiers, not mutable indices.
+4. Confirm reorder does not let users front-run into favorable positions unfairly.
 
 ## Remediation Patterns
 

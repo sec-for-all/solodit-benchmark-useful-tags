@@ -20,14 +20,10 @@ Use this skill when auditing `Refund Ether`-related protocol logic in Solidity/E
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `borrow`, `transfer`, `deposit`, `swap`, `redeem`.
-8. Start from repeatedly referenced functions: `getEthPayout()`, `depositAndRepay()`, `close()`, `_payoutEth()`, `addCollateral()`.
+1. Review refund code paths for amount calculation, recipient selection, and duplicate refund prevention.
+2. Ensure refund failure cannot lock core operation unless policy explicitly requires atomicity.
+3. Check pull-vs-push refund design to avoid recipient fallback griefing.
+4. Verify refund accounting updates happen before external ETH transfer when required.
 
 ## Remediation Patterns
 

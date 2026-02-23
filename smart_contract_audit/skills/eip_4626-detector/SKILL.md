@@ -20,14 +20,10 @@ Use this skill when auditing `EIP-4626`-related protocol logic in Solidity/EVM c
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `deposit`, `withdraw`, `set`, `mint`, `redeem`.
-8. Start from repeatedly referenced functions: `redeem()`, `withdraw()`, `totalAssets()`, `minDepositAmount()`, `safeApprove()`.
+1. Check `convertToShares`/`convertToAssets`, `preview*`, and `deposit/mint/withdraw/redeem` stay mathematically consistent.
+2. Verify first-deposit and low-liquidity states cannot be used to manipulate share price.
+3. Ensure fee logic is applied symmetrically to preview and execution functions.
+4. Confirm totalAssets reflects real claimable assets, excluding phantom balances.
 
 ## Remediation Patterns
 

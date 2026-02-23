@@ -20,14 +20,10 @@ Use this skill when auditing `Revert By Sending Dust`-related protocol logic in 
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `transfer`, `deposit`, `set`, `mint`, `repay`.
-8. Start from repeatedly referenced functions: `_totalSupply()`, `_assetBalance()`, `transferLPs()`, `balanceOf()`, `approveLpOwnership()`.
+1. Find operations that iterate over token holdings and can be disrupted by tiny unsolicited balances.
+2. Check loops and assumptions that `balance == 0` for unsupported assets.
+3. Verify attacker-sent dust cannot force division-by-zero or revert-only branches.
+4. Add ignore-list or minimum-threshold handling for dust balances in sensitive flows.
 
 ## Remediation Patterns
 

@@ -20,13 +20,10 @@ Use this skill when auditing `Bridge`-related protocol logic in Solidity/EVM cod
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `swap`, `set`, `update`, `transfer`, `approve`.
+1. Authenticate inbound bridge messages by trusted sender, source chain id, and expected domain separator.
+2. Ensure message ids/nonces are consumed once to prevent replay.
+3. Check token mint/unlock amount uses canonical decimals conversion for source vs destination assets.
+4. Verify pause/kill-switch can stop bridge execution without trapping already verified withdrawals.
 
 ## Remediation Patterns
 

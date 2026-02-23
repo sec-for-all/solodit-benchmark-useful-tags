@@ -20,14 +20,10 @@ Use this skill when auditing `Account Abstraction`-related protocol logic in Sol
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `update`, `upgrade`, `deposit`.
-8. Start from repeatedly referenced functions: `validateUserOp()`, `throw_if()`, `_createSenderIfNeeded()`.
+1. Review validation flow (`validateUserOp`, nonce checks, signature checks) for replay or bypass paths.
+2. Confirm paymaster/postOp accounting cannot undercharge gas or externalize debt to protocol.
+3. Check smart-account execution path so unauthorized modules cannot call privileged operations.
+4. Verify multisig and AA signer assumptions are not broken by `msg.sender == tx.origin` style checks.
 
 ## Remediation Patterns
 

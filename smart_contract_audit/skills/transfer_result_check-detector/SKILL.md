@@ -20,14 +20,10 @@ Use this skill when auditing `Transfer Result Check`-related protocol logic in S
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `set`, `transfer`, `withdraw`, `deposit`, `redeem`.
-8. Start from repeatedly referenced functions: `withdraw()`, `redeem()`, `_withdraw()`, `burn()`, `previewWithdraw()`.
+1. Find token/ETH transfer calls and ensure success boolean or revert is enforced.
+2. Detect silent-failure paths where state is updated despite failed transfer.
+3. Check low-level calls for returned data decoding and optional return handling.
+4. Verify batched transfers handle partial failure according to explicit policy.
 
 ## Remediation Patterns
 

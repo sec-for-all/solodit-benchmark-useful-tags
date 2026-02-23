@@ -20,14 +20,10 @@ Use this skill when auditing `EIP-165`-related protocol logic in Solidity/EVM co
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `set`, `register`, `upgrade`, `transfer`, `update`.
-8. Start from repeatedly referenced functions: `supportsInterface()`, `bytes4()`.
+1. Check `supportsInterface` returns true for exactly implemented interfaces and false otherwise.
+2. Verify inheritance/override order does not drop parent interface support.
+3. Ensure external trust decisions based on EIP-165 also verify expected function behavior.
+4. Confirm interface id constants are correct and not custom-mistyped values.
 
 ## Remediation Patterns
 

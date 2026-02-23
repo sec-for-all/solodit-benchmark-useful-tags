@@ -20,14 +20,10 @@ Use this skill when auditing `Cross Chain Message`-related protocol logic in Sol
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `set`, `burn`, `mint`, `transfer`, `deposit`.
-8. Start from repeatedly referenced functions: `receive()`.
+1. Bind each inbound message to source chain, source contract, destination contract, and nonce.
+2. Consume nonce/message hash once; reject duplicates.
+3. Check payload decoding and action dispatch so arbitrary function execution is impossible.
+4. Verify bridge relayer privileges cannot bypass governance checks on destination chain.
 
 ## Remediation Patterns
 

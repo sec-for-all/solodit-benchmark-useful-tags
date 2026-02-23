@@ -20,14 +20,10 @@ Use this skill when auditing `Token Order`-related protocol logic in Solidity/EV
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `swap`, `register`, `update`.
-8. Start from repeatedly referenced functions: `IUniswapV2Factory()`.
+1. Check pair/pool/token ordering assumptions (token0/token1) in pricing and accounting.
+2. Verify formula direction changes when token order flips.
+3. Ensure stored order and runtime discovered order are reconciled before computation.
+4. Test both token permutations for symmetric correctness.
 
 ## Remediation Patterns
 

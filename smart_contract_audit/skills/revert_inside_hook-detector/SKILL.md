@@ -20,14 +20,10 @@ Use this skill when auditing `Revert Inside Hook`-related protocol logic in Soli
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `transfer`, `burn`, `set`, `withdraw`, `deposit`.
-8. Start from repeatedly referenced functions: `settleZoraAuction()`, `endAuction()`, `_settleZoraAuction()`.
+1. Review hook callbacks (`onTransferReceived`, `tokensReceived`, NFT receiver hooks) for hard reverts.
+2. Ensure external hook failure cannot permanently block user withdrawals or settlements.
+3. Check try/catch or fail-open/fail-closed policy is explicit and consistent.
+4. Verify hook invocation order does not commit irreversible state before potential revert.
 
 ## Remediation Patterns
 

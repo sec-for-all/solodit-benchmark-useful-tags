@@ -20,14 +20,10 @@ Use this skill when auditing `transferFrom vs safeTransferFrom`-related protocol
 
 ## Workflow
 
-1. Build an inventory of functions and storage touched by this tag's logic.
-2. Trace full execution paths for user-facing entrypoints into sensitive internal calls.
-3. Check preconditions, state updates, and external interactions for ordering and invariant safety.
-4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
-5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
-6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `transfer`, `set`, `approve`, `claim`, `pause`.
-8. Start from repeatedly referenced functions: `safeTransferFrom()`, `transferFrom()`, `ERC20()`, `IERC20()`, `transfer()`.
+1. Identify NFT transfers that should require receiver checks and confirm `safeTransferFrom` is used.
+2. Check use of `transferFrom` to contracts does not lock NFTs permanently.
+3. Verify receiver hook return values are enforced in safe transfer paths.
+4. Confirm integrations choose transfer method based on recipient type assumptions correctly.
 
 ## Remediation Patterns
 
