@@ -1,22 +1,22 @@
 ---
-name: oracle-integrity-detector
-description: Detect oracle-related vulnerabilities in Solidity/EVM code using patterns learned from full-tag findings.
+name: read_only_reentrancy-detector
+description: Detect read-only reentrancy-related vulnerabilities in Solidity/EVM code using patterns learned from full-tag findings.
 ---
 
-# Oracle Detector
+# Read-only Reentrancy Detector
 
-Use this skill when auditing `Oracle`-related protocol logic in Solidity/EVM code.
+Use this skill when auditing `Read-only Reentrancy`-related protocol logic in Solidity/EVM code.
 
 ## Detection Targets
 
-1. Tag-specific failure patterns associated with `Oracle` logic.
+1. Tag-specific failure patterns associated with `Read-only Reentrancy` logic.
 2. State transitions where protocol invariants can be broken.
 3. User-controlled inputs that influence sensitive calculations or permissions.
 4. Interactions with external contracts, tokens, or cross-domain components tied to this tag.
 5. Code paths repeatedly mentioning `price` and related state/accounting side effects.
-6. Code paths repeatedly mentioning `https` and related state/accounting side effects.
-7. Code paths repeatedly mentioning `com` and related state/accounting side effects.
-8. Code paths repeatedly mentioning `github` and related state/accounting side effects.
+6. Code paths repeatedly mentioning `ordereddict` and related state/accounting side effects.
+7. Code paths repeatedly mentioning `name` and related state/accounting side effects.
+8. Code paths repeatedly mentioning `reentrancy` and related state/accounting side effects.
 
 ## Workflow
 
@@ -26,8 +26,8 @@ Use this skill when auditing `Oracle`-related protocol logic in Solidity/EVM cod
 4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
 5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
 6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `set`, `update`, `borrow`, `liquidat`, `swap`.
-8. Start from repeatedly referenced functions: `commit()`, `commitRequested()`, `latestRoundData()`, `latestAnswer()`, `_calculateSpTknPerBase()`.
+7. Prioritize reviews on high-frequency action surfaces: `deposit`, `transfer`, `liquidat`, `withdraw`, `update`.
+8. Start from repeatedly referenced functions: `getReserves()`, `BASE_9()`, `_swap()`, `redeem()`, `IWell()`.
 
 ## Remediation Patterns
 

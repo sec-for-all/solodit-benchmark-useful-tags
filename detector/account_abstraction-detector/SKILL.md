@@ -1,20 +1,20 @@
 ---
-name: oracle-integrity-detector
-description: Detect oracle-related vulnerabilities in Solidity/EVM code using patterns learned from full-tag findings.
+name: account_abstraction-detector
+description: Detect account abstraction-related vulnerabilities in Solidity/EVM code using patterns learned from full-tag findings.
 ---
 
-# Oracle Detector
+# Account Abstraction Detector
 
-Use this skill when auditing `Oracle`-related protocol logic in Solidity/EVM code.
+Use this skill when auditing `Account Abstraction`-related protocol logic in Solidity/EVM code.
 
 ## Detection Targets
 
-1. Tag-specific failure patterns associated with `Oracle` logic.
+1. Tag-specific failure patterns associated with `Account Abstraction` logic.
 2. State transitions where protocol invariants can be broken.
 3. User-controlled inputs that influence sensitive calculations or permissions.
 4. Interactions with external contracts, tokens, or cross-domain components tied to this tag.
-5. Code paths repeatedly mentioning `price` and related state/accounting side effects.
-6. Code paths repeatedly mentioning `https` and related state/accounting side effects.
+5. Code paths repeatedly mentioning `https` and related state/accounting side effects.
+6. Code paths repeatedly mentioning `sol` and related state/accounting side effects.
 7. Code paths repeatedly mentioning `com` and related state/accounting side effects.
 8. Code paths repeatedly mentioning `github` and related state/accounting side effects.
 
@@ -26,8 +26,8 @@ Use this skill when auditing `Oracle`-related protocol logic in Solidity/EVM cod
 4. Validate boundary conditions, precision/units, and domain assumptions used by the tagged logic.
 5. Test adversarial inputs and edge states to confirm whether invariant breaks are reachable.
 6. Confirm real impact by mapping the flawed path to fund loss, denial of service, privilege abuse, or accounting corruption.
-7. Prioritize reviews on high-frequency action surfaces: `set`, `update`, `borrow`, `liquidat`, `swap`.
-8. Start from repeatedly referenced functions: `commit()`, `commitRequested()`, `latestRoundData()`, `latestAnswer()`, `_calculateSpTknPerBase()`.
+7. Prioritize reviews on high-frequency action surfaces: `update`, `upgrade`, `deposit`.
+8. Start from repeatedly referenced functions: `validateUserOp()`, `throw_if()`, `_createSenderIfNeeded()`.
 
 ## Remediation Patterns
 
